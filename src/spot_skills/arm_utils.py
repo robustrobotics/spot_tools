@@ -1,16 +1,8 @@
 """Interface for moving the spot hand."""
 
-import math
 import time
 
 import numpy as np
-from bosdyn.api import (
-    arm_command_pb2,
-    robot_command_pb2,
-    synchronized_command_pb2,
-    trajectory_pb2,
-)
-from bosdyn.api.geometry_pb2 import Quaternion as Quat
 from bosdyn.client import math_helpers
 from bosdyn.client.frame_helpers import (
     BODY_FRAME_NAME,
@@ -24,9 +16,6 @@ from bosdyn.client.robot_command import (
     block_until_arm_arrives,
 )
 from bosdyn.client.robot_state import RobotStateClient
-from bosdyn.client.sdk import Robot
-from bosdyn.util import seconds_to_duration
-from google.protobuf import duration_pb2
 
 
 def move_hand_to_relative_pose(spot, body_tform_goal: math_helpers.SE3Pose) -> None:
