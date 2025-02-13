@@ -1,0 +1,33 @@
+name: Spot Tools CI
+run-name: Spot Tools CI
+on:
+    push:
+        branches: main
+    pull_request:
+        branches:
+            - main
+            - develop
+jobs:
+  Spot-Tools-CI:
+    runs-on: ubuntu-latest
+    strategy:
+        matrix:
+            python-version: ["3.8", "3.13"]
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+            path: spot_tools_repo
+            submodules: recursive
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Pre-commit
+        run: pip install pre-commit && cd ${{ github.workspace }}/spot_tools_repo && pre-commit run --all-files
+      - name: Install Spot Tools
+        run: cd ${{ github.workspace }}/spot_tools_repo && pwd && pip install .
+      #- name: Run test script
+      #  run: cd ${{ github.workspace }}/ouroboros_repo && pytest --ignore=third_party
+      #- run: echo "🍏 This job's status is ${{ job.status }}."
