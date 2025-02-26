@@ -2,16 +2,16 @@
 from cv_bridge import CvBridge
 import numpy as np
 import rospy
-from dsg_tamp.mapping.outdoor_dsg_utils import \
+from spot_tools.mapping.outdoor_dsg_utils import \
     load_inverse_semantic_id_map_from_label_space
-from dsg_tamp.spot_utils.arm_utils import gaze_at_vision_pose
-from dsg_tamp.spot_utils.bezier_path import smooth_path
-from dsg_tamp.spot_utils.fake_spot import FakeSpot
-from dsg_tamp.spot_utils.grasp_utils import object_grasp, object_place
-from dsg_tamp.spot_utils.navigation_utils import (follow_trajectory,
+from spot_skills.arm_utils import gaze_at_vision_pose
+from spot_skills.bezier_path import smooth_path
+from spot_executor.fake_spot import FakeSpot
+from spot_skills.grasp_utils import object_grasp, object_place
+from spot_skills.navigation_utils import (follow_trajectory,
                                                   follow_trajectory_continuous,
                                                   turn_to_point)
-from dsg_tamp.spot_utils.spot import Spot
+from spot_executor.spot import Spot
 from nav_msgs.msg import Path
 from visualization_msgs.msg import MarkerArray
 from sensor_msgs.msg import Image

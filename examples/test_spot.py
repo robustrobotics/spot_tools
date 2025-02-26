@@ -1,26 +1,28 @@
 import argparse
+import numpy as np 
+import time 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--ip", type=str, default="192.168.80.3")
-parser.add_argument("--username", type=str, default="user")
-parser.add_argument("--password", type=str, default="password")
-parser.add_argument("-t", "--timeout", default=5, type=float, help="Timeout in seconds")
-parser.add_argument(
-    "-v", "--verbose", action="store_true", help="Print debug-level messages"
+from bosdyn.client import math_helpers
+from bosdyn.client.frame_helpers import (
+    VISION_FRAME_NAME
 )
 
-args = parser.parse_args()
 
-spot = Spot(username=args.username, password=args.password)
-print(spot.id)
-
-# assert False
-# spot.set_estop()
-# spot.take_lease()
-spot.robot.power_on(timeout_sec=20)
-spot.robot.time_sync.wait_for_sync()
-
-spot.stand()
+from spot_executor.spot import Spot
+from spot_skills.arm_utils import (
+    move_hand_to_relative_pose, 
+    close_gripper,
+    open_gripper,
+    stow_arm
+    )
+from spot_skills.navigation_utils import (
+    navigate_to_relative_pose,
+    follow_trajectory,
+)
+from spot_skills.grasp_utils import (
+    object_grasp,
+    gaze_at_relative_pose,
+)
 
 
 def _run_walking_test(spot) -> None:
@@ -136,7 +138,7 @@ def _run_traj_test(spot, frame=VISION_FRAME_NAME, stairs=False) -> None:
         waypoint = [pose.x, pose.y, pose.angle]
         waypoints_list.append(waypoint)
     print(waypoints_list)
-    from dsg_tamp.spot_utils.bezier_path import plot_curves, smooth_path
+    from spot_skills.bezier_path import plot_curves, smooth_path
 
     path = smooth_path(waypoints_list, heading_mode="average", n_points=10)
     plot_curves(path, np.array(waypoints_list))
@@ -181,17 +183,37 @@ def _run_segment_test(spot) -> None:
     image, img = spot.get_image_alt(view="hand_color_image", show=True)
     segmented_image = spot.segment_image(img, show=True)
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ip", type=str, default="192.168.80.3")
+    parser.add_argument("--username", type=str, default="user")
+    parser.add_argument("--password", type=str, default="password")
+    parser.add_argument("-t", "--timeout", default=5, type=float, help="Timeout in seconds")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Print debug-level messages"
+    )
 
-# _run_walking_test(spot)
-# _run_gaze_test(spot)
-# _run_traj_test(spot)
-# _run_grasp_test(spot)
-_run_segment_test(spot)
-# spot.pitch_up()
-# print(look_for_object(spot, 'bag'))
+    args = parser.parse_args()
 
-time.sleep(3)
+    spot = Spot(username=args.username, password=args.password)
+    print(spot.id)
+    # assert False
+    # spot.set_estop()
+    # spot.take_lease()
+    spot.robot.power_on(timeout_sec=20)
+    spot.robot.time_sync.wait_for_sync()
 
-spot.sit()
-# spot.sit()
-# spot.safe_power_off()
+    spot.stand()
+    # _run_walking_test(spot)
+    # _run_gaze_test(spot)
+    # _run_traj_test(spot)
+    # _run_grasp_test(spot)
+    # _run_segment_test(spot)
+    # spot.pitch_up()
+    # print(look_for_object(spot, 'bag'))
+
+    time.sleep(3)
+
+    spot.sit()
+    # spot.sit()
+    # spot.safe_power_off()

@@ -31,14 +31,14 @@ from bosdyn.client.robot_command import (
     blocking_stand,
 )
 from bosdyn.client.robot_state import RobotStateClient
-from dsg_tamp.spot_utils.arm_utils import (
+from spot_skills.arm_utils import (
     change_gripper,
     close_gripper,
     gaze_at_relative_pose,
     move_hand_to_relative_pose,
     open_gripper,
 )
-from dsg_tamp.spot_utils.navigation_utils import (
+from spot_skills.navigation_utils import (
     navigate_to_absolute_pose,
     navigate_to_relative_pose,
 )

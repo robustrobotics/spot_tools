@@ -37,7 +37,7 @@ from bosdyn.client.robot_command import (
     blocking_stand,
 )
 from bosdyn.client.robot_state import RobotStateClient
-from dsg_tamp.spot_utils.arm_utils import (
+from spot_skills.arm_utils import (
     change_gripper,
     close_gripper,
     gaze_at_relative_pose,
@@ -45,8 +45,8 @@ from dsg_tamp.spot_utils.arm_utils import (
     open_gripper,
     stow_arm,
 )
-from dsg_tamp.spot_utils.grasp_utils import look_for_object, object_grasp
-from dsg_tamp.spot_utils.navigation_utils import (
+from spot_skills.grasp_utils import look_for_object, object_grasp
+from spot_skills.navigation_utils import (
     follow_trajectory,
     navigate_to_absolute_pose,
     navigate_to_relative_pose,
@@ -277,7 +277,10 @@ class Spot:
         )
 
         # Acquire a lease to indicate that we want to control the robot
-        if self.lease_client is None:
+        # [yveys]: Should this say self.lease_client is not None? 
+        # Though this if statement is never entered in practice since the least_client should be 
+        # set properly in the init function 
+        if self.lease_client is None:   
             try:
                 self.take_lease()
             except:
