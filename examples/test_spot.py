@@ -1,6 +1,8 @@
 import argparse
 import numpy as np 
 import time 
+from ultralytics import YOLOWorld
+import cv2 
 
 from bosdyn.client import math_helpers
 from bosdyn.client.frame_helpers import (
@@ -13,17 +15,20 @@ from spot_skills.arm_utils import (
     move_hand_to_relative_pose, 
     close_gripper,
     open_gripper,
-    stow_arm
+    stow_arm, 
+    gaze_at_relative_pose
     )
 from spot_skills.navigation_utils import (
     navigate_to_relative_pose,
     follow_trajectory,
 )
 from spot_skills.grasp_utils import (
-    object_grasp,
-    gaze_at_relative_pose,
+    object_grasp
 )
 
+from spot_skills.door_utils import (
+    execute_open_door
+)
 
 def _run_walking_test(spot) -> None:
     # Put inside a function to avoid variable scoping issues.
@@ -183,6 +188,12 @@ def _run_segment_test(spot) -> None:
     image, img = spot.get_image_alt(view="hand_color_image", show=True)
     segmented_image = spot.segment_image(img, show=True)
 
+
+def _run_open_door_test(spot, model_path) -> None:
+    print("Opening the door...")
+    execute_open_door(spot, model_path)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ip", type=str, default="192.168.80.3")
@@ -203,7 +214,8 @@ if __name__ == "__main__":
     spot.robot.power_on(timeout_sec=20)
     spot.robot.time_sync.wait_for_sync()
 
-    spot.stand()
+    yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
+    _run_open_door_test(spot, yoloworld_model_path)
     # _run_walking_test(spot)
     # _run_gaze_test(spot)
     # _run_traj_test(spot)
@@ -212,8 +224,9 @@ if __name__ == "__main__":
     # spot.pitch_up()
     # print(look_for_object(spot, 'bag'))
 
-    time.sleep(3)
+    time.sleep(1)
 
-    spot.sit()
+    spot.stand()
+    # spot.sit()
     # spot.sit()
     # spot.safe_power_off()
