@@ -66,7 +66,7 @@ class Spot:
         take_lease=True,
         set_estop=False,
         verbose=False,
-        semantic_model_path="data/models/efficientvit_seg_l2.onnx",
+        semantic_model_path="../data/models/efficientvit_seg_l2.onnx",
         debug=False,
         semantic_name_to_id=None,
     ):
@@ -159,6 +159,36 @@ class Spot:
             img = cv2.imdecode(img, -1)
         if show:
             image.show()
+
+        return image, img
+    
+    def pixel_format_string_to_enum(self, enum_string):
+        return dict(image_pb2.Image.PixelFormat.items()).get(enum_string)
+    
+    def get_image_RGB(self, view="hand_color_image", pixel_format='PIXEL_FORMAT_RGB_U8'):
+        pixel_format = self.pixel_format_string_to_enum(pixel_format)
+        image_request = image_pb2.ImageRequest(image_source_name=view, quality_percent=100, pixel_format=pixel_format)
+
+        image_responses = self.image_client.get_image([image_request])
+
+        if len(image_responses) != 1:
+            print(f"Got invalid number of images: {len(image_responses)}")
+            print(image_responses)
+            assert False
+
+        image = image_responses[0]
+        if image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_RGB_U8:
+            num_bytes = 3
+        else: 
+            num_bytes = 1
+
+        dtype = np.uint8
+
+        img = np.fromstring(image.shot.image.data, dtype=dtype)
+        if image.shot.image.format == image_pb2.Image.FORMAT_RAW:
+            img = img.reshape((image.shot.image.rows, image.shot.image.cols, num_bytes))
+        else:
+            img = cv2.imdecode(img, -1)
 
         return image, img
 
