@@ -30,7 +30,7 @@ from bosdyn.client.frame_helpers import (
     math_helpers,
 )
 from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arrives
-from dsg_tamp.spot_utils.arm_utils import (
+from spot_skills.arm_utils import (
     arm_to_carry,
     arm_to_drop,
     close_gripper,
