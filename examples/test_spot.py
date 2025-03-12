@@ -1,27 +1,24 @@
 import argparse
-import numpy as np 
-import time 
+import time
 
+import numpy as np
 from bosdyn.client import math_helpers
-from bosdyn.client.frame_helpers import (
-    VISION_FRAME_NAME
-)
-
+from bosdyn.client.frame_helpers import VISION_FRAME_NAME
 
 from spot_executor.spot import Spot
 from spot_skills.arm_utils import (
-    move_hand_to_relative_pose, 
     close_gripper,
+    move_hand_to_relative_pose,
     open_gripper,
-    stow_arm
-    )
-from spot_skills.navigation_utils import (
-    navigate_to_relative_pose,
-    follow_trajectory,
+    stow_arm,
 )
 from spot_skills.grasp_utils import (
-    object_grasp,
     gaze_at_relative_pose,
+    object_grasp,
+)
+from spot_skills.navigation_utils import (
+    follow_trajectory,
+    navigate_to_relative_pose,
 )
 
 
@@ -183,12 +180,15 @@ def _run_segment_test(spot) -> None:
     image, img = spot.get_image_alt(view="hand_color_image", show=True)
     segmented_image = spot.segment_image(img, show=True)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ip", type=str, default="192.168.80.3")
     parser.add_argument("--username", type=str, default="user")
     parser.add_argument("--password", type=str, default="password")
-    parser.add_argument("-t", "--timeout", default=5, type=float, help="Timeout in seconds")
+    parser.add_argument(
+        "-t", "--timeout", default=5, type=float, help="Timeout in seconds"
+    )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Print debug-level messages"
     )

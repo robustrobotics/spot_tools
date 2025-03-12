@@ -31,6 +31,8 @@ from bosdyn.client.robot_command import (
     blocking_stand,
 )
 from bosdyn.client.robot_state import RobotStateClient
+from PIL import Image
+
 from spot_skills.arm_utils import (
     change_gripper,
     close_gripper,
@@ -42,7 +44,6 @@ from spot_skills.navigation_utils import (
     navigate_to_absolute_pose,
     navigate_to_relative_pose,
 )
-from PIL import Image
 
 
 def move(spot, start_pose, end_pose, trajectory):
