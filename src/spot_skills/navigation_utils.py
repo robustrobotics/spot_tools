@@ -1,8 +1,7 @@
 """Interface for moving the spot frame."""
 
-import math
 import time
-from typing import Tuple, Union
+from typing import Tuple
 
 import numpy as np
 import rospy
@@ -20,7 +19,6 @@ from bosdyn.client.frame_helpers import (
     get_se2_a_tform_b,
 )
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
-from bosdyn.client.sdk import Robot
 from numpy.typing import ArrayLike
 from visualization_msgs.msg import Marker, MarkerArray
 

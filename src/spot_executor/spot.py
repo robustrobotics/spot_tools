@@ -1,9 +1,5 @@
-import argparse
-import io
 import math
-import sys
 import time
-from typing import Tuple
 
 import bosdyn.client.util
 import cv2
@@ -11,21 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import onnxruntime as ort
 from bosdyn import geometry
-from bosdyn.api import basic_command_pb2, geometry_pb2, image_pb2, manipulation_api_pb2
-from bosdyn.api.basic_command_pb2 import RobotCommandFeedbackStatus
-from bosdyn.api.geometry_pb2 import SE2Velocity, SE2VelocityLimit, Vec2
-from bosdyn.api.manipulation_api_pb2 import (
-    ManipulationApiFeedbackRequest,
-    ManipulationApiRequest,
-    WalkToObjectInImage,
-)
-from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
-from bosdyn.client import math_helpers
+from bosdyn.api import basic_command_pb2, image_pb2
 from bosdyn.client.frame_helpers import (
     BODY_FRAME_NAME,
-    ODOM_FRAME_NAME,
     VISION_FRAME_NAME,
-    get_a_tform_b,
     get_se2_a_tform_b,
 )
 from bosdyn.client.image import ImageClient
@@ -33,28 +18,9 @@ from bosdyn.client.manipulation_api_client import ManipulationApiClient
 from bosdyn.client.robot_command import (
     RobotCommandBuilder,
     RobotCommandClient,
-    block_until_arm_arrives,
     blocking_stand,
 )
-from bosdyn.client.robot_state import RobotStateClient
-from spot_skills.arm_utils import (
-    change_gripper,
-    close_gripper,
-    gaze_at_relative_pose,
-    move_hand_to_relative_pose,
-    open_gripper,
-    stow_arm,
-)
-from spot_skills.grasp_utils import look_for_object, object_grasp
-from spot_skills.navigation_utils import (
-    follow_trajectory,
-    navigate_to_absolute_pose,
-    navigate_to_relative_pose,
-)
-from PIL import Image
 
-# from predicators.spot_utils.spot_localization import SpotLocalizer
-# from predicators.spot_utils.utils import get_robot_state, get_spot_home_pose
 
 
 class Spot:
@@ -82,8 +48,6 @@ class Spot:
 
         self.id_client = self.robot.ensure_client("robot-id")
         self.id = self.id_client.get_id()
-        print(password)
-        print(username)
         self.robot.authenticate(username, password)
         assert self.robot.has_arm(), "Our robot has an arm ..."
 
@@ -127,18 +91,6 @@ class Spot:
         return out_tform_body
 
     def get_image(self, view="hand_color_image", show=False):
-        sources = self.image_client.list_image_sources()
-        for source in sources:
-            if source.name == view:
-                image_response = self.image_client.get_image_from_sources(
-                    [source.name]
-                )[0]
-                image = Image.open(io.BytesIO(image_response.shot.image.data))
-                if show:
-                    image.show()
-                return image
-
-    def get_image_alt(self, view="hand_color_image", show=False):
         self.robot.logger.info("Getting an image from: %s", view)
         image_responses = self.image_client.get_image_from_sources([view])
 
@@ -307,10 +259,10 @@ class Spot:
         )
 
         # Acquire a lease to indicate that we want to control the robot
-        # [yveys]: Should this say self.lease_client is not None? 
-        # Though this if statement is never entered in practice since the least_client should be 
-        # set properly in the init function 
-        if self.lease_client is None:   
+        # [yveys]: Should this say self.lease_client is not None?
+        # Though this if statement is never entered in practice since the least_client should be
+        # set properly in the init function
+        if self.lease_client is None:
             try:
                 self.take_lease()
             except:
@@ -357,27 +309,6 @@ class Spot:
         command_client.robot_command(cmd)
         self.robot.logger.info("Robot sitting.")
 
-    def walk_forward(self):
-        """
-        Walk robot forward
-        """
-
-    def inspect_pose(self, ob):
-        pass
-
-    def inspect_object(self, ob):
-        pass
-
-    def pick_object(self, ob):
-        """
-        Pick object.
-
-        Args:
-            self: (Robot) Interface to Spot robot.
-            ob: (str) Object to pick.
-        """
-        pass
-
     def pitch_up(self):
         """
         Pitch robot up to look for door handle.
@@ -407,22 +338,3 @@ class Spot:
             time.sleep(1.0)
         raise Exception("Failed to pitch robot.")
 
-    def open_door(self):
-        """
-        Open door. Assumes the door is in front of the robot, in view of the camera.
-        Also assumes the robot is standing, and
-
-        Args:
-            self: (Robot) Interface to Spot robot.
-        """
-
-        return
-        assert self.ready_for_motion(), "Robot not ready for motion."
-
-        self.robot.logger.info("Commanding robot to open door...")
-        command_client = self.robot.ensure_client(
-            RobotCommandClient.default_service_name
-        )
-        cmd = RobotCommandBuilder.synchro_sit_command()
-        command_client.robot_command(cmd)
-        self.robot.logger.info("Robot opening door.")

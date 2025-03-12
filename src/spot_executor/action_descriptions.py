@@ -3,10 +3,9 @@ from dataclasses import dataclass
 import numpy as np
 import rospy
 from geometry_msgs.msg import Point
-from visualization_msgs.msg import Marker, MarkerArray
-
 from phoenix_tamp_planner.msg import ActionMsg, ActionSequenceMsg
 from phoenix_tamp_planner.utils import path_to_waypoints, waypoints_to_path
+from visualization_msgs.msg import Marker, MarkerArray
 
 
 @dataclass
@@ -102,7 +101,12 @@ class Gaze:
         gaze_point = np.array([msg.gaze_point.x, msg.gaze_point.y, msg.gaze_point.z])
         stow_after = msg.place_frame == "STOW"
 
-        return cls(frame=msg.gaze_frame, robot_point=robot_point, gaze_point=gaze_point, stow_after=stow_after)
+        return cls(
+            frame=msg.gaze_frame,
+            robot_point=robot_point,
+            gaze_point=gaze_point,
+            stow_after=stow_after,
+        )
 
     def to_msg(self):
         msg = ActionMsg()
