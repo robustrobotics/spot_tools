@@ -13,17 +13,10 @@ import bosdyn.client.util
 import cv2
 import numpy as np
 from bosdyn.api import (
-    arm_command_pb2,
-    estop_pb2,
     geometry_pb2,
-    image_pb2,
     manipulation_api_pb2,
-    robot_command_pb2,
     robot_state_pb2,
-    synchronized_command_pb2,
-    trajectory_pb2,
 )
-from bosdyn.client.estop import EstopClient
 from bosdyn.client.frame_helpers import (
     VISION_FRAME_NAME,
     get_vision_tform_body,
@@ -109,7 +102,7 @@ def force_stow_arm(manipulation_client, state_client, command_client):
 
     robot_cmd = RobotCommandBuilder.arm_stow_command()
     cmd_id = command_client.robot_command(robot_cmd)
-    success = block_until_arm_arrives(command_client, cmd_id)
+    block_until_arm_arrives(command_client, cmd_id)
 
 
 def object_place(spot, semantic_class="bag", position=None):
@@ -560,9 +553,10 @@ def main():
         sys.exit(1)
 
     try:
-        arm_object_grasp(options)
+        # Assuming object_grasp is the correct function to call
+        object_grasp(options)
         return True
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception:  # pylint: disable=broad-except
         logger = bosdyn.client.util.get_logger()
         logger.exception("Threw an exception")
         return False

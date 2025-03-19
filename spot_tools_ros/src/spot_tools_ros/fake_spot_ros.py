@@ -1,10 +1,8 @@
-
 import numpy as np
 import rospy
 import tf
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import JointState
-
 from tf_transformations import euler_from_quaternion
 
 
@@ -16,7 +14,6 @@ class FakeSpotRos:
         semantic_model_path=None,
         semantic_name_to_id=None,
     ):
-
         self.robot = spot
 
         self.tflistener = tf.TransformListener()
@@ -29,12 +26,11 @@ class FakeSpotRos:
 
         if not external_pose:
             rospy.Timer(rospy.Duration(0.1), self.update_pose_tf)
-            rospy.Timer(rospy.Duration(0.05), lambda x: self.spot.step(.05))
+            rospy.Timer(rospy.Duration(0.05), lambda x: self.spot.step(0.05))
 
             self.cmd_vel_linear = np.zeros(3)
             self.cmd_vel_angular = np.zeros(3)
             rospy.Subscriber("~cmd_vel", Twist, self.twist_command_cb)
-
 
     def twist_command_cb(self, msg):
         vl = np.array([msg.linear.x, msg.linear.y, msg.linear.z])

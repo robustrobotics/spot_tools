@@ -177,7 +177,7 @@ def _run_grasp_test(spot) -> None:
     pass
 
 
-def _run_segment_test(spot) -> None:
+def _run_segment_test(spot):
     open_gripper(spot)
     relative_pose = math_helpers.Vec3(x=1, y=0, z=0)
     gaze_at_relative_pose(spot, relative_pose)
@@ -185,6 +185,7 @@ def _run_segment_test(spot) -> None:
 
     image, img = spot.get_image_alt(view="hand_color_image", show=True)
     segmented_image = spot.segment_image(img, show=True)
+    return image, img, segmented_image
 
 
 def _run_open_door_test(spot, model_path) -> None:

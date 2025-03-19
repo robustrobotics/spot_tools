@@ -22,7 +22,6 @@ from bosdyn.client.robot_command import (
 )
 
 
-
 class Spot:
     def __init__(
         self,
@@ -265,7 +264,8 @@ class Spot:
         if self.lease_client is None:
             try:
                 self.take_lease()
-            except:
+            except Exception as ex:
+                print(ex)
                 self.aquire_lease()
 
         # Power the motor on
@@ -285,9 +285,7 @@ class Spot:
         assert self.ready_for_motion(), "Robot not ready for motion."
 
         self.robot.logger.info("Commanding robot to stand...")
-        command_client = self.robot.ensure_client(
-            RobotCommandClient.default_service_name
-        )
+        self.robot.ensure_client(RobotCommandClient.default_service_name)
         blocking_stand(self.command_client, timeout_sec=10)
         self.robot.logger.info("Robot standing.")
 
@@ -318,7 +316,7 @@ class Spot:
         """
         robot = self.robot
         robot.logger.info("Pitching robot up...")
-        command_client = robot.ensure_client(RobotCommandClient.default_service_name)
+        robot.ensure_client(RobotCommandClient.default_service_name)
         footprint_R_body = geometry.EulerZXY(0.0, 0.0, -1 * math.pi / 6.0)
         cmd = RobotCommandBuilder.synchro_stand_command(
             footprint_R_body=footprint_R_body
@@ -337,4 +335,3 @@ class Spot:
                 return
             time.sleep(1.0)
         raise Exception("Failed to pitch robot.")
-

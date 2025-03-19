@@ -1,14 +1,15 @@
+import time
 from itertools import zip_longest
 
 import numpy as np
-import rospy
+import rclpy.time
 from geometry_msgs.msg import PoseStamped, Vector3Stamped
 from nav_msgs.msg import Path
-from tf.transformations import euler_from_quaternion, quaternion_from_euler
+from tf_transformations import euler_from_quaternion, quaternion_from_euler
 
 
 def waypoints_to_path(fixed_frame, waypoints):
-    now = rospy.Time.now()
+    now = rclpy.time.Time(nanoseconds=time.time() * 1e9).to_msg()
     frame_name = fixed_frame
     path_viz = Path()
     path_viz.header.stamp = now
@@ -53,7 +54,7 @@ def transform_command_frame(tf_buffer, old_command_frame, new_command_frame, com
     print("command in: ", command)
 
     trans = tf_buffer.lookup_transform(
-        new_command_frame, old_command_frame, rospy.Time()
+        new_command_frame, old_command_frame, time.time()
     )
 
     v = Vector3Stamped()

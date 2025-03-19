@@ -16,5 +16,8 @@ setup(
         "pyyaml",
         "pytest",
         "pre-commit",
+        "bosdyn-client",
+        "scikit-image",
+        "opencv-python-headless",
     ],
 )

@@ -2,7 +2,8 @@ import threading
 import time
 
 import numpy as np
-from bad_proto_mock import FakeFeedbackWrapper
+
+from spot_executor.bad_proto_mock import FakeFeedbackWrapper
 
 
 class FakeStateClient:
@@ -46,7 +47,7 @@ class FakeCommandClient:
                 0
             ].pose.angle
 
-            z = self.fake_spot.get_pose().z
+            z = self.fake_spot.get_pose()[2]
             self.fake_spot.set_pose((x, y, z, angle))
             self.fake_spot.moving = True
             self.fake_spot.last_move_command = time.time()
@@ -112,11 +113,9 @@ class FakeSpot:
         print(f"Setting estop {name} for {timeout} s")
 
     def update_velocity_control(self, dt):
-
         with self.vel_lock:
             vx, vy, vz = self.cmd_vel_linear
             _, _, dtheta = self.cmd_vel_angular
-
 
         cur_pose = self.get_pose()
         theta = cur_pose[3]
@@ -143,17 +142,19 @@ class FakeSpot:
             self.pose = pose
 
     def get_state(self):
-        raise NotImplementedError("get_state not implemented for FakeSpot (what is it supposed to return?)")
+        raise NotImplementedError(
+            "get_state not implemented for FakeSpot (what is it supposed to return?)"
+        )
 
     def get_image(self, view="hand_color_image", show=False):
         raise NotImplementedError("get_image not implemented for FakeSpot")
 
-    def segment_image(self, image, model_path=None, rotate=0, class_name="bag", show=False):
+    def segment_image(
+        self, image, model_path=None, rotate=0, class_name="bag", show=False
+    ):
         raise NotImplementedError("segment_image not implemented for FakeSpot")
 
-
     def get_joint_states(self):
-
         joint_to_state = {}
         omg_hip = 2
         center_h2 = 1
@@ -171,18 +172,33 @@ class FakeSpot:
         t = time.time()
 
         joint_to_state["front_left_hip_x"] = 0
-        joint_to_state["front_left_hip_y"] = center_h2 + moving * amp_h2 * np.cos(omg_hip * t)
-        joint_to_state["front_left_knee"] = center_k + moving * amp_k * np.cos(omg_hip * t + np.pi / 2)
+        joint_to_state["front_left_hip_y"] = center_h2 + moving * amp_h2 * np.cos(
+            omg_hip * t
+        )
+        joint_to_state["front_left_knee"] = center_k + moving * amp_k * np.cos(
+            omg_hip * t + np.pi / 2
+        )
 
         joint_to_state["rear_left_hip_x"] = 0
-        joint_to_state["rear_left_hip_y"] = center_h2 + moving * amp_h2 * np.cos(omg_hip * t + np.pi)
-        joint_to_state["rear_left_knee"] = center_k + moving * amp_k * np.cos(omg_hip * t + 3 * np.pi / 2)
+        joint_to_state["rear_left_hip_y"] = center_h2 + moving * amp_h2 * np.cos(
+            omg_hip * t + np.pi
+        )
+        joint_to_state["rear_left_knee"] = center_k + moving * amp_k * np.cos(
+            omg_hip * t + 3 * np.pi / 2
+        )
 
         joint_to_state["front_right_hip_x"] = 0
-        joint_to_state["front_right_hip_y"] = center_h2 + moving * amp_h2 * np.cos(omg_hip * t + np.pi)
-        joint_to_state["front_right_knee"] = center_k + moving * amp_k * np.cos(omg_hip * t + 3 * np.pi / 2)
+        joint_to_state["front_right_hip_y"] = center_h2 + moving * amp_h2 * np.cos(
+            omg_hip * t + np.pi
+        )
+        joint_to_state["front_right_knee"] = center_k + moving * amp_k * np.cos(
+            omg_hip * t + 3 * np.pi / 2
+        )
 
         joint_to_state["rear_right_hip_x"] = 0
-        joint_to_state["rear_right_hip_y"] = center_h2 + moving * amp_h2 * np.cos(omg_hip * t)
-        joint_to_state["rear_right_knee"] = center_k + moving * amp_k * np.cos(omg_hip * t + np.pi / 2)
-
+        joint_to_state["rear_right_hip_y"] = center_h2 + moving * amp_h2 * np.cos(
+            omg_hip * t
+        )
+        joint_to_state["rear_right_knee"] = center_k + moving * amp_k * np.cos(
+            omg_hip * t + np.pi / 2
+        )

@@ -1,5 +1,8 @@
 from dataclasses import dataclass, fields
+
 from bosdyn.api import arm_command_pb2
+
+
 class FakeProtoInterface:
     def HasField(self, field):
         for f in fields(self):
@@ -49,7 +52,7 @@ class FakeSynchronizedFeedback:
 class FakeFeedback:
     synchronized_feedback: FakeSynchronizedFeedback = FakeSynchronizedFeedback()
 
+
 @dataclass
 class FakeFeedbackWrapper:
     feedback: FakeFeedback = FakeFeedback()
-
