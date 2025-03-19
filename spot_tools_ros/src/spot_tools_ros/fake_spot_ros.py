@@ -1,36 +1,59 @@
 import numpy as np
-import rospy
-import tf
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, TransformStamped
 from sensor_msgs.msg import JointState
-from tf_transformations import euler_from_quaternion
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from tf_transformations import euler_from_quaternion, quaternion_from_euler
+import rclpy
+import rclpy.time
+import time
+import tf2_ros
 
 
 class FakeSpotRos:
     def __init__(
         self,
+        host_node,
         spot,
         external_pose=False,
         semantic_model_path=None,
         semantic_name_to_id=None,
     ):
+        self.host_node = host_node
         self.robot = spot
 
-        self.tflistener = tf.TransformListener()
-        self.tf_broadcaster = tf.TransformBroadcaster()
+        self.odom_frame_name = "vision"
+        self.body_frame_name = "body"
+
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self.host_node)
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster(self.host_node)
         self.semantic_name_to_id = semantic_name_to_id
 
-        self.joint_state_publisher = rospy.Publisher(
-            "~joint_states", JointState, queue_size=1
+        self.joint_state_publisher = host_node.create_publisher(
+            JointState, "~/joint_states", 10
         )
 
         if not external_pose:
-            rospy.Timer(rospy.Duration(0.1), self.update_pose_tf)
-            rospy.Timer(rospy.Duration(0.05), lambda x: self.spot.step(0.05))
+
+            timer_group = MutuallyExclusiveCallbackGroup()
+            self.timer = host_node.create_timer(
+                0.1, self.update_pose_tf, callback_group=timer_group
+            )
+
+            dt = 0.05
+            self.timer = host_node.create_timer(
+                dt, lambda : self.robot.step(dt), callback_group=timer_group
+            )
 
             self.cmd_vel_linear = np.zeros(3)
             self.cmd_vel_angular = np.zeros(3)
-            rospy.Subscriber("~cmd_vel", Twist, self.twist_command_cb)
+            host_node.create_subscription(
+                Twist,
+                '~/cmd_vel',
+                self.twist_command_cb,
+                10
+            )
+
 
     def twist_command_cb(self, msg):
         vl = np.array([msg.linear.x, msg.linear.y, msg.linear.z])
@@ -38,35 +61,47 @@ class FakeSpotRos:
         self.robot.set_vel(vl, va)
 
     def get_pose(self):
-        self.tflistener.waitForTransform(
-            "vision", "body", rospy.Time(0), rospy.Duration(1.0)
-        )
-        trans, rot = self.tflistener.lookupTransform("vision", "body", rospy.Time(0))
+
+        try:
+            trans, rot = self.tf_buffer.lookup_transform(self.odom_frame_name, self.body_frame_name, rclpy.time.Time())
+        except tf2_ros.TransformException as e:
+            self.host_node.get_logger().warn(f"Could not get transform: {e}")
         _, _, yaw = euler_from_quaternion(rot)
         return np.array([trans[0], trans[1], trans[2]])
 
-    def update_pose_tf(self, _):
-        with self.pose_lock:
-            if self.pose is None:
-                rospy.logwarn("Spot pose not set, cannot update!")
-                return
-            trans = (self.pose[0], self.pose[1], self.pose[2])
-            yaw = self.pose[3]
-        self.tf_broadcaster.sendTransform(
-            trans,
-            tf.transformations.quaternion_from_euler(0, 0, yaw),
-            rospy.Time.now(),
-            "body",
-            "vision",
-        )
+    def update_pose_tf(self):
+
+        pose = self.robot.get_pose()
+        if pose is None:
+            self.host_node.get_logger().warn("Spot pose not set, cannot update!")
+            return
+        trans = (pose[0], pose[1], pose[2])
+        yaw = pose[3]
+
+
+        transform_stamped = TransformStamped()
+        transform_stamped.header.stamp = self.host_node.get_clock().now().to_msg()
+        transform_stamped.header.frame_id = self.odom_frame_name
+        transform_stamped.child_frame_id = self.body_frame_name
+        transform_stamped.transform.translation.x = trans[0]
+        transform_stamped.transform.translation.y = trans[1]
+        transform_stamped.transform.translation.z = trans[2]
+        q = quaternion_from_euler(0, 0, yaw)
+        transform_stamped.transform.rotation.x = q[0]
+        transform_stamped.transform.rotation.y = q[1]
+        transform_stamped.transform.rotation.z = q[2]
+        transform_stamped.transform.rotation.w = q[3]
+
+        self.tf_broadcaster.sendTransform(transform_stamped)
         self.update_joint_states()
 
     def update_joint_states(self):
         jsm = JointState()
-        jsm.header.stamp = rospy.Time.now()
+        jsm.header.stamp = rclpy.time.Time(seconds=time.time()).to_msg()
 
         joint_state_map = self.robot.get_joint_states()
+        values = list(map(float, joint_state_map.values())) # I hate ROS2 so much
         jsm.name = list(joint_state_map.keys())
-        jsm.position = list(joint_state_map.values())
+        jsm.position = values
 
         self.joint_state_publisher.publish(jsm)

@@ -20,6 +20,7 @@ from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_executor.utils import waypoints_to_path
+from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from visualization_msgs.msg import Marker, MarkerArray
 
 
@@ -152,7 +153,7 @@ class SpotExecutorRos(Node):
         assert bdai_password != ""
 
         # Follow Skill
-        self.declare_parameter("follower_lookahead", -1)
+        self.declare_parameter("follower_lookahead", -1.)
         self.follower_lookahead = self.get_parameter("follower_lookahead").value
         assert self.follower_lookahead > 0
 
@@ -179,25 +180,29 @@ class SpotExecutorRos(Node):
         use_fake_spot_interface = self.get_parameter("use_fake_spot_interface").value
 
         if use_fake_spot_interface:
-            self.declare_parameter("fake_spot_external_pose")
-            self.declare_parameter("fake_spot_static_pose")
+            self.declare_parameter("fake_spot_external_pose", False)
+            self.declare_parameter("fake_spot_static_pose", False)
             external_pose = self.get_parameter("fake_spot_external_pose").value
             static_pose = self.get_parameter("fake_spot_static_pose").value
 
             self.declare_parameter("use_fake_spot_pose", False)
             if self.get_parameter("use_fake_spot_pose").value:
-                self.declare_parameter("fake_spot_x")
-                self.declare_parameter("fake_spot_y")
-                self.declare_parameter("fake_spot_z")
-                self.declare_parameter("fake_spot_yaw")
+                self.declare_parameter("fake_spot_x", np.inf)
+                self.declare_parameter("fake_spot_y", np.inf)
+                self.declare_parameter("fake_spot_z", np.inf)
+                self.declare_parameter("fake_spot_yaw", np.inf)
                 spot_x = self.get_parameter("fake_spot_x").value
                 spot_y = self.get_parameter("fake_spot_y").value
                 spot_z = self.get_parameter("fake_spot_z").value
                 spot_yaw = self.get_parameter("fake_spot_yaw").value
+
                 spot_init_pose2d = np.array([spot_x, spot_y, spot_z, spot_yaw])
+                assert not any(np.isinf(spot_init_pose2d)), "Must set fake_spot_x, fake_spot_y, fake_spot_z, fake_spot_yaw"
             else:
                 spot_init_pose2d = None
 
+            
+            self.get_logger().info(str(spot_init_pose2d))
             self.get_logger().info("About to initialize fake spot")
             self.spot_interface = FakeSpot(
                 username=bdai_username,
@@ -207,6 +212,9 @@ class SpotExecutorRos(Node):
                 init_pose=spot_init_pose2d,
                 semantic_model_path=None,
             )
+
+            self.spot_ros_interface = FakeSpotRos(self, self.spot_interface, external_pose=False)
+
         else:
             self.get_logger().info("About to initialize Spot")
             self.spot_interface = Spot(

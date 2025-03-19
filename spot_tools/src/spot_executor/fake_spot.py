@@ -202,3 +202,5 @@ class FakeSpot:
         joint_to_state["rear_right_knee"] = center_k + moving * amp_k * np.cos(
             omg_hip * t + np.pi / 2
         )
+
+        return joint_to_state

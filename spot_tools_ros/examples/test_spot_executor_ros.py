@@ -2,8 +2,9 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from robot_executor_interface.action_descriptions import ActionSequence, Follow, Gaze
-from robot_executor_interface_ros.action_descriptions_ros import to_msg
+from robot_executor_interface_ros.action_descriptions_ros import to_msg, to_viz_msg
 from robot_executor_msgs.msg import ActionSequenceMsg
+from visualization_msgs.msg import MarkerArray
 
 
 class Tester(Node):
@@ -19,6 +20,10 @@ class Tester(Node):
             ActionSequenceMsg, "/spot_executor_node/action_sequence_subscriber", 1
         )
 
+        viz_publisher = self.create_publisher(
+            MarkerArray, "/planner/visualization", 1
+        )
+
         path = np.array(
             [
                 [0.0, 0],
@@ -28,15 +33,16 @@ class Tester(Node):
             ]
         )
 
-        follow_cmd = Follow("map", path)
+        follow_cmd = Follow("vision", path)
 
         gaze_cmd = Gaze(
-            "map", np.array([5.0, 5, 0]), np.array([7.0, 7, 0]), stow_after=True
+            "vision", np.array([5.0, 5, 0]), np.array([7.0, 7, 0]), stow_after=True
         )
 
         seq = ActionSequence("id0", "spot", [follow_cmd, gaze_cmd])
 
         publisher.publish(to_msg(seq))
+        viz_publisher.publish(to_viz_msg(seq, "planner_ns"))
 
 
 def main(args=None):
