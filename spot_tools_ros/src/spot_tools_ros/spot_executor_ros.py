@@ -13,6 +13,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
 from robot_executor_msgs.msg import ActionSequenceMsg
+from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
@@ -214,6 +215,7 @@ class SpotExecutorRos(Node):
             )
 
         self.get_logger().info("Initialized!")
+        self.status_str = "Idle"
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -233,10 +235,25 @@ class SpotExecutorRos(Node):
             10,
         )
 
+        self.heartbeat_pub = self.create_publisher(NodeInfoMsg, "~/node_status", 1)
+        timer_period_s = 0.5
+        self.timer = self.create_timer(timer_period_s, self.hb_callback)
+
+    def hb_callback(self):
+        msg = NodeInfoMsg()
+        msg.nickname = "spot_executor"
+        msg.node_name = self.get_fully_qualified_name()
+        msg.status = NodeInfoMsg.NOMINAL
+        msg.notes = self.status_str
+        self.heartbeat_pub.publish(msg)
+
     def process_action_sequence(self, msg):
+        self.status_str = "Processing action sequence"
+        self.get_logger().info("Starting action sequence")
         sequence = from_msg(msg)
         self.spot_executor.process_action_sequence(sequence, self.feedback_collector)
         self.get_logger().info("Finished execution action sequence.")
+        self.status_str = "Idle"
 
 
 def main(args=None):
