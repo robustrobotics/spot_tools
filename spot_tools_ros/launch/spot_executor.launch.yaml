@@ -1,0 +1,8 @@
+launch:
+    - node:
+        pkg: spot_tools_ros
+        exec: spot_executor_node
+        name: spot_executor_node
+        param:
+            - from: $(find-pkg-share spot_tools_ros)/config/example_parms.yaml
+              allow_substs: true

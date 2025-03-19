@@ -1,34 +1,25 @@
 import argparse
-import numpy as np 
-import time 
-from ultralytics import YOLOWorld
-import cv2 
+import time
 
+import numpy as np
 from bosdyn.client import math_helpers
-from bosdyn.client.frame_helpers import (
-    VISION_FRAME_NAME
-)
-
+from bosdyn.client.frame_helpers import VISION_FRAME_NAME
 
 from spot_executor.spot import Spot
 from spot_skills.arm_utils import (
-    move_hand_to_relative_pose, 
     close_gripper,
+    gaze_at_relative_pose,
+    move_hand_to_relative_pose,
     open_gripper,
-    stow_arm, 
-    gaze_at_relative_pose
-    )
-from spot_skills.navigation_utils import (
-    navigate_to_relative_pose,
-    follow_trajectory,
+    stow_arm,
 )
-from spot_skills.grasp_utils import (
-    object_grasp
+from spot_skills.door_utils import execute_open_door
+from spot_skills.grasp_utils import object_grasp
+from spot_skills.navigation_utils import (
+    follow_trajectory,
+    navigate_to_relative_pose,
 )
 
-from spot_skills.door_utils import (
-    execute_open_door
-)
 
 def _run_walking_test(spot) -> None:
     # Put inside a function to avoid variable scoping issues.
@@ -179,7 +170,7 @@ def _run_grasp_test(spot) -> None:
     pass
 
 
-def _run_segment_test(spot) -> None:
+def _run_segment_test(spot):
     open_gripper(spot)
     relative_pose = math_helpers.Vec3(x=1, y=0, z=0)
     gaze_at_relative_pose(spot, relative_pose)
@@ -187,6 +178,7 @@ def _run_segment_test(spot) -> None:
 
     image, img = spot.get_image_alt(view="hand_color_image", show=True)
     segmented_image = spot.segment_image(img, show=True)
+    return image, img, segmented_image
 
 
 def _run_open_door_test(spot, model_path) -> None:
@@ -199,7 +191,9 @@ if __name__ == "__main__":
     parser.add_argument("--ip", type=str, default="192.168.80.3")
     parser.add_argument("--username", type=str, default="user")
     parser.add_argument("--password", type=str, default="password")
-    parser.add_argument("-t", "--timeout", default=5, type=float, help="Timeout in seconds")
+    parser.add_argument(
+        "-t", "--timeout", default=5, type=float, help="Timeout in seconds"
+    )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Print debug-level messages"
     )
