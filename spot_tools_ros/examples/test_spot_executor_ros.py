@@ -20,9 +20,7 @@ class Tester(Node):
             ActionSequenceMsg, "/spot_executor_node/action_sequence_subscriber", 1
         )
 
-        viz_publisher = self.create_publisher(
-            MarkerArray, "/planner/visualization", 1
-        )
+        viz_publisher = self.create_publisher(MarkerArray, "/planner/visualization", 1)
 
         path = np.array(
             [
