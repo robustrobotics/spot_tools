@@ -9,6 +9,8 @@ import yaml
 
 # from cv_bridge import CvBridge
 from nav_msgs.msg import Path
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
@@ -236,8 +238,11 @@ class SpotExecutorRos(Node):
         )
 
         self.heartbeat_pub = self.create_publisher(NodeInfoMsg, "~/node_status", 1)
-        timer_period_s = 0.5
-        self.timer = self.create_timer(timer_period_s, self.hb_callback)
+        heartbeat_timer_group = MutuallyExclusiveCallbackGroup()
+        timer_period_s = 0.1
+        self.timer = self.create_timer(
+            timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
+        )
 
     def hb_callback(self):
         msg = NodeInfoMsg()
@@ -258,8 +263,19 @@ class SpotExecutorRos(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = SpotExecutorRos()
-    rclpy.spin(node)
+    try:
+        node = SpotExecutorRos()
+
+        ros_executor = MultiThreadedExecutor()
+        ros_executor.add_node(node)
+
+        try:
+            ros_executor.spin()
+        finally:
+            ros_executor.shutdown()
+            node.destroy_node()
+    finally:
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":

@@ -1,8 +1,5 @@
 import argparse
-import numpy as np 
-import time 
-from ultralytics import YOLOWorld
-import cv2 
+import time
 
 import numpy as np
 from bosdyn.client import math_helpers
@@ -11,22 +8,18 @@ from bosdyn.client.frame_helpers import VISION_FRAME_NAME
 from spot_executor.spot import Spot
 from spot_skills.arm_utils import (
     close_gripper,
+    gaze_at_relative_pose,
     move_hand_to_relative_pose,
     open_gripper,
-    stow_arm, 
-    gaze_at_relative_pose
-    )
-from spot_skills.navigation_utils import (
-    navigate_to_relative_pose,
-    follow_trajectory,
+    stow_arm,
 )
-from spot_skills.grasp_utils import (
-    object_grasp
+from spot_skills.door_utils import execute_open_door
+from spot_skills.grasp_utils import object_grasp
+from spot_skills.navigation_utils import (
+    follow_trajectory,
+    navigate_to_relative_pose,
 )
 
-from spot_skills.door_utils import (
-    execute_open_door
-)
 
 def _run_walking_test(spot) -> None:
     # Put inside a function to avoid variable scoping issues.
