@@ -202,21 +202,21 @@ class RequestManager:
         return frame_helpers.get_a_tform_b(snapshot, frame_helpers.VISION_FRAME_NAME,
                                            frame_name_image_sensor)
 
-    @property
-    def hinge_side(self):
-        """Calculate if hinge is on left or right side of door based on user touchpoints.
+    # @property
+    # def hinge_side(self):
+    #     """Calculate if hinge is on left or right side of door based on user touchpoints.
 
-        Returns:
-            DoorCommand.HingeSide
-        """
-        # handle_x = self.handle_position_side_by_side[0]
-        # hinge_x = self.hinge_position_side_by_side[0]
-        # if handle_x < hinge_x:
-        #     hinge_side = door_pb2.DoorCommand.HINGE_SIDE_RIGHT
-        # else:
-        #     hinge_side = door_pb2.DoorCommand.HINGE_SIDE_LEFT
-        hinge_side = door_pb2.DoorCommand.HINGE_SIDE_RIGHT
-        return hinge_side
+    #     Returns:
+    #         DoorCommand.HingeSide
+    #     """
+    #     # handle_x = self.handle_position_side_by_side[0]
+    #     # hinge_x = self.hinge_position_side_by_side[0]
+    #     # if handle_x < hinge_x:
+    #     #     hinge_side = door_pb2.DoorCommand.HINGE_SIDE_RIGHT
+    #     # else:
+    #     #     hinge_side = door_pb2.DoorCommand.HINGE_SIDE_LEFT
+    #     hinge_side = door_pb2.DoorCommand.HINGE_SIDE_RIGHT
+    #     return hinge_side
 
 def walk_to_object_in_image(robot, request_manager, debug):
     """Command the robot to walk toward user selected point. The WalkToObjectInImage feedback
@@ -254,7 +254,7 @@ def walk_to_object_in_image(robot, request_manager, debug):
     return response
 
 # To open the door, 
-def open_door(robot, request_manager, snapshot):
+def open_door(robot, request_manager, snapshot, parameters):
     """Command the robot to automatically open a door via the door service API.
 
     Args:
@@ -288,8 +288,8 @@ def open_door(robot, request_manager, snapshot):
         geometry_pb2.Vec3(x=search_ray_end_in_frame[0], y=search_ray_end_in_frame[1],
                           z=search_ray_end_in_frame[2]))
 
-    auto_cmd.hinge_side = request_manager.hinge_side
-    auto_cmd.swing_direction = door_pb2.DoorCommand.SWING_DIRECTION_PUSH
+    auto_cmd.hinge_side = parameters["HINGE_SIDE"]
+    auto_cmd.swing_direction = parameters["SWING_DIRECTION"]
 
     door_command = door_pb2.DoorCommand.Request(auto_grasp_command=auto_cmd)
     request = door_pb2.OpenDoorCommandRequest(door_command=door_command)
@@ -300,9 +300,11 @@ def open_door(robot, request_manager, snapshot):
 
     feedback_request = door_pb2.OpenDoorFeedbackRequest()
     feedback_request.door_command_id = response.door_command_id
+    feedback_response = door_client.open_door_feedback(feedback_request)
 
     timeout_sec = 60.0
     end_time = time.time() + timeout_sec
+
     while time.time() < end_time:
         feedback_response = door_client.open_door_feedback(feedback_request)
         if (feedback_response.status
@@ -310,13 +312,19 @@ def open_door(robot, request_manager, snapshot):
             raise Exception('Door command reported status ')
         if (feedback_response.feedback.status == door_pb2.DoorCommand.Feedback.STATUS_COMPLETED):
             robot.logger.info('Opened door.')
-            return
+            return feedback_response.feedback.status
         time.sleep(0.5)
-    raise Exception('Door command timed out. Try repositioning the robot.')
+    robot.logger.info('Door command timed out. Try repositioning the robot.')
+    # raise Exception('Door command timed out. Try repositioning the robot.')
+    return feedback_response.feedback.status
 
 
-def execute_open_door(spot, model_path):
+def execute_open_door(spot, model_path, parameters=None, feedback=None):
     
+    if parameters == None: 
+        parameters = {"HINGE_SIDE": door_pb2.DoorCommand.HINGE_SIDE_UNKNOWN, 
+                      "SWING_DIRECTION": door_pb2.DoorCommand.SWING_DIRECTION_UNKNOWN}
+        
     # PHASE 1: Approach the door. 
     # S1: Stand the robot.
     spot.stand()
@@ -359,7 +367,7 @@ def execute_open_door(spot, model_path):
     snapshot = manipulation_feedback.transforms_snapshot_manipulation_data
 
     # Execute the door command.
-    open_door(robot, request_manager, snapshot)
+    return open_door(robot, request_manager, snapshot, parameters)
 
 
 def test_detect(model_path):

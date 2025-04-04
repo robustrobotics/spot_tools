@@ -5,6 +5,7 @@ from ultralytics import YOLOWorld
 import cv2 
 
 from bosdyn.client import math_helpers
+from bosdyn.api.spot import door_pb2
 from bosdyn.client.frame_helpers import (
     VISION_FRAME_NAME
 )
@@ -189,9 +190,22 @@ def _run_segment_test(spot) -> None:
     segmented_image = spot.segment_image(img, show=True)
 
 
-def _run_open_door_test(spot, model_path) -> None:
+def _run_open_door_test(spot, model_path, max_tries) -> None:
     print("Opening the door...")
-    execute_open_door(spot, model_path)
+
+    trial_idx = 0 
+    parameters = None
+
+    while trial_idx < max_tries: 
+        feedback_status = execute_open_door(spot, model_path, parameters)
+        if feedback_status == door_pb2.DoorCommand.Feedback.STATUS_COMPLETED: 
+            # The robot was successful in opening the door.
+            break 
+        else: 
+            # Ask a VLM for new parameters and try again
+            
+
+
 
 
 if __name__ == "__main__":
@@ -215,7 +229,8 @@ if __name__ == "__main__":
     spot.robot.time_sync.wait_for_sync()
 
     yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
-    _run_open_door_test(spot, yoloworld_model_path)
+    max_tries = 3
+    _run_open_door_test(spot, yoloworld_model_path, max_tries)
     # _run_walking_test(spot)
     # _run_gaze_test(spot)
     # _run_traj_test(spot)
