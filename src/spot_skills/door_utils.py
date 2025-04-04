@@ -324,7 +324,9 @@ def execute_open_door(spot, model_path, parameters=None, feedback=None):
     if parameters == None: 
         parameters = {"HINGE_SIDE": door_pb2.DoorCommand.HINGE_SIDE_UNKNOWN, 
                       "SWING_DIRECTION": door_pb2.DoorCommand.SWING_DIRECTION_UNKNOWN}
-        
+    
+    
+
     # PHASE 1: Approach the door. 
     # S1: Stand the robot.
     spot.stand()

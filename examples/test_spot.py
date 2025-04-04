@@ -205,9 +205,6 @@ def _run_open_door_test(spot, model_path, max_tries) -> None:
             # Ask a VLM for new parameters and try again
             
 
-
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ip", type=str, default="192.168.80.3")
