@@ -321,6 +321,7 @@ def open_door(robot, request_manager, snapshot, parameters):
 
 def execute_open_door(spot, model_path, parameters=None, feedback=None):
     
+    
     if parameters == None: 
         parameters = {"HINGE_SIDE": door_pb2.DoorCommand.HINGE_SIDE_UNKNOWN, 
                       "SWING_DIRECTION": door_pb2.DoorCommand.SWING_DIRECTION_UNKNOWN}

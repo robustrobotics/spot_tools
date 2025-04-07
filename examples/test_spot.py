@@ -10,7 +10,6 @@ from bosdyn.client.frame_helpers import (
     VISION_FRAME_NAME
 )
 
-
 from spot_executor.spot import Spot
 from spot_skills.arm_utils import (
     move_hand_to_relative_pose, 
@@ -29,6 +28,11 @@ from spot_skills.grasp_utils import (
 
 from spot_skills.door_utils import (
     execute_open_door
+)
+
+from spot_skills.skills_definitions import (
+    OpenDoorParams,
+    OpenDoorFeedback
 )
 
 def _run_walking_test(spot) -> None:
@@ -194,7 +198,7 @@ def _run_open_door_test(spot, model_path, max_tries) -> None:
     print("Opening the door...")
 
     trial_idx = 0 
-    parameters = None
+    parameters = 
 
     while trial_idx < max_tries: 
         feedback_status = execute_open_door(spot, model_path, parameters)
