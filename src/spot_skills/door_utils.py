@@ -18,6 +18,13 @@ from spot_skills.skills_definitions import (
     OpenDoorParams,
     OpenDoorFeedback
 )
+
+from spot_skills.arm_utils import (
+    open_gripper,
+    close_gripper,
+    stow_arm
+)
+
 DOOR_ID = 0
 HANDLE_ID = 1
 
@@ -36,6 +43,7 @@ class RequestManager:
         self.model = model
         self.handle_position_side_by_side = None
         self.side_by_side = None
+        self.annotated_side_by_side = None
         self.clicked_source = None
 
     def attributes_set(self):
@@ -58,8 +66,9 @@ class RequestManager:
 
     def detect_door_handle_in_side_by_side(self, rotated_fl_img, rotated_fr_img, fl_detected_handles, fr_detected_handles):
         # If the handle was not detected in either image. 
+        self.side_by_side = np.hstack([rotated_fr_img, rotated_fl_img])
+
         if (len(fl_detected_handles) + len(fr_detected_handles)) == 0:
-            self.side_by_side = np.hstack([rotated_fr_img, rotated_fl_img])
             cv2.imshow('Debug', self.side_by_side)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
@@ -116,12 +125,14 @@ class RequestManager:
         self.handle_position_side_by_side = (detected_x, detected_y)
         
         print(f"Detected door handle in {detected_side} at ({detected_x}, {detected_y})")
+
         # Construct side by side image and circle the detected door handle 
-        self.side_by_side = np.hstack([rotated_fr_img, rotated_fl_img])
+        self.annotated_side_by_side = np.hstack([rotated_fr_img, rotated_fl_img])
         c = (255, 255, 0)
-        cv2.circle(self.side_by_side, (int(detected_x), int(detected_y)), 30, c, 5)
-        cv2.imshow('Debug', self.side_by_side)
+        cv2.circle(self.annotated_side_by_side, (int(detected_x), int(detected_y)), 30, c, 5)
+        cv2.imshow('Debug', self.annotated_side_by_side)
         cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     def get_handle_and_hinge(self):
         """Use the model and the side by side image to detect the door handle and hinge."""
@@ -169,17 +180,6 @@ class RequestManager:
         y = rotated_pixel[1] - ym
         manipulation_cmd.pixel_xy.x = math.cos(th) * x - math.sin(th) * y + ym
         manipulation_cmd.pixel_xy.y = math.sin(th) * x + math.cos(th) * y + xm
-
-        # Optionally show debug image.
-        if debug:
-            clicked_cv2 = self.image_dict[self.clicked_source][1]
-            c = (255, 0, 0)
-            cv2.circle(clicked_cv2,
-                       (int(manipulation_cmd.pixel_xy.x), int(manipulation_cmd.pixel_xy.y)), 30, c,
-                       5)
-            cv2.imshow('Debug', clicked_cv2)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
 
         # Populate the rest of the Manip API request.
         clicked_image_proto = self.image_dict[self.clicked_source][0]
@@ -243,7 +243,7 @@ def walk_to_object_in_image(robot, request_manager, debug):
     return response
 
 # To open the door, 
-def open_door(robot, request_manager, snapshot, parameters):
+def open_door(robot, request_manager, snapshot, parameters, feedback):
     """Command the robot to automatically open a door via the door service API.
 
     Args:
@@ -301,10 +301,14 @@ def open_door(robot, request_manager, snapshot, parameters):
             raise Exception('Door command reported status ')
         if (feedback_response.feedback.status == door_pb2.DoorCommand.Feedback.STATUS_COMPLETED):
             robot.logger.info('Opened door.')
+            feedback.opened_door = True
             return feedback_response.feedback.status
         time.sleep(0.5)
+
+    # If the door command times out, tell robot to open gripper and give up trying to open the door. 
     robot.logger.info('Door command timed out. Try repositioning the robot.')
-    # raise Exception('Door command timed out. Try repositioning the robot.')
+
+    raise Exception('Door command timed out. Try repositioning the robot.')
     return feedback_response.feedback.status
 
 
@@ -329,10 +333,15 @@ def execute_open_door(spot, model_path, parameters=OpenDoorParams(), feedback=Op
     request_manager.get_handle_and_hinge()
     assert request_manager.attributes_set(), 'Failed to get user input for handle and hinge.'
 
+    feedback.detected_door = True
+    feedback.ego_view = request_manager.side_by_side
+    feedback.handle_detection = request_manager.annotated_side_by_side
+
     robot = spot.robot
 
      # Tell the robot to walk toward the door.
     manipulation_feedback = walk_to_object_in_image(robot, request_manager, debug=False)
+    feedback.walked_to_door = True
     time.sleep(3.0)
 
     # The ManipulationApiResponse for the WalkToObjectInImage command returns a transform snapshot
@@ -341,7 +350,14 @@ def execute_open_door(spot, model_path, parameters=OpenDoorParams(), feedback=Op
     snapshot = manipulation_feedback.transforms_snapshot_manipulation_data
 
     # Execute the door command.
-    return open_door(robot, request_manager, snapshot, parameters)
+    try:
+        open_door(robot, request_manager, snapshot, parameters, feedback)
+    except:
+        print("Opening gripper")
+        open_gripper(spot)
+        stow_arm(spot)  
+        close_gripper(spot)  
+        spot.sit()
 
 
 def test_detect(model_path):

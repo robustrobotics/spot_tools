@@ -406,23 +406,3 @@ class Spot:
                 return
             time.sleep(1.0)
         raise Exception("Failed to pitch robot.")
-
-    def open_door(self):
-        """
-        Open door. Assumes the door is in front of the robot, in view of the camera.
-        Also assumes the robot is standing, and
-
-        Args:
-            self: (Robot) Interface to Spot robot.
-        """
-
-        return
-        assert self.ready_for_motion(), "Robot not ready for motion."
-
-        self.robot.logger.info("Commanding robot to open door...")
-        command_client = self.robot.ensure_client(
-            RobotCommandClient.default_service_name
-        )
-        cmd = RobotCommandBuilder.synchro_sit_command()
-        command_client.robot_command(cmd)
-        self.robot.logger.info("Robot opening door.")

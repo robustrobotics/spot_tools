@@ -194,18 +194,29 @@ def _run_segment_test(spot) -> None:
     segmented_image = spot.segment_image(img, show=True)
 
 
-def _run_open_door_test(spot, model_path, max_tries) -> None:
+def _run_open_door_test(spot, model_path, max_tries=1) -> None:
     print("Opening the door...")
 
     trial_idx = 0 
     parameters = OpenDoorParams()
     feedback = OpenDoorFeedback()
 
+    print(parameters)
+
     while trial_idx < max_tries: 
         execute_open_door(spot, model_path, parameters, feedback)
+
+        trial_idx += 1
         # Check that the feedback implies that the robot is successful 
         # If not, query the VLM to edit the parameters and try again 
-            
+    
+    # print(feedback.success)
+    # cv2.imshow('Detected Door', feedback.handle_detection)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+    # cv2.imshow('Ego View', feedback.ego_view)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -228,8 +239,8 @@ if __name__ == "__main__":
     spot.robot.time_sync.wait_for_sync()
 
     yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
-    max_tries = 3
-    _run_open_door_test(spot, yoloworld_model_path, max_tries)
+
+    _run_open_door_test(spot, yoloworld_model_path)
     # _run_walking_test(spot)
     # _run_gaze_test(spot)
     # _run_traj_test(spot)
@@ -240,7 +251,7 @@ if __name__ == "__main__":
 
     time.sleep(1)
 
-    spot.stand()
+    # spot.stand()
     # spot.sit()
     # spot.sit()
     # spot.safe_power_off()
