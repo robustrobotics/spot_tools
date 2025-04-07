@@ -14,6 +14,10 @@ from bosdyn.client.door import DoorClient
 from bosdyn.client.manipulation_api_client import ManipulationApiClient
 from bosdyn.api import image_pb2
 
+from spot_skills.skills_definitions import (
+    OpenDoorParams,
+    OpenDoorFeedback
+)
 DOOR_ID = 0
 HANDLE_ID = 1
 
@@ -201,22 +205,7 @@ class RequestManager:
         snapshot = clicked_image_proto.shot.transforms_snapshot
         return frame_helpers.get_a_tform_b(snapshot, frame_helpers.VISION_FRAME_NAME,
                                            frame_name_image_sensor)
-
-    # @property
-    # def hinge_side(self):
-    #     """Calculate if hinge is on left or right side of door based on user touchpoints.
-
-    #     Returns:
-    #         DoorCommand.HingeSide
-    #     """
-    #     # handle_x = self.handle_position_side_by_side[0]
-    #     # hinge_x = self.hinge_position_side_by_side[0]
-    #     # if handle_x < hinge_x:
-    #     #     hinge_side = door_pb2.DoorCommand.HINGE_SIDE_RIGHT
-    #     # else:
-    #     #     hinge_side = door_pb2.DoorCommand.HINGE_SIDE_LEFT
-    #     hinge_side = door_pb2.DoorCommand.HINGE_SIDE_RIGHT
-    #     return hinge_side
+    
 
 def walk_to_object_in_image(robot, request_manager, debug):
     """Command the robot to walk toward user selected point. The WalkToObjectInImage feedback
@@ -288,8 +277,8 @@ def open_door(robot, request_manager, snapshot, parameters):
         geometry_pb2.Vec3(x=search_ray_end_in_frame[0], y=search_ray_end_in_frame[1],
                           z=search_ray_end_in_frame[2]))
 
-    auto_cmd.hinge_side = parameters["HINGE_SIDE"]
-    auto_cmd.swing_direction = parameters["SWING_DIRECTION"]
+    auto_cmd.hinge_side = parameters.hinge_side
+    auto_cmd.swing_direction = parameters.swing_direction
 
     door_command = door_pb2.DoorCommand.Request(auto_grasp_command=auto_cmd)
     request = door_pb2.OpenDoorCommandRequest(door_command=door_command)
@@ -319,15 +308,7 @@ def open_door(robot, request_manager, snapshot, parameters):
     return feedback_response.feedback.status
 
 
-def execute_open_door(spot, model_path, parameters=None, feedback=None):
-    
-    
-    if parameters == None: 
-        parameters = {"HINGE_SIDE": door_pb2.DoorCommand.HINGE_SIDE_UNKNOWN, 
-                      "SWING_DIRECTION": door_pb2.DoorCommand.SWING_DIRECTION_UNKNOWN}
-    
-    
-
+def execute_open_door(spot, model_path, parameters=OpenDoorParams(), feedback=OpenDoorFeedback()):
     # PHASE 1: Approach the door. 
     # S1: Stand the robot.
     spot.stand()
@@ -341,17 +322,7 @@ def execute_open_door(spot, model_path, parameters=None, feedback=None):
 
     image_dict = {"frontleft_fisheye_image": (fl_image_request, fl_img), "frontright_fisheye_image": (fr_image_request, fr_img)}
     
-    # idx = 31
-    # images_dict_path = '/home/aaron/spot_tools/data/images/image_dict_' + str(idx) + '.pkl'
-    # fl_image_path = '/home/aaron/spot_tools/data/images/fl_image_' + str(idx) + '.jpg'
-    # fr_image_path = '/home/aaron/spot_tools/data/images/fr_image_' + str(idx) + '.jpg'
-
-    # with open(images_dict_path, 'wb') as file:
-    #     pkl.dump(image_dict, file)
-    
-    # cv2.imwrite(fl_image_path, fl_img)
-    # cv2.imwrite(fr_image_path, fr_img)
-
+    # S4: Load the model and pass it to the request manager, which detects the door handle and hinge
     model = YOLOWorld(model_path)
     
     request_manager = RequestManager(image_dict, model)

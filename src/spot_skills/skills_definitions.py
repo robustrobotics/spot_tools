@@ -18,5 +18,8 @@ class OpenDoorFeedback:
     ego_view: Optional[np.ndarray] = None
     handle_detection: Optional[np.ndarray] = None
 
+    def success(self) -> bool:
+        return self.walked_to_door and self.detected_door and self.opened_door
+
 
 

@@ -198,15 +198,13 @@ def _run_open_door_test(spot, model_path, max_tries) -> None:
     print("Opening the door...")
 
     trial_idx = 0 
-    parameters = 
+    parameters = OpenDoorParams()
+    feedback = OpenDoorFeedback()
 
     while trial_idx < max_tries: 
-        feedback_status = execute_open_door(spot, model_path, parameters)
-        if feedback_status == door_pb2.DoorCommand.Feedback.STATUS_COMPLETED: 
-            # The robot was successful in opening the door.
-            break 
-        else: 
-            # Ask a VLM for new parameters and try again
+        execute_open_door(spot, model_path, parameters, feedback)
+        # Check that the feedback implies that the robot is successful 
+        # If not, query the VLM to edit the parameters and try again 
             
 
 if __name__ == "__main__":
