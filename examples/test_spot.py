@@ -201,8 +201,6 @@ def _run_open_door_test(spot, model_path, max_tries=1) -> None:
     parameters = OpenDoorParams()
     feedback = OpenDoorFeedback()
 
-    print(parameters)
-
     while trial_idx < max_tries: 
         execute_open_door(spot, model_path, parameters, feedback)
 
