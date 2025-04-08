@@ -21,6 +21,7 @@ from spot_skills.arm_utils import (
 from spot_skills.navigation_utils import (
     navigate_to_relative_pose,
     follow_trajectory,
+    navigate_to_absolute_pose
 )
 from spot_skills.grasp_utils import (
     object_grasp
@@ -28,6 +29,10 @@ from spot_skills.grasp_utils import (
 
 from spot_skills.door_utils import (
     execute_open_door
+)
+
+from spot_skills.primitives import (
+    execute_recovery_action
 )
 
 from spot_skills.skills_definitions import (
@@ -201,20 +206,24 @@ def _run_open_door_test(spot, model_path, max_tries=1) -> None:
     parameters = OpenDoorParams()
     feedback = OpenDoorFeedback()
 
+    initial_pose = spot.get_pose()
+
     while trial_idx < max_tries: 
-        execute_open_door(spot, model_path, parameters, feedback)
+        execute_open_door(spot, model_path, parameters, feedback, initial_pose)
+
+        print(feedback.get_status())
 
         trial_idx += 1
         # Check that the feedback implies that the robot is successful 
         # If not, query the VLM to edit the parameters and try again 
     
-    # print(feedback.success)
-    # cv2.imshow('Detected Door', feedback.handle_detection)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-    # cv2.imshow('Ego View', feedback.ego_view)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    # # print(feedback.success)
+    # # cv2.imshow('Detected Door', feedback.handle_detection)
+    # # cv2.waitKey(0)
+    # # cv2.destroyAllWindows()
+    # # cv2.imshow('Ego View', feedback.ego_view)
+    # # cv2.waitKey(0)
+    # # cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

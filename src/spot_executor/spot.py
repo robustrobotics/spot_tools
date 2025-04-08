@@ -406,3 +406,4 @@ class Spot:
                 return
             time.sleep(1.0)
         raise Exception("Failed to pitch robot.")
+

@@ -25,6 +25,10 @@ from spot_skills.arm_utils import (
     stow_arm
 )
 
+from spot_skills.primitives import (
+    execute_recovery_action
+)
+
 DOOR_ID = 0
 HANDLE_ID = 1
 
@@ -72,8 +76,7 @@ class RequestManager:
             cv2.imshow('Debug', self.side_by_side)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
-            return 
-            # raise Exception("No door handles detected.")
+            raise Exception("No door handles detected.")
         
         detected_side = None
         max_conf = 0 
@@ -239,8 +242,7 @@ def walk_to_object_in_image(robot, request_manager, debug):
         if (response.current_state == manipulation_api_pb2.MANIP_STATE_DONE):
             return response
     raise Exception('Manip command timed out. Try repositioning the robot.')
-    robot.logger.info('Walked to door.')
-    return response
+
 
 # To open the door, 
 def open_door(robot, request_manager, snapshot, parameters, feedback):
@@ -306,13 +308,10 @@ def open_door(robot, request_manager, snapshot, parameters, feedback):
         time.sleep(0.5)
 
     # If the door command times out, tell robot to open gripper and give up trying to open the door. 
-    robot.logger.info('Door command timed out. Try repositioning the robot.')
-
     raise Exception('Door command timed out. Try repositioning the robot.')
-    return feedback_response.feedback.status
 
 
-def execute_open_door(spot, model_path, parameters=OpenDoorParams(), feedback=OpenDoorFeedback()):
+def execute_open_door(spot, model_path, parameters=OpenDoorParams(), feedback=OpenDoorFeedback(), initial_pose=None):
     # PHASE 1: Approach the door. 
     # S1: Stand the robot.
     spot.stand()
@@ -330,8 +329,13 @@ def execute_open_door(spot, model_path, parameters=OpenDoorParams(), feedback=Op
     model = YOLOWorld(model_path)
     
     request_manager = RequestManager(image_dict, model)
-    request_manager.get_handle_and_hinge()
-    assert request_manager.attributes_set(), 'Failed to get user input for handle and hinge.'
+
+    try: 
+        request_manager.get_handle_and_hinge()
+    except: 
+        spot.stand()
+        return 
+    # assert request_manager.attributes_set(), 'Failed to get user input for handle and hinge.'
 
     feedback.detected_door = True
     feedback.ego_view = request_manager.side_by_side
@@ -340,7 +344,12 @@ def execute_open_door(spot, model_path, parameters=OpenDoorParams(), feedback=Op
     robot = spot.robot
 
      # Tell the robot to walk toward the door.
-    manipulation_feedback = walk_to_object_in_image(robot, request_manager, debug=False)
+    try: 
+        manipulation_feedback = walk_to_object_in_image(robot, request_manager, debug=False)
+    except: 
+        execute_recovery_action(spot, recover_arm=False, absolute_pose=initial_pose)
+        return
+    
     feedback.walked_to_door = True
     time.sleep(3.0)
 
@@ -353,11 +362,8 @@ def execute_open_door(spot, model_path, parameters=OpenDoorParams(), feedback=Op
     try:
         open_door(robot, request_manager, snapshot, parameters, feedback)
     except:
-        print("Opening gripper")
-        open_gripper(spot)
-        stow_arm(spot)  
-        close_gripper(spot)  
-        spot.sit()
+        execute_recovery_action(spot, recover_arm=True, absolute_pose=initial_pose)
+        return 
 
 
 def test_detect(model_path):

@@ -37,6 +37,7 @@ from spot_skills.arm_utils import (
     gaze_at_relative_pose,
     move_hand_to_relative_pose,
     open_gripper,
+    stow_arm
 )
 from spot_skills.navigation_utils import (
     navigate_to_absolute_pose,
@@ -45,5 +46,19 @@ from spot_skills.navigation_utils import (
 from PIL import Image
 
 
-def move(spot, start_pose, end_pose, trajectory):
-    return traj
+def execute_recovery_action(spot, recover_arm=True, absolute_pose=None, relative_pose=None):
+    if recover_arm: 
+        open_gripper(spot)
+        stow_arm(spot)  
+        close_gripper(spot)  
+    
+    if absolute_pose:
+        navigate_to_absolute_pose(spot, absolute_pose) 
+        return 
+    
+    elif relative_pose:
+        navigate_to_relative_pose(spot, relative_pose)
+        return
+
+    else: 
+        return 
