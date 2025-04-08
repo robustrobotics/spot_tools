@@ -211,7 +211,14 @@ def _run_open_door_test(spot, model_path, max_tries=1) -> None:
     while trial_idx < max_tries: 
         execute_open_door(spot, model_path, parameters, feedback, initial_pose)
 
-        print(feedback.get_status())
+        success = feedback.success()
+
+        if success: 
+            print("The robot was able to open the door. SUCCESS!")
+            break 
+        else: 
+            print("The robot was unable to open the door. FAILURE!")
+            update_parameters_VLM(parameters, feedback)
 
         trial_idx += 1
         # Check that the feedback implies that the robot is successful 
