@@ -1,4 +1,4 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, field
 
 from bosdyn.api import arm_command_pb2
 
@@ -39,20 +39,20 @@ class FakeArmGazeFeedback:
 @dataclass
 class FakeArmFeedback(FakeProtoInterface):
     status: str = "ThisIsFakeArmFeedback"
-    arm_gaze_feedback: FakeArmGazeFeedback = FakeArmGazeFeedback()
+    arm_gaze_feedback: FakeArmGazeFeedback = field(default_factory=FakeArmGazeFeedback)
 
 
 @dataclass
 class FakeSynchronizedFeedback:
-    mobility_command_feedback: FakeMobilityFeedback = FakeMobilityFeedback()
-    arm_command_feedback: FakeArmFeedback = FakeArmFeedback()
+    mobility_command_feedback: FakeMobilityFeedback = field(default_factory=FakeMobilityFeedback)
+    arm_command_feedback: FakeArmFeedback = field(default_factory=FakeArmFeedback)
 
 
 @dataclass
 class FakeFeedback:
-    synchronized_feedback: FakeSynchronizedFeedback = FakeSynchronizedFeedback()
+    synchronized_feedback: FakeSynchronizedFeedback = field(default_factory=FakeSynchronizedFeedback)
 
 
 @dataclass
 class FakeFeedbackWrapper:
-    feedback: FakeFeedback = FakeFeedback()
+    feedback: FakeFeedback = field(default_factory=FakeFeedback)

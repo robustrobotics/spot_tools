@@ -19,5 +19,8 @@ setup(
         "bosdyn-client",
         "scikit-image",
         "opencv-python-headless",
+        "shapely",
+        "onnxruntime",
+        "transforms3d",
     ],
 )

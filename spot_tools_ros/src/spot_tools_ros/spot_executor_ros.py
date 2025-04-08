@@ -25,6 +25,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 
 
+
+
 def load_inverse_semantic_id_map_from_label_space(fn):
     with open(fn, "r") as fo:
         labelspace_yaml = yaml.safe_load(fo)
