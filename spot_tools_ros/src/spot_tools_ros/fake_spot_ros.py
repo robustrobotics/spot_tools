@@ -15,6 +15,8 @@ class FakeSpotRos:
         self,
         host_node,
         spot,
+        odom_frame,
+        body_frame,
         external_pose=False,
         semantic_model_path=None,
         semantic_name_to_id=None,
@@ -22,8 +24,8 @@ class FakeSpotRos:
         self.host_node = host_node
         self.robot = spot
 
-        self.odom_frame_name = "vision"
-        self.body_frame_name = "body"
+        self.odom_frame_name = odom_frame
+        self.body_frame_name = body_frame
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self.host_node)
@@ -69,6 +71,7 @@ class FakeSpotRos:
         if pose is None:
             self.host_node.get_logger().warn("Spot pose not set, cannot update!")
             return
+
         trans = (pose[0], pose[1], pose[2])
         yaw = pose[3]
 

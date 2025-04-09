@@ -78,8 +78,6 @@ class FakeSpot:
         self,
         username="",
         password="",
-        external_pose=False,
-        static_pose=False,
         init_pose=None,
         semantic_model_path=None,
     ):

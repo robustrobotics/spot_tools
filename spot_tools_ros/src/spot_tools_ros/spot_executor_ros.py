@@ -140,10 +140,6 @@ class SpotExecutorRos(Node):
         self.feedback_collector = RosFeedbackCollector()
         self.feedback_collector.register_publishers(self)
 
-        self.declare_parameter("fixed_frame", "")
-        self.fixed_frame = self.get_parameter("fixed_frame").value
-        assert self.fixed_frame != ""
-
         # Connectivity parameters
         self.declare_parameter("spot_ip", "")
         self.declare_parameter("bosdyn_client_username", "")
@@ -204,21 +200,28 @@ class SpotExecutorRos(Node):
                     "Must set fake_spot_x, fake_spot_y, fake_spot_z, fake_spot_yaw"
                 )
             else:
-                spot_init_pose2d = None
+                spot_init_pose2d = np.array([0,0,0,0])
 
             self.get_logger().info(str(spot_init_pose2d))
             self.get_logger().info("About to initialize fake spot")
             self.spot_interface = FakeSpot(
                 username=bdai_username,
                 password=bdai_password,
-                external_pose=external_pose,
-                static_pose=static_pose,
                 init_pose=spot_init_pose2d,
                 semantic_model_path=None,
             )
 
+
+            self.declare_parameter("odom_frame", "")
+            odom_frame = self.get_parameter("odom_frame").value
+            assert odom_frame != ""
+
+            self.declare_parameter("body_frame", "")
+            body_frame = self.get_parameter("body_frame").value
+            assert body_frame != ""
+
             self.spot_ros_interface = FakeSpotRos(
-                self, self.spot_interface, external_pose=False
+                self, self.spot_interface, odom_frame, body_frame, external_pose=external_pose
             )
 
         else:
