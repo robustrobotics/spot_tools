@@ -5,6 +5,8 @@ import base64
 import io
 from PIL import Image
 import numpy as np
+import pickle as pkl 
+import cv2
 
 def encode_numpy_image_to_base64(image_np: np.ndarray, format: str = "PNG") -> str:
 
@@ -23,11 +25,40 @@ def test_door_params(client):
         swing_direction: int 
         handle_type: int 
 
+    # Unpickle the image
+    with open("image_dict_1.pkl", "rb") as f:
+        image_dict = pkl.load(f)
+    
+    fl_img = image_dict['frontleft_fisheye_image'][1]
+    fr_img = image_dict['frontright_fisheye_image'][1]
+
+    rotated_fl_img = cv2.rotate(fl_img, cv2.ROTATE_90_CLOCKWISE)
+    rotated_fr_img = cv2.rotate(fr_img, cv2.ROTATE_90_CLOCKWISE)
+
+    side_by_side = np.hstack((rotated_fr_img, rotated_fl_img))
+    cv2.imshow('Side by Side', side_by_side)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    # Encode the image to base64
+    encoded_side_by_side = encode_numpy_image_to_base64(side_by_side)
+
     completion = client.beta.chat.completions.parse(
         model="gpt-4o-2024-08-06",
         messages=[
-            {"role": "system", "content": "Extract the information about the door skill."},
-            {"role": "user", "content": "The door hinge is on the left (1), the swing direction is unknown (0), and the door handle is unknown (0)."},
+            {"role": "system", "content": "Assign the parameters correctly given the image."},
+            {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{encoded_side_by_side}"
+                    }
+                },
+                {"type": "text", "text": "What's in this image?"}
+            ]
+        }
         ],
         response_format=OpenDoorParams,
     )
@@ -67,14 +98,33 @@ def test_image_encoding(client):
 
     print(completion.choices[0].message.content)
 
+def test_image_encoding(client):
+    class CalendarEvent(BaseModel):
+        name: str
+        date: str
+        participants: list[str]
+
+    completion = client.beta.chat.completions.parse(
+        model="gpt-4o-2024-08-06",
+        messages=[
+            {"role": "system", "content": "Extract the event information."},
+            {"role": "user", "content": "Alice and Bob are going to a science fair on Friday."},
+        ],
+        response_format=CalendarEvent,
+    )
+
+    event = completion.choices[0].message.parsed
+    print(event)
+
 def main(): 
     client = OpenAI(api_key=os.getenv('OPENAI_API_KEY')) # Initialize the OpenAI client with your API key")
 
+    # test_image_encoding(client)
     # # Test the door parameters
-    # test_door_params(client)
+    test_door_params(client)
 
     # Test the image encoding
-    test_image_encoding(client)
+    # test_image_encoding(client)
 
     
 

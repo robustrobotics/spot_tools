@@ -6,7 +6,7 @@ import numpy as np
 @dataclass
 class OpenDoorParams:
     hinge_side: int = 1         # i.e., DoorCommand.HingeSide.HINGE_SIDE_LEFT
-    swing_direction: int = 1    # i.e., DoorCommand.SwingDirection.SWING_DIRECTION_UNKNOWN
+    swing_direction: int = 0    # i.e., DoorCommand.SwingDirection.SWING_DIRECTION_UNKNOWN
     handle_type: int = 0        # i.e., DoorCommand.HandleType.HANDLE_TYPE_UNKNOWN
 
 @dataclass

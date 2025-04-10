@@ -52,6 +52,11 @@ from spot_skills.navigation_utils import (
     navigate_to_relative_pose,
 )
 from PIL import Image
+from spot_executor.stitch_front_images import (
+     stitch,
+     stitch_live,
+     stitch_RGB
+)
 
 # from predicators.spot_utils.spot_localization import SpotLocalizer
 # from predicators.spot_utils.utils import get_robot_state, get_spot_home_pose
@@ -165,6 +170,15 @@ class Spot:
     def pixel_format_string_to_enum(self, enum_string):
         return dict(image_pb2.Image.PixelFormat.items()).get(enum_string)
     
+    def get_stitched_image_RGB(self, fl_img, fr_img, crop_image=False):
+        return stitch_RGB(fl_img, fr_img, crop_image)
+    
+    def get_stitched_image(self, jpeg_quality_percent=50, crop_image=False):
+        return stitch(self.robot, jpeg_quality_percent, crop_image)
+
+    def get_live_stitched_image(self, jpeg_quality_percent=50):
+        return stitch_live(self.robot, jpeg_quality_percent)
+
     def get_image_RGB(self, view="hand_color_image", pixel_format='PIXEL_FORMAT_RGB_U8'):
         pixel_format = self.pixel_format_string_to_enum(pixel_format)
         image_request = image_pb2.ImageRequest(image_source_name=view, quality_percent=100, pixel_format=pixel_format)
@@ -406,4 +420,5 @@ class Spot:
                 return
             time.sleep(1.0)
         raise Exception("Failed to pitch robot.")
+    
 

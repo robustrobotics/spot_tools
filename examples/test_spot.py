@@ -4,6 +4,13 @@ import time
 from ultralytics import YOLOWorld
 import cv2 
 
+from openai import OpenAI # Import the OpenAI package
+import os # Import the os package
+from pydantic import BaseModel
+import base64
+import io
+from PIL import Image
+
 from bosdyn.client import math_helpers
 from bosdyn.api.spot import door_pb2
 from bosdyn.client.frame_helpers import (
@@ -199,16 +206,23 @@ def _run_segment_test(spot) -> None:
     segmented_image = spot.segment_image(img, show=True)
 
 
-def _run_open_door_test(spot, model_path, max_tries=1) -> None:
+def _run_open_door_test(spot, model_path, max_tries=2) -> None:
     print("Opening the door...")
 
     trial_idx = 0 
     parameters = OpenDoorParams()
+
+    parameters.hinge_side = door_pb2.DoorCommand.HingeSide.HINGE_SIDE_RIGHT
+    parameters.swing_direction = door_pb2.DoorCommand.SwingDirection.SWING_DIRECTION_UNKNOWN
+    parameters.handle_type = door_pb2.DoorCommand.HandleType.HANDLE_TYPE_UNKNOWN
+
     feedback = OpenDoorFeedback()
 
     initial_pose = spot.get_pose()
 
     while trial_idx < max_tries: 
+        print(parameters)
+        input("Does this seem right?")
         execute_open_door(spot, model_path, parameters, feedback, initial_pose)
 
         success = feedback.success()
@@ -217,8 +231,14 @@ def _run_open_door_test(spot, model_path, max_tries=1) -> None:
             print("The robot was able to open the door. SUCCESS!")
             break 
         else: 
+            input("The robot was unable to open the door.")
             print("The robot was unable to open the door. FAILURE!")
-            update_parameters_VLM(parameters, feedback)
+            VLM_parameters = query_VLM(parameters, feedback)
+            print(VLM_parameters)
+            input("Does this seem reasonable?")
+            parameters.hinge_side = VLM_parameters.hinge_side
+            parameters.swing_direction = VLM_parameters.swing_direction
+            parameters.handle_type = VLM_parameters.handle_type
 
         trial_idx += 1
         # Check that the feedback implies that the robot is successful 
@@ -231,6 +251,72 @@ def _run_open_door_test(spot, model_path, max_tries=1) -> None:
     # # cv2.imshow('Ego View', feedback.ego_view)
     # # cv2.waitKey(0)
     # # cv2.destroyAllWindows()
+
+def encode_numpy_image_to_base64(image_np: np.ndarray, format: str = "PNG"):
+
+    pil_image = Image.fromarray(image_np)
+    buffer = io.BytesIO()
+    pil_image.save(buffer, format=format)
+    buffer.seek(0)
+
+    b64_bytes = base64.b64encode(buffer.read())
+    b64_string = b64_bytes.decode("utf-8")
+    return b64_string
+
+def query_VLM(parameters, feedback):
+    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY')) 
+
+    class OpenDoorParams(BaseModel):
+        hinge_side: int          
+        swing_direction: int 
+        handle_type: int 
+        CoT_reasoning: str
+
+    side_by_side = feedback.ego_view
+
+    # Encode the image to base64
+    encoded_side_by_side = encode_numpy_image_to_base64(side_by_side)
+
+    prompt = f"You are assisting a Boston Dynamics Spot robot that is trying to open a door. " \
+             "The robot has tried to open the door using its door opening skill, but has failed. " \
+             "The door opening skill requires the following parameters: hinge_side, swing_direction, handle_type. " \
+             "The hinge_side can be set to left (1) or right (2). " \
+             "The swing_direction can be set to unknown (0), pull (1), or push (2). " \
+             "The handle_type can be set to unknown (0), lever (1), or knob (2). " \
+             "In the robot's previous attempt to open the door, it used the following parameters: " \
+             "hinge_side: {}, swing_direction: {}, handle_type: {}. " \
+             "Given the robot's ego view (the perspective from the robot's vantage point) and the previous parameters, please update any parameters that need changing so the robot can try again. " \
+             "Please provide the updated parameters in a JSON format and include your reasoning. ".format(
+                 parameters.hinge_side, parameters.swing_direction, parameters.handle_type)
+                
+
+    print(prompt)
+    input("Does this seem right?")
+             
+
+    completion = client.beta.chat.completions.parse(
+        model="gpt-4o-2024-08-06",
+        messages=[
+            {"role": "system", "content": "Assign the parameters correctly given the image."},
+            {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{encoded_side_by_side}"
+                    }
+                },
+                {"type": "text", "text": prompt}
+            ]
+        }
+        ],
+        response_format=OpenDoorParams,
+    )
+
+    VLM_parameters = completion.choices[0].message.parsed
+    return VLM_parameters
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -254,7 +340,27 @@ if __name__ == "__main__":
 
     yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
 
-    _run_open_door_test(spot, yoloworld_model_path)
+
+    fl_img_response, fl_img = spot.get_image_RGB(view='frontleft_fisheye_image')
+    fr_img_response, fr_img = spot.get_image_RGB(view='frontright_fisheye_image')
+
+    # # spot.get_live_stitched_image()
+    # image = spot.get_stitched_image(fl_img_response, fr_img_response)
+
+    image = spot.get_stitched_image(jpeg_quality_percent=100, crop_image=True)
+    print(image.shape)
+    cv2.imshow("Stitched Image", image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    image = spot.get_stitched_image_RGB(fl_img_response, fr_img_response, crop_image=True)
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    print(image.shape)
+    cv2.imshow("Stitched Image", image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    
+    # _run_open_door_test(spot, yoloworld_model_path)
     # _run_walking_test(spot)
     # _run_gaze_test(spot)
     # _run_traj_test(spot)

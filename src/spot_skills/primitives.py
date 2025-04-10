@@ -45,7 +45,6 @@ from spot_skills.navigation_utils import (
 )
 from PIL import Image
 
-
 def execute_recovery_action(spot, recover_arm=True, absolute_pose=None, relative_pose=None):
     if recover_arm: 
         open_gripper(spot)

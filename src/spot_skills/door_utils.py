@@ -293,7 +293,7 @@ def open_door(robot, request_manager, snapshot, parameters, feedback):
     feedback_request.door_command_id = response.door_command_id
     feedback_response = door_client.open_door_feedback(feedback_request)
 
-    timeout_sec = 60.0
+    timeout_sec = 20.0
     end_time = time.time() + timeout_sec
 
     while time.time() < end_time:
@@ -338,7 +338,7 @@ def execute_open_door(spot, model_path, parameters=OpenDoorParams(), feedback=Op
     # assert request_manager.attributes_set(), 'Failed to get user input for handle and hinge.'
 
     feedback.detected_door = True
-    feedback.ego_view = request_manager.side_by_side
+    feedback.ego_view = cv2.rotate(fr_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
     feedback.handle_detection = request_manager.annotated_side_by_side
 
     robot = spot.robot
