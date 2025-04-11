@@ -51,6 +51,7 @@ class FakeCommandClient:
             self.fake_spot.set_pose((x, y, z, angle))
             self.fake_spot.moving = True
             self.fake_spot.last_move_command = time.time()
+
         time.sleep(0.5)
 
     def robot_command_feedback(self, cmd_id):
@@ -80,6 +81,7 @@ class FakeSpot:
         password="",
         init_pose=None,
         semantic_model_path=None,
+
     ):
         print("Initialized Fake Spot!")
         self.is_fake = True
@@ -117,7 +119,6 @@ class FakeSpot:
 
         cur_pose = self.get_pose()
         theta = cur_pose[3]
-
         dp = np.zeros(4)
 
         dp[0] = vx * np.cos(theta) + vy * np.sin(theta)
@@ -154,6 +155,7 @@ class FakeSpot:
 
     def get_joint_states(self):
         joint_to_state = {}
+
         omg_hip = 2
         center_h2 = 1
         amp_h2 = 0.2

@@ -1,5 +1,9 @@
+import argparse
+import io
 import math
+import sys
 import time
+from typing import Tuple
 
 import bosdyn.client.util
 import cv2
@@ -7,10 +11,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import onnxruntime as ort
 from bosdyn import geometry
-from bosdyn.api import basic_command_pb2, image_pb2
+from bosdyn.api import basic_command_pb2, geometry_pb2, image_pb2, manipulation_api_pb2
+from bosdyn.api.basic_command_pb2 import RobotCommandFeedbackStatus
+from bosdyn.api.geometry_pb2 import SE2Velocity, SE2VelocityLimit, Vec2
+from bosdyn.api.manipulation_api_pb2 import (
+    ManipulationApiFeedbackRequest,
+    ManipulationApiRequest,
+    WalkToObjectInImage,
+)
+from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
+from bosdyn.client import math_helpers
 from bosdyn.client.frame_helpers import (
     BODY_FRAME_NAME,
+    ODOM_FRAME_NAME,
     VISION_FRAME_NAME,
+    get_a_tform_b,
     get_se2_a_tform_b,
 )
 from bosdyn.client.image import ImageClient
@@ -18,8 +33,33 @@ from bosdyn.client.manipulation_api_client import ManipulationApiClient
 from bosdyn.client.robot_command import (
     RobotCommandBuilder,
     RobotCommandClient,
+    block_until_arm_arrives,
     blocking_stand,
 )
+from bosdyn.client.robot_state import RobotStateClient
+from spot_skills.arm_utils import (
+    change_gripper,
+    close_gripper,
+    gaze_at_relative_pose,
+    move_hand_to_relative_pose,
+    open_gripper,
+    stow_arm,
+)
+from spot_skills.grasp_utils import look_for_object, object_grasp
+from spot_skills.navigation_utils import (
+    follow_trajectory,
+    navigate_to_absolute_pose,
+    navigate_to_relative_pose,
+)
+from PIL import Image
+from spot_executor.stitch_front_images import (
+     stitch,
+     stitch_live,
+     stitch_RGB
+)
+
+# from predicators.spot_utils.spot_localization import SpotLocalizer
+# from predicators.spot_utils.utils import get_robot_state, get_spot_home_pose
 
 
 class Spot:
@@ -112,17 +152,22 @@ class Spot:
             image.show()
 
         return image, img
-
+    
     def pixel_format_string_to_enum(self, enum_string):
         return dict(image_pb2.Image.PixelFormat.items()).get(enum_string)
+    
+    def get_stitched_image_RGB(self, fl_img, fr_img, crop_image=False):
+        return stitch_RGB(fl_img, fr_img, crop_image)
+    
+    def get_stitched_image(self, jpeg_quality_percent=50, crop_image=False):
+        return stitch(self.robot, jpeg_quality_percent, crop_image)
 
-    def get_image_RGB(
-        self, view="hand_color_image", pixel_format="PIXEL_FORMAT_RGB_U8"
-    ):
+    def get_live_stitched_image(self, jpeg_quality_percent=50):
+        return stitch_live(self.robot, jpeg_quality_percent)
+
+    def get_image_RGB(self, view="hand_color_image", pixel_format='PIXEL_FORMAT_RGB_U8'):
         pixel_format = self.pixel_format_string_to_enum(pixel_format)
-        image_request = image_pb2.ImageRequest(
-            image_source_name=view, quality_percent=100, pixel_format=pixel_format
-        )
+        image_request = image_pb2.ImageRequest(image_source_name=view, quality_percent=100, pixel_format=pixel_format)
 
         image_responses = self.image_client.get_image([image_request])
 
@@ -134,7 +179,7 @@ class Spot:
         image = image_responses[0]
         if image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_RGB_U8:
             num_bytes = 3
-        else:
+        else: 
             num_bytes = 1
 
         dtype = np.uint8
@@ -290,6 +335,7 @@ class Spot:
 
         self.robot.logger.info("Commanding robot to stand...")
         self.robot.ensure_client(RobotCommandClient.default_service_name)
+
         blocking_stand(self.command_client, timeout_sec=10)
         self.robot.logger.info("Robot standing.")
 
@@ -321,6 +367,7 @@ class Spot:
         robot = self.robot
         robot.logger.info("Pitching robot up...")
         robot.ensure_client(RobotCommandClient.default_service_name)
+
         footprint_R_body = geometry.EulerZXY(0.0, 0.0, -1 * math.pi / 6.0)
         cmd = RobotCommandBuilder.synchro_stand_command(
             footprint_R_body=footprint_R_body
@@ -339,3 +386,4 @@ class Spot:
                 return
             time.sleep(1.0)
         raise Exception("Failed to pitch robot.")
+

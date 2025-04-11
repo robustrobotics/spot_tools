@@ -17,13 +17,13 @@ from bosdyn.api import (
     manipulation_api_pb2,
     robot_state_pb2,
 )
+
 from bosdyn.client.frame_helpers import (
     VISION_FRAME_NAME,
     get_vision_tform_body,
     math_helpers,
 )
 from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arrives
-
 from spot_skills.arm_utils import (
     arm_to_carry,
     arm_to_drop,
@@ -104,6 +104,7 @@ def force_stow_arm(manipulation_client, state_client, command_client):
     robot_cmd = RobotCommandBuilder.arm_stow_command()
     cmd_id = command_client.robot_command(robot_cmd)
     block_until_arm_arrives(command_client, cmd_id)
+
 
 
 def object_place(spot, semantic_class="bag", position=None):
@@ -558,6 +559,7 @@ def main():
         object_grasp(options)
         return True
     except Exception:  # pylint: disable=broad-except
+
         logger = bosdyn.client.util.get_logger()
         logger.exception("Threw an exception")
         return False
