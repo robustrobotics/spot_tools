@@ -318,6 +318,43 @@ def query_VLM(parameters, feedback):
     return VLM_parameters
 
 
+def save_images_constant_rate(spot, object_name, folder_name, rate=1.0):
+    """
+    Save images from the robot at a constant rate.
+    :param spot: Spot object
+    :param rate: Rate in Hz
+    """
+    # Set the rate
+    rate = 1.0 / rate
+
+    # Make directory called object_name under folder_name
+    if not os.path.exists(folder_name):
+        os.makedirs(folder_name)
+    if not os.path.exists(os.path.join(folder_name, object_name)):
+        os.makedirs(os.path.join(folder_name, object_name))
+    folder_name = os.path.join(folder_name, object_name)
+    
+    idx = 0
+
+    # Start saving images
+    while True:
+        print("Saving images at index {}".format(idx))
+        # Get the image
+        fl_img_response, fl_img = spot.get_image_RGB(view='frontleft_fisheye_image')
+        fr_img_response, fr_img = spot.get_image_RGB(view='frontright_fisheye_image')
+        # RGB to BGR 
+        stitched_image = spot.get_stitched_image_RGB(fl_img_response, fr_img_response, crop_image=True)
+        stitched_image = cv2.cvtColor(stitched_image, cv2.COLOR_RGB2BGR)
+        # Save the image
+        cv2.imwrite(f"{folder_name}/fl_img_{idx}.jpg", cv2.rotate(fl_img, cv2.ROTATE_90_CLOCKWISE))
+        cv2.imwrite(f"{folder_name}/fr_img_{idx}.jpg", cv2.rotate(fr_img, cv2.ROTATE_90_CLOCKWISE))
+        cv2.imwrite(f"{folder_name}/stitched_img_{idx}.jpg", stitched_image)
+
+        # Wait for the next frame
+        time.sleep(rate)
+
+        idx += 1
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ip", type=str, default="192.168.80.3")
@@ -340,25 +377,25 @@ if __name__ == "__main__":
 
     yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
 
+    # fl_img_response, fl_img = spot.get_image_RGB(view='frontleft_fisheye_image')
+    # fr_img_response, fr_img = spot.get_image_RGB(view='frontright_fisheye_image')
+    
 
-    fl_img_response, fl_img = spot.get_image_RGB(view='frontleft_fisheye_image')
-    fr_img_response, fr_img = spot.get_image_RGB(view='frontright_fisheye_image')
+    # spot.get_live_stitched_image()
+    # # image = spot.get_stitched_image(fl_img_response, fr_img_response)
 
-    # # spot.get_live_stitched_image()
-    # image = spot.get_stitched_image(fl_img_response, fr_img_response)
+    # image = spot.get_stitched_image(jpeg_quality_percent=100, crop_image=True)
+    # print(image.shape)
+    # cv2.imshow("Stitched Image", image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
 
-    image = spot.get_stitched_image(jpeg_quality_percent=100, crop_image=True)
-    print(image.shape)
-    cv2.imshow("Stitched Image", image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-    image = spot.get_stitched_image_RGB(fl_img_response, fr_img_response, crop_image=True)
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-    print(image.shape)
-    cv2.imshow("Stitched Image", image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # image = spot.get_stitched_image_RGB(fl_img_response, fr_img_response, crop_image=True)
+    # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    # print(image.shape)
+    # cv2.imshow("Stitched Image", image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
     
     # _run_open_door_test(spot, yoloworld_model_path)
     # _run_walking_test(spot)
@@ -368,6 +405,8 @@ if __name__ == "__main__":
     # _run_segment_test(spot)
     # spot.pitch_up()
     # print(look_for_object(spot, 'bag'))
+
+    save_images_constant_rate(spot, "test_object", "/home/aaron/spot_tools/spot_tools/data/object_images", rate=1)
 
     time.sleep(1)
 
