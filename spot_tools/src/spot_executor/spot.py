@@ -47,7 +47,7 @@ from spot_skills.arm_utils import (
 )
 from spot_skills.grasp_utils import look_for_object, object_grasp
 from spot_skills.navigation_utils import (
-    follow_trajectory,
+    follow_trajectory_continuous,
     navigate_to_absolute_pose,
     navigate_to_relative_pose,
 )
