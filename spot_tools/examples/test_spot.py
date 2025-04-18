@@ -27,7 +27,7 @@ from spot_skills.arm_utils import (
     )
 from spot_skills.navigation_utils import (
     navigate_to_relative_pose,
-    follow_trajectory,
+    follow_trajectory_continuous,
     navigate_to_absolute_pose
 )
 from spot_skills.grasp_utils import (
@@ -139,39 +139,39 @@ def _run_gaze_test(spot) -> None:
         # time.sleep(0.5)
 
 
-def _run_traj_test(spot, frame=VISION_FRAME_NAME, stairs=False) -> None:
-    relative_poses = [
-        math_helpers.SE2Pose(x=0, y=0, angle=0),
-        math_helpers.SE2Pose(x=1.0, y=-0.1, angle=0),
-        math_helpers.SE2Pose(x=2.0, y=0.0, angle=0),
-        math_helpers.SE2Pose(x=2.0, y=1.0, angle=0),
-        math_helpers.SE2Pose(x=5.0, y=1.3, angle=0),
-        math_helpers.SE2Pose(x=7.0, y=1.0, angle=180),
-        # math_helpers.SE2Pose(x=-1, y=-0.5, angle=0),
-        # math_helpers.SE2Pose(x=1, y=0.5, angle=np.pi),
-        # math_helpers.SE2Pose(x=1, y=0.5, angle=-np.pi)
-    ]
-    waypoints_list = []
-    current_pose = spot.get_pose()
-    print(current_pose)
-    for relative_pose in relative_poses:
-        pose = current_pose * relative_pose
-        print(pose)
-        waypoint = [pose.x, pose.y, pose.angle]
-        waypoints_list.append(waypoint)
-    print(waypoints_list)
-    from spot_skills.bezier_path import plot_curves, smooth_path
+# def _run_traj_test(spot, frame=VISION_FRAME_NAME, stairs=False) -> None:
+#     relative_poses = [
+#         math_helpers.SE2Pose(x=0, y=0, angle=0),
+#         math_helpers.SE2Pose(x=1.0, y=-0.1, angle=0),
+#         math_helpers.SE2Pose(x=2.0, y=0.0, angle=0),
+#         math_helpers.SE2Pose(x=2.0, y=1.0, angle=0),
+#         math_helpers.SE2Pose(x=5.0, y=1.3, angle=0),
+#         math_helpers.SE2Pose(x=7.0, y=1.0, angle=180),
+#         # math_helpers.SE2Pose(x=-1, y=-0.5, angle=0),
+#         # math_helpers.SE2Pose(x=1, y=0.5, angle=np.pi),
+#         # math_helpers.SE2Pose(x=1, y=0.5, angle=-np.pi)
+#     ]
+#     waypoints_list = []
+#     current_pose = spot.get_pose()
+#     print(current_pose)
+#     for relative_pose in relative_poses:
+#         pose = current_pose * relative_pose
+#         print(pose)
+#         waypoint = [pose.x, pose.y, pose.angle]
+#         waypoints_list.append(waypoint)
+#     print(waypoints_list)
+#     from spot_skills.bezier_path import plot_curves, smooth_path
 
-    path = smooth_path(waypoints_list, heading_mode="average", n_points=10)
-    plot_curves(path, np.array(waypoints_list))
+#     path = smooth_path(waypoints_list, heading_mode="average", n_points=10)
+#     plot_curves(path, np.array(waypoints_list))
 
-    try:
-        return follow_trajectory(spot, waypoints_list, frame_name=frame, stairs=stairs)
-    finally:
-        # Send a Stop at the end,
-        # Send a Stop at the end, regardless of what happened.
-        # robot_command_client.robot_command(RobotCommandBuilder.stop_command())
-        pass
+#     try:
+#         return follow_trajectory(spot, waypoints_list, frame_name=frame, stairs=stairs)
+#     finally:
+#         # Send a Stop at the end,
+#         # Send a Stop at the end, regardless of what happened.
+#         # robot_command_client.robot_command(RobotCommandBuilder.stop_command())
+#         pass
 
 
 def _run_grasp_test(spot) -> None:
