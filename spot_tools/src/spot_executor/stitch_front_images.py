@@ -319,9 +319,9 @@ def stitch_live(robot, jpeg_quality_percent=50):
     pygame.display.set_mode(display, pygame.DOUBLEBUF | pygame.OPENGL)
     clock = pygame.time.Clock()
 
-    with open('/home/aaron/spot_tools/data/shader/shader_vert.glsl', 'r') as file:
+    with open('/home/aaron/spot_tools/spot_tools/data/shader/shader_vert.glsl', 'r') as file:
         vert_shader = file.read()
-    with open('/home/aaron/spot_tools/data/shader/shader_frag.glsl', 'r') as file:
+    with open('/home/aaron/spot_tools/spot_tools/data/shader/shader_frag.glsl', 'r') as file:
         frag_shader = file.read()
 
     program = CompiledShader(vert_shader, frag_shader)
@@ -452,9 +452,9 @@ def stitch_RGB(fl_img, fr_img, crop_image=False):
     pygame.display.set_mode(display, pygame.DOUBLEBUF | pygame.OPENGL | pygame.HIDDEN)
 
     # Load shaders
-    with open('/home/aaron/spot_tools/data/shader/shader_vert.glsl', 'r') as file:
+    with open('/home/aaron/spot_tools/spot_tools/data/shader/shader_vert.glsl', 'r') as file:
         vert_shader = file.read()
-    with open('/home/aaron/spot_tools/data/shader/shader_frag.glsl', 'r') as file:
+    with open('/home/aaron/spot_tools/spot_tools/data/shader/shader_frag.glsl', 'r') as file:
         frag_shader = file.read()
 
     # Compile shader program
