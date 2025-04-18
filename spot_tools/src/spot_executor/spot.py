@@ -47,7 +47,7 @@ from spot_skills.arm_utils import (
 )
 from spot_skills.grasp_utils import look_for_object, object_grasp
 from spot_skills.navigation_utils import (
-    follow_trajectory,
+    follow_trajectory_continuous,
     navigate_to_absolute_pose,
     navigate_to_relative_pose,
 )
@@ -87,8 +87,6 @@ class Spot:
 
         self.id_client = self.robot.ensure_client("robot-id")
         self.id = self.id_client.get_id()
-        print(password)
-        print(username)
         self.robot.authenticate(username, password)
         assert self.robot.has_arm(), "Our robot has an arm ..."
 
@@ -132,18 +130,6 @@ class Spot:
         return out_tform_body
 
     def get_image(self, view="hand_color_image", show=False):
-        sources = self.image_client.list_image_sources()
-        for source in sources:
-            if source.name == view:
-                image_response = self.image_client.get_image_from_sources(
-                    [source.name]
-                )[0]
-                image = Image.open(io.BytesIO(image_response.shot.image.data))
-                if show:
-                    image.show()
-                return image
-
-    def get_image_alt(self, view="hand_color_image", show=False):
         self.robot.logger.info("Getting an image from: %s", view)
         image_responses = self.image_client.get_image_from_sources([view])
 
@@ -321,13 +307,14 @@ class Spot:
         )
 
         # Acquire a lease to indicate that we want to control the robot
-        # [yveys]: Should this say self.lease_client is not None? 
-        # Though this if statement is never entered in practice since the least_client should be 
-        # set properly in the init function 
-        if self.lease_client is None:   
+        # [yveys]: Should this say self.lease_client is not None?
+        # Though this if statement is never entered in practice since the least_client should be
+        # set properly in the init function
+        if self.lease_client is None:
             try:
                 self.take_lease()
-            except:
+            except Exception as ex:
+                print(ex)
                 self.aquire_lease()
 
         # Power the motor on
@@ -347,9 +334,8 @@ class Spot:
         assert self.ready_for_motion(), "Robot not ready for motion."
 
         self.robot.logger.info("Commanding robot to stand...")
-        command_client = self.robot.ensure_client(
-            RobotCommandClient.default_service_name
-        )
+        self.robot.ensure_client(RobotCommandClient.default_service_name)
+
         blocking_stand(self.command_client, timeout_sec=10)
         self.robot.logger.info("Robot standing.")
 
@@ -371,27 +357,6 @@ class Spot:
         command_client.robot_command(cmd)
         self.robot.logger.info("Robot sitting.")
 
-    def walk_forward(self):
-        """
-        Walk robot forward
-        """
-
-    def inspect_pose(self, ob):
-        pass
-
-    def inspect_object(self, ob):
-        pass
-
-    def pick_object(self, ob):
-        """
-        Pick object.
-
-        Args:
-            self: (Robot) Interface to Spot robot.
-            ob: (str) Object to pick.
-        """
-        pass
-
     def pitch_up(self):
         """
         Pitch robot up to look for door handle.
@@ -401,7 +366,8 @@ class Spot:
         """
         robot = self.robot
         robot.logger.info("Pitching robot up...")
-        command_client = robot.ensure_client(RobotCommandClient.default_service_name)
+        robot.ensure_client(RobotCommandClient.default_service_name)
+
         footprint_R_body = geometry.EulerZXY(0.0, 0.0, -1 * math.pi / 6.0)
         cmd = RobotCommandBuilder.synchro_stand_command(
             footprint_R_body=footprint_R_body
@@ -420,5 +386,4 @@ class Spot:
                 return
             time.sleep(1.0)
         raise Exception("Failed to pitch robot.")
-    
 

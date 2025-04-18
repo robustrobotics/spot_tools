@@ -12,6 +12,7 @@ from bosdyn.api.spot import door_pb2
 from bosdyn.client import frame_helpers
 from bosdyn.client.door import DoorClient
 from bosdyn.client.manipulation_api_client import ManipulationApiClient
+
 from bosdyn.api import image_pb2
 
 from spot_skills.skills_definitions import (
@@ -95,11 +96,13 @@ class RequestManager:
         elif len(fl_detected_handles) == 0 and len(fr_detected_handles) > 0:
             detected_side = "RIGHT"
             for detection in fr_detected_handles:
+
                 if detection.conf > max_conf: 
                     max_conf = detection.conf
                     max_detection = detection
 
         # If the handle was detected in both images
+
         else: 
             detected_side = "LEFT"
             for detection in fl_detected_handles:
@@ -125,8 +128,7 @@ class RequestManager:
             self.clicked_source = "frontright_fisheye_image"
 
         # SET THE HANDLE POSITION
-        self.handle_position_side_by_side = (detected_x, detected_y)
-        
+        self.handle_position_side_by_side = (detected_x, detected_y)     
         print(f"Detected door handle in {detected_side} at ({detected_x}, {detected_y})")
 
         # Construct side by side image and circle the detected door handle 
@@ -139,7 +141,7 @@ class RequestManager:
 
     def get_handle_and_hinge(self):
         """Use the model and the side by side image to detect the door handle and hinge."""
-        # This method should set self.handle_position_side_by_side and self.hinge_position_side_by_side
+        # This method should set self.handle_position_side_by_side and self.hinge_position_side_by_side  
         
         # These images should NOT be rotated. 
         fl_img = self.image_dict["frontleft_fisheye_image"][1]
@@ -209,7 +211,6 @@ class RequestManager:
         return frame_helpers.get_a_tform_b(snapshot, frame_helpers.VISION_FRAME_NAME,
                                            frame_name_image_sensor)
     
-
 def walk_to_object_in_image(robot, request_manager, debug):
     """Command the robot to walk toward user selected point. The WalkToObjectInImage feedback
     reports a raycast result, converting the 2D touchpoint to a 3D location in space.
@@ -223,6 +224,7 @@ def walk_to_object_in_image(robot, request_manager, debug):
         ManipulationApiResponse: Feedback from WalkToObjectInImage request.
     """
     manip_client = robot.ensure_client(ManipulationApiClient.default_service_name)
+
     manipulation_api_request = request_manager.get_walk_to_object_in_image_request(debug)
 
     # Send a manipulation API request. Using the points selected by the user, the robot will
@@ -391,5 +393,3 @@ def test_detect(model_path):
 
 if __name__ == '__main__':
     test_detect("/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt")
-
-
