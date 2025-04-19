@@ -357,7 +357,7 @@ def save_images_constant_rate(spot, object_name, folder_name, rate=1.0):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ip", type=str, default="192.168.80.3")
+    parser.add_argument("--ip", type=str, default="10.0.0.3") #192.168.80.3
     parser.add_argument("--username", type=str, default="user")
     parser.add_argument("--password", type=str, default="password")
     parser.add_argument(
@@ -369,7 +369,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    spot = Spot(username=args.username, password=args.password)
+    spot = Spot(username=args.username, password=args.password, ip=args.ip)
     print(spot.id)
     # assert False
     # spot.set_estop()
@@ -377,42 +377,16 @@ if __name__ == "__main__":
     spot.robot.power_on(timeout_sec=20)
     spot.robot.time_sync.wait_for_sync()
 
-    yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
-
-    # fl_img_response, fl_img = spot.get_image_RGB(view='frontleft_fisheye_image')
-    # fr_img_response, fr_img = spot.get_image_RGB(view='frontright_fisheye_image')
-    
-
-    # spot.get_live_stitched_image()
-    # # image = spot.get_stitched_image(fl_img_response, fr_img_response)
-
-    # image = spot.get_stitched_image(jpeg_quality_percent=100, crop_image=True)
-    # print(image.shape)
-    # cv2.imshow("Stitched Image", image)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-
-    # image = spot.get_stitched_image_RGB(fl_img_response, fr_img_response, crop_image=True)
-    # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-    # print(image.shape)
-    # cv2.imshow("Stitched Image", image)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-    
     # _run_open_door_test(spot, yoloworld_model_path)
-    # _run_walking_test(spot)
+    _run_walking_test(spot)
     # _run_gaze_test(spot)
-    # _run_traj_test(spot)
     # _run_grasp_test(spot)
     # _run_segment_test(spot)
     # spot.pitch_up()
     # print(look_for_object(spot, 'bag'))
 
-    save_images_constant_rate(spot, "test_object", "/home/aaron/spot_tools/spot_tools/data/object_images", rate=1)
-
     time.sleep(1)
 
-    # spot.stand()
-    # spot.sit()
-    # spot.sit()
-    # spot.safe_power_off()
+    spot.stand()
+    spot.sit()
+    spot.safe_power_off()

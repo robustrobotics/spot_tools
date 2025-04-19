@@ -71,7 +71,7 @@ class Spot:
         take_lease=True,
         set_estop=False,
         verbose=False,
-        semantic_model_path="../data/models/efficientvit_seg_l2.onnx",
+        semantic_model_path="../data/models/ade20k-efficientvit_seg_l2.onnx",
         debug=False,
         semantic_name_to_id=None,
     ):
