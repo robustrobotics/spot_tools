@@ -1,8 +1,10 @@
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from robot_executor_interface.action_descriptions import ActionSequence, Follow, Gaze
-from robot_executor_interface_ros.action_descriptions_ros import to_msg, to_viz_msg
+from robot_executor_interface.action_descriptions import (ActionSequence,
+                                                          Follow, Gaze)
+from robot_executor_interface_ros.action_descriptions_ros import (to_msg,
+                                                                  to_viz_msg)
 from robot_executor_msgs.msg import ActionSequenceMsg
 from visualization_msgs.msg import MarkerArray
 

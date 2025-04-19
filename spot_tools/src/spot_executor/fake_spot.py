@@ -2,7 +2,6 @@ import threading
 import time
 
 import numpy as np
-
 from spot_executor.bad_proto_mock import FakeFeedbackWrapper
 
 

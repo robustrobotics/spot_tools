@@ -8,9 +8,13 @@
 
 import io
 import os
+import sys
 from contextlib import contextmanager
 from ctypes import *
 
+import bosdyn.api
+import bosdyn.client.util
+import cv2
 import numpy
 import pygame
 from bosdyn.api import image_pb2
@@ -19,6 +23,8 @@ from bosdyn.client.frame_helpers import (
     get_a_tform_b,
     get_vision_tform_body,
 )
+from bosdyn.client.frame_helpers import (BODY_FRAME_NAME, get_a_tform_b,
+                                         get_vision_tform_body)
 from bosdyn.client.image import ImageClient, build_image_request
 from OpenGL.GL import *
 from OpenGL.GL import GL_VERTEX_SHADER, shaders

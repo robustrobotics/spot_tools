@@ -1,7 +1,7 @@
 import numpy as np
-from robot_executor_interface.action_descriptions import ActionSequence, Follow, Gaze
-
 import spot_executor as se
+from robot_executor_interface.action_descriptions import (ActionSequence,
+                                                          Follow, Gaze)
 
 
 def tf_lookup(parent, child):
