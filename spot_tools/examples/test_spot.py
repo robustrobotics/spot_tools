@@ -201,9 +201,10 @@ def _run_grasp_test(spot) -> None:
 
 def _run_drag_test(spot) -> None:
     spot.stand()
+
     stow_arm(spot)
     # referencing run grasp test
-    # open_gripper(spot)
+    open_gripper(spot)
     relative_pose = math_helpers.Vec3(x=1, y=0, z=0)
     # gaze_at_relative_pose(spot, relative_pose)
     time.sleep(0.2)
@@ -392,7 +393,7 @@ if __name__ == "__main__":
     # spot.take_lease()
     spot.robot.power_on(timeout_sec=20)
     spot.robot.time_sync.wait_for_sync()
-
+    stow_arm(spot)
     # _run_open_door_test(spot, yoloworld_model_path)
     # _run_walking_test(spot)
     # _run_gaze_test(spot)
