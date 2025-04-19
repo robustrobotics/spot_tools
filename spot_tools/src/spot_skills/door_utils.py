@@ -44,9 +44,9 @@ class RequestManager:
     def attributes_set(self):
         """bool: True if handle and hinge position set."""
         return (
-            self.handle_position_side_by_side is not None
-            and self.clicked_source is not None
-            and self.side_by_side.all() is not None
+            self.handle_position_side_by_side != None
+            and self.clicked_source != None
+            and self.side_by_side.all() != None
         )
 
     def detect_door_handle_in_image(self, img, class_id=HANDLE_ID):
