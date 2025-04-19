@@ -31,8 +31,8 @@ from bosdyn.client.robot_state import RobotStateClient
 
 """ From arm_impedance example
 """
-from arm_impedance_control_helpers import (apply_force_at_current_position,
-                                           get_impedance_mobility_params, get_root_T_ground_body)
+# from arm_impedance_control_helpers import (apply_force_at_current_position,
+#                                            get_impedance_mobility_params, get_root_T_ground_body)
 
 from bosdyn.client.math_helpers import Quat, SE3Pose, Vec3
 

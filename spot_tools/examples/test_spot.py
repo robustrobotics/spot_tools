@@ -47,6 +47,10 @@ from spot_skills.skills_definitions import (
     OpenDoorFeedback
 )
 
+from spot_skills.drag_utils import (
+    drag_object
+)
+
 def _run_walking_test(spot) -> None:
     # Put inside a function to avoid variable scoping issues.
 
@@ -194,6 +198,18 @@ def _run_grasp_test(spot) -> None:
     close_gripper(spot)
 
     pass
+
+def _run_drag_test(spot) -> None:
+    spot.stand()
+    stow_arm(spot)
+    # referencing run grasp test
+    # open_gripper(spot)
+    relative_pose = math_helpers.Vec3(x=1, y=0, z=0)
+    # gaze_at_relative_pose(spot, relative_pose)
+    time.sleep(0.2)
+
+    drag_object(spot, relative_pose, grasp_constraint=None)
+
 
 
 def _run_segment_test(spot):
@@ -359,7 +375,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ip", type=str, default="10.0.0.3") #192.168.80.3
     parser.add_argument("--username", type=str, default="user")
-    parser.add_argument("--password", type=str, default="password")
+    parser.add_argument("--password", type=str, default="nv20x2m3d0m4") #password
     parser.add_argument(
         "-t", "--timeout", default=5, type=float, help="Timeout in seconds"
     )
@@ -378,15 +394,16 @@ if __name__ == "__main__":
     spot.robot.time_sync.wait_for_sync()
 
     # _run_open_door_test(spot, yoloworld_model_path)
-    _run_walking_test(spot)
+    # _run_walking_test(spot)
     # _run_gaze_test(spot)
     # _run_grasp_test(spot)
+    _run_drag_test(spot)
     # _run_segment_test(spot)
     # spot.pitch_up()
     # print(look_for_object(spot, 'bag'))
 
-    time.sleep(1)
-
+    time.sleep(5)
     spot.stand()
-    spot.sit()
-    spot.safe_power_off()
+    stow_arm(spot)
+    # spot.sit()
+    # spot.safe_power_off()
