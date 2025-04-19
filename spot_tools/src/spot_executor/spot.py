@@ -57,10 +57,10 @@ from spot_executor.stitch_front_images import (
      stitch_live,
      stitch_RGB
 )
+from ultralytics import YOLOWorld
 
 # from predicators.spot_utils.spot_localization import SpotLocalizer
 # from predicators.spot_utils.utils import get_robot_state, get_spot_home_pose
-
 
 class Spot:
     def __init__(
@@ -72,9 +72,17 @@ class Spot:
         set_estop=False,
         verbose=False,
         semantic_model_path="../data/models/efficientvit_seg_l2.onnx",
+        yolo_world_path="../data/models/yolov8x-worldv2.pt",
         debug=False,
         semantic_name_to_id=None,
     ):
+         # YOLOv8 model for world detection
+        print("Initializing YOLOWorld model. ")
+        self.yolo_model = YOLOWorld(yolo_world_path)
+        custom_classes = ['', 'wood block', 'pipe']
+        self.yolo_model.set_classes(custom_classes) 
+        print("Set classes for YOLOWorld model.")
+
         self.is_fake = False
         self.verbose = verbose
         bosdyn.client.util.setup_logging(verbose)
@@ -106,6 +114,8 @@ class Spot:
         self.ort_session = ort.InferenceSession(semantic_model_path)
         self.semantic_name_to_id = semantic_name_to_id
 
+       
+        
         if set_estop:
             self.set_estop()
 
@@ -113,6 +123,8 @@ class Spot:
             self.take_lease()
         else:
             self.aquire_lease()
+
+        
 
     def get_state(self):
         return self.state_client.get_robot_state()

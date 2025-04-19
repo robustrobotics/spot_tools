@@ -3,6 +3,7 @@ import numpy as np
 import time 
 from ultralytics import YOLOWorld
 import cv2 
+from copy import copy
 
 from openai import OpenAI # Import the OpenAI package
 import os # Import the os package
@@ -31,7 +32,8 @@ from spot_skills.navigation_utils import (
     navigate_to_absolute_pose
 )
 from spot_skills.grasp_utils import (
-    object_grasp
+    object_grasp,
+    object_grasp_YOLO
 )
 
 from spot_skills.door_utils import (
@@ -123,18 +125,20 @@ def _run_gaze_test(spot) -> None:
     relative_poses = [
         # (resting_point, "Looking nowhere"),
         # (relative_up, "Looking up"),
-        (relative_up, "Looking up"),
-        (math_helpers.Vec3(x=0, y=5, z=0), "Looking left"),
-        (math_helpers.Vec3(x=0, y=-5, z=0), "Looking right"),
+        # (relative_up, "Looking up"),
+        (math_helpers.Vec3(x=1.76, y=1, z=0.05), "Looking where Travis tells me to"),
+        (math_helpers.Vec3(x=1.29, y=-0.34, z=-0.54), "Looking right"),
         # (math_helpers.Vec3(x=0, y=-0.5, ), "Looking -dy"),
-        # (math_helpers.Vec3(x=0.5, y=0, ), "Looking dx"),
+        # (math_helpers.Vec3(x=0.5, y=0, z=0), "Looking dx"),
         # (math_helpers.Vec3(x=-0.5, y=0, ), "Looking -dx"),
         # (math_helpers.Vec3(x=0, y=0, ), "Looking yaw"),
         # (math_helpers.Vec3(x=0, y=0, ), "Looking -yaw"),
     ]
     for relative_pose, msg in relative_poses:
         print(msg)
-        spot.gaze_at_relative_pose(relative_pose)
+        gaze_at_relative_pose(spot, relative_pose)
+        input("Press enter when ready to move on")
+        stow_arm(spot)
         input("Press enter when ready to move on")
         # time.sleep(0.5)
 
@@ -187,6 +191,26 @@ def _run_grasp_test(spot) -> None:
         #  semantic_model_path='data/models/efficientvit_seg_l2.onnx',
         semantic_class="bag",
         grasp_constraint=None,
+    )
+
+    open_gripper(spot)
+    stow_arm(spot)
+    close_gripper(spot)
+
+    pass
+
+def _run_YOLO_grasp_test(spot): 
+    open_gripper(spot)
+    relative_pose = math_helpers.Vec3(x=1, y=0, z=0)
+    gaze_at_relative_pose(spot, relative_pose)
+    time.sleep(0.2)
+
+    object_grasp_YOLO(spot,
+        image_source="hand_color_image",
+        user_input=False,
+        semantic_class="wood block",
+        grasp_constraint=None,
+        debug=True,
     )
 
     open_gripper(spot)
@@ -251,6 +275,65 @@ def _run_open_door_test(spot, model_path, max_tries=2) -> None:
     # # cv2.imshow('Ego View', feedback.ego_view)
     # # cv2.waitKey(0)
     # # cv2.destroyAllWindows()
+
+def _run_YOLOWorld_test(spot):
+    open_gripper(spot)
+    hand_image_request, hand_image = spot.get_image_RGB()
+    results = spot.yolo_model(hand_image)
+    object_to_pick_up = "wood block"
+    # Process results
+
+    annotated_hand_image = copy(hand_image)
+    # Show all of the detections           
+    for r in results:
+        boxes = r.boxes  # Bounding boxes
+        for box in boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            class_id = int(box.cls[0])
+            confidence = float(box.conf[0])
+
+            # Draw bounding box and label
+            cv2.rectangle(annotated_hand_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            label = f"{r.names[class_id]} {confidence:.2f}"
+            cv2.putText(annotated_hand_image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    # Display or save the annotated image
+    cv2.imshow('YOLO Output', annotated_hand_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    most_confident = copy(hand_image)
+    best_box = None
+    best_confidence = -1.0
+
+    for r in results:
+        boxes = r.boxes
+        for box in boxes:
+            class_id = int(box.cls[0])
+            class_name = r.names[class_id]
+            confidence = float(box.conf[0])
+
+            if class_name == object_to_pick_up and confidence > best_confidence:
+                best_confidence = confidence
+                best_box = box
+
+    if best_box:
+        x1, y1, x2, y2 = map(int, best_box.xyxy[0].tolist())
+        class_id = int(best_box.cls[0])
+
+        # Draw bounding box and label
+        cv2.rectangle(most_confident, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        label = f"{r.names[class_id]} {best_confidence:.2f}"
+        cv2.putText(most_confident, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+        # Display or save the annotated image
+        cv2.imshow('Most Confident Output', most_confident)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+    else: 
+        raise Exception("No objects of semantic class found")
+    
+
 
 def encode_numpy_image_to_base64(image_np: np.ndarray, format: str = "PNG"):
 
@@ -369,26 +452,30 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    spot = Spot(username=args.username, password=args.password)
+    spot = Spot(ip=args.ip, username=args.username, password=args.password)
     print(spot.id)
     # assert False
     # spot.set_estop()
     # spot.take_lease()
     spot.robot.power_on(timeout_sec=20)
     spot.robot.time_sync.wait_for_sync()
+    spot.stand()
+    stow_arm(spot)
 
     # yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
     
     # _run_open_door_test(spot, yoloworld_model_path)
     # _run_walking_test(spot)
     # _run_gaze_test(spot)
+    _run_YOLO_grasp_test(spot)
     # _run_traj_test(spot)
     # _run_grasp_test(spot)
     # _run_segment_test(spot)
+    # _run_YOLOWorld_test(spot)
     # spot.pitch_up()
     # print(look_for_object(spot, 'bag'))
 
     # spot.stand()
+    spot.sit()
     # spot.sit()
-    # spot.sit()
-    # spot.safe_power_off()
+    spot.safe_power_off()
