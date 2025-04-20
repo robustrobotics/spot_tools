@@ -22,7 +22,7 @@ import bosdyn.client.util
 
 from bosdyn.api import estop_pb2, geometry_pb2, image_pb2, manipulation_api_pb2
 from bosdyn.client.estop import EstopClient
-from bosdyn.client.frame_helpers import ODOM_FRAME_NAME, VISION_FRAME_NAME, get_vision_tform_body, get_a_tform_b, math_helpers
+from bosdyn.client.frame_helpers import ODOM_FRAME_NAME, VISION_FRAME_NAME, BODY_FRAME_NAME, get_vision_tform_body, get_a_tform_b, get_se2_a_tform_b, math_helpers
 from bosdyn.client.image import ImageClient
 from bosdyn.client.manipulation_api_client import ManipulationApiClient
 from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient,
@@ -51,6 +51,10 @@ from spot_skills.arm_utils import (
 )
 
 import matplotlib as plt
+from typing import Tuple
+from bosdyn.api.geometry_pb2 import SE2Velocity, SE2VelocityLimit, Vec2
+from bosdyn.api.basic_command_pb2 import RobotCommandFeedbackStatus
+
 ###
 g_image_click = None
 g_image_display = None
@@ -69,7 +73,7 @@ ENABLE_STAND_YAW_ASSIST = False
 # pixel_xy = get_user_grasp_input(spot, img)
 
 # 2. Grasp (without stowing back)
-def grasp_object(spot, image, xy, grasp_constraint):
+def grasp_in_image(spot, image, xy, grasp_constraint):
     robot_state_client = spot.state_client
     manipulation_api_client = spot.manipulation_api_client
 
@@ -220,7 +224,80 @@ def move_into_drag_mode(spot):
     input("Did spot turn  back?")
 
 # 4. Move it relative pose
-def navigate_to_relative_pose(spot, relative_pose, start_odom_T_body):
+def navigate_to_relative_pose(
+    spot, 
+    body_tform_goal: math_helpers.SE2Pose,
+    max_xytheta_vel: Tuple[float, float, float] = (2.0, 2.0, 1.0),
+    min_xytheta_vel: Tuple[float, float, float] = (-2.0, -2.0, -1.0),
+    timeout: float = 20.0, 
+    on_build_command=None,
+) -> None:
+    """Execute a relative move.
+
+    The pose is dx, dy, dyaw relative to the robot's body.
+
+    *** same as in navigation_utils but adds build_on_command
+    """
+    # Get the robot's current state.
+    robot_state = spot.get_state()
+    transforms = robot_state.kinematic_state.transforms_snapshot
+
+    assert str(transforms) != ""
+
+    # We do not want to command this goal in body frame because the body will
+    # move, thus shifting our goal. Instead, we transform this offset to get
+    # the goal position in the output frame (odometry).
+    out_tform_body = get_se2_a_tform_b(transforms, ODOM_FRAME_NAME, BODY_FRAME_NAME)
+    out_tform_goal = out_tform_body * body_tform_goal
+
+    # Command the robot to go to the goal point in the specified
+    # frame. The command will stop at the new position.
+    # Constrain the robot not to turn, forcing it to strafe laterally.
+    speed_limit = SE2VelocityLimit(
+        max_vel=SE2Velocity(
+            linear=Vec2(x=max_xytheta_vel[0], y=max_xytheta_vel[1]),
+            angular=max_xytheta_vel[2],
+        ),
+        min_vel=SE2Velocity(
+            linear=Vec2(x=min_xytheta_vel[0], y=min_xytheta_vel[1]),
+            angular=min_xytheta_vel[2],
+        ),
+    )
+    mobility_params = spot_command_pb2.MobilityParams(vel_limit=speed_limit)
+
+    robot_command_client = spot.robot.ensure_client(
+        RobotCommandClient.default_service_name
+    )
+    robot_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
+        goal_x=out_tform_goal.x,
+        goal_y=out_tform_goal.y,
+        goal_heading=out_tform_goal.angle,
+        frame_name=ODOM_FRAME_NAME,
+        params=mobility_params,
+        build_on_command=on_build_command
+    )
+    cmd_id = robot_command_client.robot_command(
+        lease=None, command=robot_cmd, end_time_secs=time.time() + timeout
+    )
+    start_time = time.perf_counter()
+    while (time.perf_counter() - start_time) <= timeout:
+        feedback = robot_command_client.robot_command_feedback(cmd_id)
+        mobility_feedback = (
+            feedback.feedback.synchronized_feedback.mobility_command_feedback
+        )
+        if mobility_feedback.status != RobotCommandFeedbackStatus.STATUS_PROCESSING:  # pylint: disable=no-member,line-too-long
+            spot.robot.logger.info("Failed to reach the goal")
+            return
+        traj_feedback = mobility_feedback.se2_trajectory_feedback
+        if (
+            traj_feedback.status == traj_feedback.STATUS_AT_GOAL
+            and traj_feedback.body_movement_status == traj_feedback.BODY_STATUS_SETTLED
+        ):
+            return
+    if (time.perf_counter() - start_time) > timeout:
+        spot.robot.logger.info("Timed out waiting for movement to execute!")
+
+def navigate_to_relative_pose_old(spot, relative_pose):
     ''' Navigates to relative pose while keep arm joint frozen'''
     robot_state_client = spot.state_client
     manipulation_api_client = spot.manipulation_api_client
@@ -288,6 +365,18 @@ def drag_object(spot, relative_pose, grasp_constraint=None, debug=False):
     start_yaw = start_odom_T_body.rot.to_yaw()
     print(f"Spot's starting position: {start_pos.x:.2f} m, {start_pos.y:.2f} m, {start_pos.z:.2f} m, {start_yaw:.2f} rad")
 
+    # S0 - get relative pose of desired goal as a absolute pose in world frame
+    transforms = spot.get_state().kinematic_state.transforms_snapshot
+
+    body_0_tform_goal=math_helpers.SE2Pose(x=relative_pose.x, y=relative_pose.y, angle=relative_pose.angle)
+    print("Body 0 tform goal", body_0_tform_goal)
+
+    out_tform_body_0 = get_se2_a_tform_b(transforms, ODOM_FRAME_NAME, BODY_FRAME_NAME)
+    print("Out tform body 0", out_tform_body_0)
+
+    out_tform_goal = out_tform_body_0 * body_0_tform_goal
+    print("Out tform goal", out_tform_goal)
+
     # S1 - Get image and ask user to select object in image
     view = "frontleft_fisheye_image" # check
     image, img = spot.get_image_RGB(view) # # image request - info about camera, img - numpy array, actual image
@@ -296,13 +385,24 @@ def drag_object(spot, relative_pose, grasp_constraint=None, debug=False):
     print(pixel_xy)
 
     # S2 - Grasp object based on pixel coordinates
-    grasp_object(spot, image, pixel_xy, grasp_constraint)
+    grasp_in_image(spot, image, pixel_xy_rotated, grasp_constraint)
 
     #S3 - Go into drag mode (freeze, and move) 
     move_into_drag_mode(spot)
-
+    
+    return
     #S4 - Move to relative pose with frozen joint 
-    navigate_to_relative_pose(spot,relative_pose,start_odom_T_body)
+    transforms = spot.get_state().kinematic_state.transforms_snapshot
+
+    # body_tform_goal=math_helpers.SE2Pose(x=relative_pose.x, y=relative_pose.y, angle=relative_pose.angle)
+    out_tform_body = get_se2_a_tform_b(transforms, ODOM_FRAME_NAME, BODY_FRAME_NAME)
+    print("Out tform body", out_tform_body)
+
+    body_tform_goal = out_tform_goal.inverse() * out_tform_body
+    print("Body tform goal", body_tform_goal)
+
+    navigate_to_relative_pose(spot, body_tform_goal, on_build_command=joint_freeze_command)
+    joint_freeze_command = RobotCommandBuilder.arm_joint_freeze_command()    navigate_to_relative_pose(spot,relative_pose,start_odom_T_body)
     #S5 - Release grip
     open_gripper(spot)
 
