@@ -163,7 +163,7 @@ def move_into_drag_mode(spot):
     turn_angle = np.deg2rad(90)
     mobility_params = mobility_params_for_slow_walk()
     walk_command = RobotCommandBuilder.synchro_trajectory_command_in_body_frame(
-    1, 0, turn_angle,
+    0.75, 0, turn_angle,
     robot_state_client.get_robot_state().kinematic_state.transforms_snapshot,
     params=mobility_params)
 
@@ -220,13 +220,18 @@ def move_into_drag_mode(spot):
     input("Did spot turn  back?")
 
 # 4. Move it relative pose
-def navigate_to_relative_pose(spot, relative_pose):
+def navigate_to_relative_pose(spot, relative_pose, start_odom_T_body):
     ''' Navigates to relative pose while keep arm joint frozen'''
-    
+    robot_state_client = spot.state_client
+    manipulation_api_client = spot.manipulation_api_client
+    command_client = spot.robot.ensure_client(RobotCommandClient.default_service_name)
 
     rel_x = relative_pose.x
     rel_y = relative_pose.y
-    robot = spot 
+
+    start_pos = start_odom_T_body.position  # x, y, z
+    start_yaw = start_odom_T_body.rot.to_yaw()
+    # robot = spot 
 
     # Create a joint freeze command
     joint_freeze_command = RobotCommandBuilder.arm_joint_freeze_command()
@@ -265,7 +270,7 @@ def navigate_to_relative_pose(spot, relative_pose):
 
     # Send the request
     cmd_id = command_client.robot_command(joint_freeze_and_walk_command, end_time_secs=time.time() + end_time)
-    robot.logger.info('Walking with joint move to freeze.')
+    spot.robot.logger.info('Walking with joint move to freeze.')
 
     # Wait until the body arrives at the goal.
     block_for_trajectory_cmd(command_client, cmd_id, timeout_sec=10)
@@ -277,50 +282,31 @@ def navigate_to_relative_pose(spot, relative_pose):
 
 # High level function to be called 
 def drag_object(spot, relative_pose, grasp_constraint=None, debug=False):
-    
+    # S0 - Get start pose
+    start_odom_T_body = get_a_tform_b(spot.get_state().kinematic_state.transforms_snapshot, ODOM_FRAME_NAME, "body")
+    start_pos = start_odom_T_body.position  # x, y, z
+    start_yaw = start_odom_T_body.rot.to_yaw()
+    print(f"Spot's starting position: {start_pos.x:.2f} m, {start_pos.y:.2f} m, {start_pos.z:.2f} m, {start_yaw:.2f} rad")
+
     # S1 - Get image and ask user to select object in image
     view = "frontleft_fisheye_image" # check
-    image, img = spot.get_image_RGB(view)
-
-    # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
+    image, img = spot.get_image_RGB(view) # # image request - info about camera, img - numpy array, actual image
     
-    # img = cv2.resize(img, (512, 512))  # Resize to match the model's input size
+    pixel_xy = get_user_grasp_input(spot, img) # returns pixel coordinates
+    print(pixel_xy)
 
-    # # Rotate Image
-    # img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-
-    # if debug:
-    #     plt.imshow(
-    #         image, cmap="jet"
-    #     )  # 'jet' is a colormap, you can choose other colormaps like 'gray'
-    #     plt.colorbar()  # Add a colorbar to the side
-    #     plt.title("Image Output")
-    #     plt.show()
-
-    # # image request - info about camera, 
-    # # img - numpy array, actual image
-    pixel_xy_rotated = get_user_grasp_input(spot, img) # returns pixel coordinates
-    print(pixel_xy_rotated)
-    # if debug:
-    #     plt.imshow(
-    #         pixel_xy_rotated, cmap="jet"
-    #     )  # 'jet' is a colormap, you can choose other colormaps like 'gray'
-    #     plt.colorbar()  # Add a colorbar to the side
-    #     plt.title("Output")
-    #     plt.show()
-    # # rotate back
-    # pixel_xy = cv2.rotate(pixel_xy_rotated, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    # print(pixel_xy)
     # S2 - Grasp object based on pixel coordinates
-    grasp_object(spot, image, pixel_xy_rotated, grasp_constraint)
+    grasp_object(spot, image, pixel_xy, grasp_constraint)
 
     #S3 - Go into drag mode (freeze, and move) 
     move_into_drag_mode(spot)
 
     #S4 - Move to relative pose with frozen joint 
-
+    navigate_to_relative_pose(spot,relative_pose,start_odom_T_body)
     #S5 - Release grip
-    # open_gripper(spot)
+    open_gripper(spot)
+
+    spot.robot.logger("finished drag sequence")
 
     
 
