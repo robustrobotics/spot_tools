@@ -11,7 +11,8 @@ import numpy as np
 
 @dataclass
 class GraspFeedback:
-    gripper_open_percentage: float = 0.0
+    initial_gripper_open_percentage: float = 0.0
+    final_gripper_open_percentage: float = 0.0
     initial_grasp: bool = False
     final_grasp: bool = False
 
