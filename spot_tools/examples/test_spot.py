@@ -51,6 +51,10 @@ from spot_skills.drag_utils import (
     drag_object
 )
 
+from spot_skills.skills_definitions_graspfeedback import (
+    GraspFeedback
+)
+
 def _run_walking_test(spot) -> None:
     # Put inside a function to avoid variable scoping issues.
 
@@ -201,16 +205,26 @@ def _run_grasp_test(spot) -> None:
 
 def _run_drag_test(spot) -> None:
     spot.stand()
-
     stow_arm(spot)
-    # referencing run grasp test
     open_gripper(spot)
-    relative_pose = math_helpers.Vec3(x=1, y=0, z=0)
-    # gaze_at_relative_pose(spot, relative_pose)
+    close_gripper(spot)
+    
+    # Define relative pose (to robot)
+    relative_pose = math_helpers.SE2Pose(x=1, y=1, angle=0)#math_helpers.Vec3(x=1, y=0, z=0)
+    print("Running drag test ...")
+    drag_object(spot, 
+        relative_pose, 
+        image_source="frontleft_fisheye_image", 
+        user_input=True,
+        arm_on_side="right",
+        pixel_xy=None,
+        grasp_constraint=None,
+        feedback=GraspFeedback(),
+        debug=False
+    )
+
+    print("Finished drag test")
     time.sleep(0.2)
-
-    drag_object(spot, relative_pose, grasp_constraint=None)
-
 
 
 def _run_segment_test(spot):
@@ -404,7 +418,9 @@ if __name__ == "__main__":
     # print(look_for_object(spot, 'bag'))
 
     time.sleep(5)
-    spot.stand()
+    open_gripper(spot)
     stow_arm(spot)
+    spot.stand()
+    
     # spot.sit()
     # spot.safe_power_off()
