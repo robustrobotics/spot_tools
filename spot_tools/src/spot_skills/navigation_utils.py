@@ -2,6 +2,7 @@
 
 import time
 from typing import Tuple
+
 import numpy as np
 import shapely
 from bosdyn.api import geometry_pb2
@@ -124,7 +125,7 @@ def navigate_to_absolute_pose(
     )
     return cmd_id
 
-  
+
 def follow_trajectory_continuous(
     spot,
     waypoints_list: ArrayLike,
@@ -182,7 +183,7 @@ def follow_trajectory_continuous(
 
         if feedback is not None:
             feedback.path_following_progress_feedback(progress_point, target_point)
-      
+
         # 3. send command
         current_waypoint = math_helpers.SE2Pose(
             x=target_point.x, y=target_point.y, angle=yaw_angle
@@ -204,4 +205,3 @@ def turn_to_point(spot, current_position, target_position):
         x=current_position[0], y=current_position[1], angle=angle
     )
     navigate_to_absolute_pose(spot, waypoint, "vision", stairs=False)
-

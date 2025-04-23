@@ -81,7 +81,6 @@ class FakeSpot:
         password="",
         init_pose=None,
         semantic_model_path=None,
-
     ):
         print("Initialized Fake Spot!")
         self.is_fake = True
