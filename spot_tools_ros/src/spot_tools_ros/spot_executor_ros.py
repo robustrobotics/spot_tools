@@ -24,7 +24,6 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 
-from geometry_msgs.msg import Pose2D
 
 
 
@@ -227,11 +226,11 @@ class SpotExecutorRos(Node):
 
         else:
             self.get_logger().info("About to initialize Spot")
-            self.get_logger().info(f"{bdai_username=}, {bdai_password=}, {spot_ip=}")
             self.spot_interface = Spot(
                 username=bdai_username,
                 password=bdai_password,
                 ip=spot_ip,
+                semantic_model_path=None,
             )
 
         self.get_logger().info("Initialized!")
@@ -255,35 +254,12 @@ class SpotExecutorRos(Node):
             10,
         )
 
-        self.pose_pub = self.create_publisher(
-            Pose2D, "~/spot_pose", 1
-        )
-        timer_period = 1.0  # seconds
-        self.pose_timer = self.create_timer(timer_period, self.publish_pose)
-
         self.heartbeat_pub = self.create_publisher(NodeInfoMsg, "~/node_status", 1)
         heartbeat_timer_group = MutuallyExclusiveCallbackGroup()
         timer_period_s = 0.1
         self.timer = self.create_timer(
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
-
-    def publish_pose(self):
-        if self.spot_interface is None:
-            self.get_logger().warn("Spot interface not initialized, cannot publish pose.")
-            return
-        else:
-            pose = self.spot_interface.get_pose()
-            if pose is None:
-                self.get_logger().warn("Spot interface returned None for pose.")
-                return
-        #msg = Pose2D(x=pose.x, y=pose.y, theta=pose.angle)
-        msg = Pose2D(x=pose[0], y=pose[1], theta=pose[2])
-
-        self.pose_pub.publish(msg)
-        self.status_str = f"Publishing pose: {pose}"
-        self.pose_pub.publish(msg)
-        self.get_logger().info(f'Publishing: {msg}')
 
     def hb_callback(self):
         msg = NodeInfoMsg()
