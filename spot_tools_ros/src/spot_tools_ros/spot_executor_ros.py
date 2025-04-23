@@ -19,7 +19,7 @@ from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
-from spot_executor.utils import waypoints_to_path
+from spot_executor_ros.utils import waypoints_to_path
 from visualization_msgs.msg import Marker, MarkerArray
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
