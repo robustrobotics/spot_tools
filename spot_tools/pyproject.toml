@@ -3,3 +3,4 @@ profile = "black"
 
 [tool.ruff.lint.per-file-ignores]
 "stitch_front_images.py" = ["F405", "F403"]
+"__init__.py" = ["F401"]

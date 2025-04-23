@@ -20,10 +20,10 @@ from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
-from spot_executor_ros.utils import waypoints_to_path
 from visualization_msgs.msg import Marker, MarkerArray
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
+from spot_tools_ros.utils import waypoints_to_path
 
 
 def load_inverse_semantic_id_map_from_label_space(fn):
