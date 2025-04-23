@@ -33,7 +33,8 @@ from spot_skills.navigation_utils import (
 )
 from spot_skills.grasp_utils import (
     object_grasp,
-    object_grasp_YOLO
+    object_grasp_YOLO,
+    object_place
 )
 
 from spot_skills.door_utils import (
@@ -219,6 +220,8 @@ def _run_YOLO_grasp_test(spot):
 
     pass
 
+def _run_place_test(spot):
+    object_place(spot)
 
 def _run_segment_test(spot):
     open_gripper(spot)
@@ -459,15 +462,16 @@ if __name__ == "__main__":
     # spot.take_lease()
     spot.robot.power_on(timeout_sec=20)
     spot.robot.time_sync.wait_for_sync()
-    spot.stand()
-    stow_arm(spot)
+    # spot.stand()
+    # stow_arm(spot)
 
     # yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
     
     # _run_open_door_test(spot, yoloworld_model_path)
     # _run_walking_test(spot)
     # _run_gaze_test(spot)
-    _run_YOLO_grasp_test(spot)
+    # _run_YOLO_grasp_test(spot)
+    _run_place_test(spot)
     # _run_traj_test(spot)
     # _run_grasp_test(spot)
     # _run_segment_test(spot)
@@ -478,4 +482,4 @@ if __name__ == "__main__":
     # spot.stand()
     spot.sit()
     # spot.sit()
-    spot.safe_power_off()
+    # spot.safe_power_off()

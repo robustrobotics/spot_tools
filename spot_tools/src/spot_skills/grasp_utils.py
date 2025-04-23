@@ -32,10 +32,14 @@ from spot_skills.arm_utils import (
     open_gripper,
     stow_arm,
 )
+from bosdyn.client.frame_helpers import ODOM_FRAME_NAME
 
 g_image_click = None
 g_image_display = None
 
+from spot_skills.arm_impedance_control_helpers import (
+    apply_force_at_current_position,
+    get_root_T_ground_body)
 
 def wait_until_grasp_state_updates(grasp_override_command, robot_state_client):
     updated = False
@@ -107,7 +111,6 @@ def force_stow_arm(manipulation_client, state_client, command_client):
     block_until_arm_arrives(command_client, cmd_id)
 
 
-
 def object_place(spot, semantic_class="bag", position=None):
     """Drop a grasped object."""
 
@@ -116,7 +119,23 @@ def object_place(spot, semantic_class="bag", position=None):
 
     time.sleep(0.25)
     arm_to_carry(spot)
+    stow_arm(spot)
     arm_to_drop(spot)
+
+    odom_T_task = get_root_T_ground_body(robot_state=spot.get_state(), root_frame_name=ODOM_FRAME_NAME)
+    wr1_T_tool = math_helpers.SE3Pose(0.23589, 0, -0.03943, math_helpers.Quat.from_pitch(-np.pi / 2))
+    force_dir_rt_task =  math_helpers.Vec3(0, 0, -1) # adjust downward force here 
+    robot_cmd = apply_force_at_current_position(
+        force_dir_rt_task_in=force_dir_rt_task, force_magnitude=8,
+        robot_state=spot.get_state(), root_frame_name=ODOM_FRAME_NAME,
+        root_T_task=odom_T_task, wr1_T_tool_nom=wr1_T_tool)
+
+    # Execute the impedance command
+    cmd_id = spot.command_client.robot_command(robot_cmd)
+    spot.robot.logger.info('Impedance command issued')
+    impedance_success = block_until_arm_arrives(spot.command_client, cmd_id, 10.0)
+    input("Did impedance work")
+    
     open_gripper(spot)
     # drop_object(spot)
     stow_arm(spot)

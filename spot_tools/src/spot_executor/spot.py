@@ -71,15 +71,15 @@ class Spot:
         take_lease=True,
         set_estop=False,
         verbose=False,
-        semantic_model_path="../data/models/efficientvit_seg_l2.onnx",
-        yolo_world_path="../data/models/yolov8x-worldv2.pt",
+        semantic_model_path="/home/rrg/dcist_ws/src/awesome_dcist_t4/spot_tools/spot_tools/data/models/efficientvit_seg_l2.onnx",
+        yolo_world_path="/home/rrg/dcist_ws/src/awesome_dcist_t4/spot_tools/spot_tools/data/models/yolov8x-worldv2.pt",
         debug=False,
         semantic_name_to_id=None,
     ):
          # YOLOv8 model for world detection
         print("Initializing YOLOWorld model. ")
         self.yolo_model = YOLOWorld(yolo_world_path)
-        custom_classes = ['', 'wood block', 'pipe']
+        custom_classes = ['', 'bag', 'wood block', 'pipe']
         self.yolo_model.set_classes(custom_classes) 
         print("Set classes for YOLOWorld model.")
 
@@ -139,7 +139,7 @@ class Spot:
             transforms, VISION_FRAME_NAME, BODY_FRAME_NAME
         )
 
-        return out_tform_body
+        return np.array([out_tform_body.x, out_tform_body.y, out_tform_body.angle])
 
     def get_image(self, view="hand_color_image", show=False):
         self.robot.logger.info("Getting an image from: %s", view)
