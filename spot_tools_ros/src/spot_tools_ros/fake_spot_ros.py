@@ -26,6 +26,7 @@ class FakeSpotRos:
 
         self.odom_frame_name = odom_frame
         self.body_frame_name = body_frame
+        self.tf_prefix = "/".join(body_frame.split("/")[:-1])
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self.host_node)
@@ -97,7 +98,7 @@ class FakeSpotRos:
 
         joint_state_map = self.robot.get_joint_states()
         values = list(map(float, joint_state_map.values()))  # I hate ROS2 so much
-        jsm.name = list(joint_state_map.keys())
+        jsm.name = [f"{self.tf_prefix}/{k}" for k in joint_state_map.keys()]
         jsm.position = values
 
         self.joint_state_publisher.publish(jsm)
