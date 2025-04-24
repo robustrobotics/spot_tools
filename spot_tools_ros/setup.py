@@ -47,6 +47,7 @@ setup(
     entry_points={
         "console_scripts": [
             "spot_executor_node = spot_tools_ros.spot_executor_ros:main",
+            "spot_sensor_node = spot_tools_ros.spot_sensors:main",
         ],
     },
 )
