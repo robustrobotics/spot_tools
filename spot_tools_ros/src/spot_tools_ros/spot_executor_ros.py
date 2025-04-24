@@ -6,6 +6,7 @@ import rclpy.time
 import spot_executor as se
 import tf2_ros
 import yaml
+from cv_bridge import CvBridge
 
 # from cv_bridge import CvBridge
 from nav_msgs.msg import Path
@@ -19,12 +20,10 @@ from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
-from spot_executor.utils import waypoints_to_path
 from visualization_msgs.msg import Marker, MarkerArray
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
-
-
+from spot_tools_ros.utils import waypoints_to_path
 
 
 def load_inverse_semantic_id_map_from_label_space(fn):
@@ -160,12 +159,12 @@ class SpotExecutorRos(Node):
         self.declare_parameter("semantic_model_path", "")
         self.declare_parameter("labelspace_path", "")
         self.declare_parameter("labelspace_grouping_path", "")
-        semantic_model_path = self.get_parameter("semantic_model_path").value
-        labelspace_path = self.get_parameter("labelspace_path").value
+        # semantic_model_path = self.get_parameter("semantic_model_path").value
+        # labelspace_path = self.get_parameter("labelspace_path").value
         # semantic_name_to_id = load_inverse_semantic_id_map_from_label_space(
         #    labelspace_path
         # )
-        labelspace_grouping_path = self.get_parameter("labelspace_grouping_path").value
+        # labelspace_grouping_path = self.get_parameter("labelspace_grouping_path").value
         # with open(labelspace_grouping_path, "r") as f:
         #    grouping_info = yaml.safe_load(f)
         # turn list of dictionaries into single dictionary
@@ -180,9 +179,7 @@ class SpotExecutorRos(Node):
 
         if use_fake_spot_interface:
             self.declare_parameter("fake_spot_external_pose", False)
-            self.declare_parameter("fake_spot_static_pose", False)
             external_pose = self.get_parameter("fake_spot_external_pose").value
-            static_pose = self.get_parameter("fake_spot_static_pose").value
 
             self.declare_parameter("use_fake_spot_pose", False)
             if self.get_parameter("use_fake_spot_pose").value:
@@ -200,7 +197,7 @@ class SpotExecutorRos(Node):
                     "Must set fake_spot_x, fake_spot_y, fake_spot_z, fake_spot_yaw"
                 )
             else:
-                spot_init_pose2d = np.array([0,0,0,0])
+                spot_init_pose2d = np.array([0, 0, 0, 0])
 
             self.get_logger().info(str(spot_init_pose2d))
             self.get_logger().info("About to initialize fake spot")
@@ -211,7 +208,6 @@ class SpotExecutorRos(Node):
                 semantic_model_path=None,
             )
 
-
             self.declare_parameter("odom_frame", "")
             odom_frame = self.get_parameter("odom_frame").value
             assert odom_frame != ""
@@ -221,7 +217,11 @@ class SpotExecutorRos(Node):
             assert body_frame != ""
 
             self.spot_ros_interface = FakeSpotRos(
-                self, self.spot_interface, odom_frame, body_frame, external_pose=external_pose
+                self,
+                self.spot_interface,
+                odom_frame,
+                body_frame,
+                external_pose=external_pose,
             )
 
         else:

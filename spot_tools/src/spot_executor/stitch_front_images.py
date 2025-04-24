@@ -8,28 +8,26 @@
 
 import io
 import os
-import cv2
-import sys
 from contextlib import contextmanager
 from ctypes import *
 
 import numpy
-import OpenGL
 import pygame
+from bosdyn.api import image_pb2
+from bosdyn.client.frame_helpers import (
+    BODY_FRAME_NAME,
+    get_a_tform_b,
+    get_vision_tform_body,
+)
+from bosdyn.client.image import ImageClient, build_image_request
 from OpenGL.GL import *
 from OpenGL.GL import GL_VERTEX_SHADER, shaders
 from OpenGL.GLU import *
 from PIL import Image
 from pygame.locals import *
 
-import bosdyn.api
-import bosdyn.client.util
-from bosdyn.api import image_pb2
-from bosdyn.client.frame_helpers import BODY_FRAME_NAME, get_a_tform_b, get_vision_tform_body
-from bosdyn.client.image import ImageClient, build_image_request
 
-
-class ImagePreppedForOpenGL():
+class ImagePreppedForOpenGL:
     """Prep image for OpenGL from Spot image_response."""
 
     def extract_image(self, image_response):
@@ -37,44 +35,57 @@ class ImagePreppedForOpenGL():
         image_format = image_response.shot.image.format
 
         if image_format == image_pb2.Image.FORMAT_RAW:
-            raise Exception('Won\'t work.  Yet.')
+            raise Exception("Won't work.  Yet.")
         elif image_format == image_pb2.Image.FORMAT_JPEG:
-            numpy_array = numpy.asarray(Image.open(io.BytesIO(image_response.shot.image.data)))
+            numpy_array = numpy.asarray(
+                Image.open(io.BytesIO(image_response.shot.image.data))
+            )
         else:
-            raise Exception('Won\'t work.')
+            raise Exception("Won't work.")
 
         return numpy_array
 
     def __init__(self, image_response):
         self.image = self.extract_image(image_response)
-        self.body_T_image_sensor = get_a_tform_b(image_response.shot.transforms_snapshot, \
-             BODY_FRAME_NAME, image_response.shot.frame_name_image_sensor)
-        self.vision_T_body = get_vision_tform_body(image_response.shot.transforms_snapshot)
+        self.body_T_image_sensor = get_a_tform_b(
+            image_response.shot.transforms_snapshot,
+            BODY_FRAME_NAME,
+            image_response.shot.frame_name_image_sensor,
+        )
+        self.vision_T_body = get_vision_tform_body(
+            image_response.shot.transforms_snapshot
+        )
         if not self.body_T_image_sensor:
-            raise Exception('Won\'t work.')
+            raise Exception("Won't work.")
 
         if image_response.source.pinhole:
-            resolution = numpy.asarray([ \
-                image_response.source.cols, \
-                image_response.source.rows])
+            resolution = numpy.asarray(
+                [image_response.source.cols, image_response.source.rows]
+            )
 
-            focal_length = numpy.asarray([ \
-                image_response.source.pinhole.intrinsics.focal_length.x, \
-                image_response.source.pinhole.intrinsics.focal_length.y])
+            focal_length = numpy.asarray(
+                [
+                    image_response.source.pinhole.intrinsics.focal_length.x,
+                    image_response.source.pinhole.intrinsics.focal_length.y,
+                ]
+            )
 
-            principal_point = numpy.asarray([ \
-                image_response.source.pinhole.intrinsics.principal_point.x, \
-                image_response.source.pinhole.intrinsics.principal_point.y])
+            principal_point = numpy.asarray(
+                [
+                    image_response.source.pinhole.intrinsics.principal_point.x,
+                    image_response.source.pinhole.intrinsics.principal_point.y,
+                ]
+            )
         else:
-            raise Exception('Won\'t work.')
+            raise Exception("Won't work.")
 
         sensor_T_vo = (self.vision_T_body * self.body_T_image_sensor).inverse()
 
         camera_projection_mat = numpy.eye(4)
-        camera_projection_mat[0, 0] = (focal_length[0] / resolution[0])
-        camera_projection_mat[0, 2] = (principal_point[0] / resolution[0])
-        camera_projection_mat[1, 1] = (focal_length[1] / resolution[1])
-        camera_projection_mat[1, 2] = (principal_point[1] / resolution[1])
+        camera_projection_mat[0, 0] = focal_length[0] / resolution[0]
+        camera_projection_mat[0, 2] = principal_point[0] / resolution[0]
+        camera_projection_mat[1, 1] = focal_length[1] / resolution[1]
+        camera_projection_mat[1, 2] = principal_point[1] / resolution[1]
 
         self.MVP = camera_projection_mat.dot(sensor_T_vo.to_matrix())
 
@@ -105,7 +116,8 @@ class ImagePreppedForOpenGL():
 #             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, numpy_array.shape[1], numpy_array.shape[0], \
 #                 GL_LUMINANCE, GL_UNSIGNED_BYTE, numpy_array)
 
-class ImageInsideOpenGL():
+
+class ImageInsideOpenGL:
     """Create OpenGL Texture"""
 
     def __init__(self, numpy_array, format=""):
@@ -114,11 +126,29 @@ class ImageInsideOpenGL():
         self.format = format
         with self.manage_bind():
             if self.format == "RGB":
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, numpy_array.shape[1], numpy_array.shape[0], 0, \
-                    GL_RGB, GL_UNSIGNED_BYTE, numpy_array)
+                glTexImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    GL_RGB,
+                    numpy_array.shape[1],
+                    numpy_array.shape[0],
+                    0,
+                    GL_RGB,
+                    GL_UNSIGNED_BYTE,
+                    numpy_array,
+                )
             else:
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, numpy_array.shape[1], numpy_array.shape[0], 0, \
-                 GL_LUMINANCE, GL_UNSIGNED_BYTE, numpy_array)
+                glTexImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    GL_RGBA,
+                    numpy_array.shape[1],
+                    numpy_array.shape[0],
+                    0,
+                    GL_LUMINANCE,
+                    GL_UNSIGNED_BYTE,
+                    numpy_array,
+                )
             glTexParameter(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
             glTexParameter(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
 
@@ -134,11 +164,30 @@ class ImageInsideOpenGL():
         """Update texture"""
         with self.manage_bind():
             if self.format == "RGB":
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, numpy_array.shape[1], numpy_array.shape[0], \
-                    GL_RGB, GL_UNSIGNED_BYTE, numpy_array)
-            else: 
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, numpy_array.shape[1], numpy_array.shape[0], \
-                GL_LUMINANCE, GL_UNSIGNED_BYTE, numpy_array) 
+                glTexSubImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    0,
+                    0,
+                    numpy_array.shape[1],
+                    numpy_array.shape[0],
+                    GL_RGB,
+                    GL_UNSIGNED_BYTE,
+                    numpy_array,
+                )
+            else:
+                glTexSubImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    0,
+                    0,
+                    numpy_array.shape[1],
+                    numpy_array.shape[0],
+                    GL_LUMINANCE,
+                    GL_UNSIGNED_BYTE,
+                    numpy_array,
+                )
+
 
 class StitchingCamera(object):
     """Camera to render from in OpenGL."""
@@ -153,12 +202,14 @@ class StitchingCamera(object):
 
         vo_T_body = image_1.vision_T_body.to_matrix()
 
-        eye_wrt_body = proto_vec_T_numpy(image_1.body_T_image_sensor.position) \
-                     + proto_vec_T_numpy(image_2.body_T_image_sensor.position)
+        eye_wrt_body = proto_vec_T_numpy(
+            image_1.body_T_image_sensor.position
+        ) + proto_vec_T_numpy(image_2.body_T_image_sensor.position)
 
         # Add the two real camera norms together to get the fake camera norm.
-        eye_norm_wrt_body = numpy.array(image_1.body_T_image_sensor.rot.transform_point(0, 0, 1)) \
-                          + numpy.array(image_2.body_T_image_sensor.rot.transform_point(0, 0, 1))
+        eye_norm_wrt_body = numpy.array(
+            image_1.body_T_image_sensor.rot.transform_point(0, 0, 1)
+        ) + numpy.array(image_2.body_T_image_sensor.rot.transform_point(0, 0, 1))
 
         # Make the virtual camera centered.
         eye_wrt_body[1] = 0
@@ -167,7 +218,9 @@ class StitchingCamera(object):
         # Make sure our normal has length 1
         eye_norm_wrt_body = normalize(eye_norm_wrt_body)
 
-        plane_wrt_body = eye_wrt_body + eye_norm_wrt_body * rect_stitching_distance_meters
+        plane_wrt_body = (
+            eye_wrt_body + eye_norm_wrt_body * rect_stitching_distance_meters
+        )
 
         self.plane_wrt_vo = mat4mul3(vo_T_body, plane_wrt_body)
         self.plane_norm_wrt_vo = mat4mul3(vo_T_body, eye_norm_wrt_body, 0)
@@ -176,19 +229,19 @@ class StitchingCamera(object):
         self.up_wrt_vo = mat4mul3(vo_T_body, numpy.array([0, 0, 1]), 0)
 
 
-class CompiledShader():
+class CompiledShader:
     """OpenGL shader compile"""
 
     def __init__(self, vert_shader, frag_shader, format=""):
-        self.program = shaders.compileProgram( \
-            shaders.compileShader(vert_shader, GL_VERTEX_SHADER), \
-            shaders.compileShader(frag_shader, GL_FRAGMENT_SHADER) \
+        self.program = shaders.compileProgram(
+            shaders.compileShader(vert_shader, GL_VERTEX_SHADER),
+            shaders.compileShader(frag_shader, GL_FRAGMENT_SHADER),
         )
-        self.camera1_MVP = glGetUniformLocation(self.program, 'camera1_MVP')
-        self.camera2_MVP = glGetUniformLocation(self.program, 'camera2_MVP')
+        self.camera1_MVP = glGetUniformLocation(self.program, "camera1_MVP")
+        self.camera2_MVP = glGetUniformLocation(self.program, "camera2_MVP")
 
-        self.image1_texture = glGetUniformLocation(self.program, 'image1')
-        self.image2_texture = glGetUniformLocation(self.program, 'image2')
+        self.image1_texture = glGetUniformLocation(self.program, "image1")
+        self.image2_texture = glGetUniformLocation(self.program, "image2")
 
         self.initialized = False
         self.image1 = None
@@ -196,7 +249,7 @@ class CompiledShader():
         self.matrix1 = None
         self.matrix2 = None
 
-        self.format = format 
+        self.format = format
 
     def update_images(self, image_1, image_2):
         self.initialized = True
@@ -215,10 +268,10 @@ class CompiledShader():
 def load_get_image_response_from_binary_file(file_path):
     """Read in image from image response"""
     if not os.path.exists(file_path):
-        raise IOError(f'File not found at: {file_path}')
+        raise IOError(f"File not found at: {file_path}")
 
     _images = image_pb2.GetImageResponse()
-    with open(file_path, 'rb') as f:
+    with open(file_path, "rb") as f:
         data = f.read()
         _images.ParseFromString(data)
 
@@ -237,13 +290,15 @@ def mat4mul3(mat, vec, vec4=1):
 def normalize(vec):
     norm = numpy.linalg.norm(vec)
     if norm == 0:
-        raise ValueError('norm function returned 0.')
+        raise ValueError("norm function returned 0.")
     return vec / norm
 
 
 def draw_geometry(plane_wrt_vo, plane_norm_wrt_vo, sz_meters):
     """Draw as GL_TRIANGLES."""
-    plane_left_wrt_vo = normalize(numpy.cross(numpy.array([0, 0, 1]), plane_norm_wrt_vo))
+    plane_left_wrt_vo = normalize(
+        numpy.cross(numpy.array([0, 0, 1]), plane_norm_wrt_vo)
+    )
     if plane_left_wrt_vo is None:
         return
     plane_up_wrt_vo = normalize(numpy.cross(plane_norm_wrt_vo, plane_left_wrt_vo))
@@ -276,10 +331,10 @@ def draw_routine(display, program, stitching_camera):
     gluPerspective(110, (display[0] / display[1]), 0.1, 50.0)
 
     if not program.initialized:
-        print('Gl is not ready yet.')
+        print("Gl is not ready yet.")
         return
     if stitching_camera is None:
-        print('No stitching camera yet.')
+        print("No stitching camera yet.")
         return
 
     glUseProgram(program.program)
@@ -290,7 +345,6 @@ def draw_routine(display, program, stitching_camera):
         glActiveTexture(GL_TEXTURE0 + 1)
 
         with program.image2.manage_bind():
-
             glUniform1i(program.image2_texture, 1)
 
             glUniformMatrix4fv(program.camera1_MVP, 1, GL_TRUE, program.matrix1)
@@ -303,9 +357,17 @@ def draw_routine(display, program, stitching_camera):
 
             glMatrixMode(GL_MODELVIEW)
             glLoadIdentity()
-            gluLookAt(eye_wrt_vo[0], eye_wrt_vo[1], eye_wrt_vo[2], \
-                      plane_wrt_vo[0], plane_wrt_vo[1], plane_wrt_vo[2], \
-                      up_wrt_vo[0], up_wrt_vo[1], up_wrt_vo[2])
+            gluLookAt(
+                eye_wrt_vo[0],
+                eye_wrt_vo[1],
+                eye_wrt_vo[2],
+                plane_wrt_vo[0],
+                plane_wrt_vo[1],
+                plane_wrt_vo[2],
+                up_wrt_vo[0],
+                up_wrt_vo[1],
+                up_wrt_vo[2],
+            )
 
             rect_sz_meters = 7
             draw_geometry(plane_wrt_vo, plane_norm_wrt_vo, rect_sz_meters)
@@ -319,16 +381,20 @@ def stitch_live(robot, jpeg_quality_percent=50):
     pygame.display.set_mode(display, pygame.DOUBLEBUF | pygame.OPENGL)
     clock = pygame.time.Clock()
 
-    with open('/home/aaron/spot_tools/spot_tools/data/shader/shader_vert.glsl', 'r') as file:
+    with open(
+        "/home/aaron/spot_tools/spot_tools/data/shader/shader_vert.glsl", "r"
+    ) as file:
         vert_shader = file.read()
-    with open('/home/aaron/spot_tools/spot_tools/data/shader/shader_frag.glsl', 'r') as file:
+    with open(
+        "/home/aaron/spot_tools/spot_tools/data/shader/shader_frag.glsl", "r"
+    ) as file:
         frag_shader = file.read()
 
     program = CompiledShader(vert_shader, frag_shader)
 
     image_client = robot.ensure_client(ImageClient.default_service_name)
 
-    image_sources = ['frontright_fisheye_image', 'frontleft_fisheye_image']
+    image_sources = ["frontright_fisheye_image", "frontleft_fisheye_image"]
 
     requests = [
         build_image_request(source, quality_percent=jpeg_quality_percent)
@@ -341,7 +407,6 @@ def stitch_live(robot, jpeg_quality_percent=50):
     stitching_camera = None
 
     while running:
-
         display = (1080, 720)
         pygame.display.set_mode(display, pygame.DOUBLEBUF | pygame.OPENGL)
 
@@ -353,19 +418,19 @@ def stitch_live(robot, jpeg_quality_percent=50):
             try:
                 images = images_future.result()
             except Exception as exc:
-                print('Could not get images:', exc)
+                print("Could not get images:", exc)
             else:
                 for image in images:
-                    if image.source.name == 'frontright_fisheye_image':
+                    if image.source.name == "frontright_fisheye_image":
                         front_right = ImagePreppedForOpenGL(image)
-                    elif image.source.name == 'frontleft_fisheye_image':
+                    elif image.source.name == "frontleft_fisheye_image":
                         front_left = ImagePreppedForOpenGL(image)
 
                 if front_right is not None and front_left is not None:
                     program.update_images(front_right, front_left)
                     stitching_camera = StitchingCamera(front_right, front_left)
                 else:
-                    print('Got image response, but not with both images!')
+                    print("Got image response, but not with both images!")
 
             # Reset variable so we re-send next image request
             images_future = None
@@ -379,6 +444,7 @@ def stitch_live(robot, jpeg_quality_percent=50):
         pygame.display.flip()
         clock.tick(60)
 
+
 def stitch(robot, jpeg_quality_percent=50, crop_image=False):
     """Stitch two front fisheye images together and return a single stitched image."""
     # Initialize OpenGL context
@@ -387,9 +453,9 @@ def stitch(robot, jpeg_quality_percent=50, crop_image=False):
     pygame.display.set_mode(display, pygame.DOUBLEBUF | pygame.OPENGL | pygame.HIDDEN)
 
     # Load shaders
-    with open('/home/aaron/spot_tools/data/shader/shader_vert.glsl', 'r') as file:
+    with open("/home/aaron/spot_tools/data/shader/shader_vert.glsl", "r") as file:
         vert_shader = file.read()
-    with open('/home/aaron/spot_tools/data/shader/shader_frag.glsl', 'r') as file:
+    with open("/home/aaron/spot_tools/data/shader/shader_frag.glsl", "r") as file:
         frag_shader = file.read()
 
     # Compile shader program
@@ -397,7 +463,7 @@ def stitch(robot, jpeg_quality_percent=50, crop_image=False):
 
     # Get images from the robot
     image_client = robot.ensure_client(ImageClient.default_service_name)
-    image_sources = ['frontright_fisheye_image', 'frontleft_fisheye_image']
+    image_sources = ["frontright_fisheye_image", "frontleft_fisheye_image"]
     requests = [
         build_image_request(source, quality_percent=jpeg_quality_percent)
         for source in image_sources
@@ -408,10 +474,9 @@ def stitch(robot, jpeg_quality_percent=50, crop_image=False):
     front_right = None
     front_left = None
     for image in images:
-        
-        if image.source.name == 'frontright_fisheye_image':
+        if image.source.name == "frontright_fisheye_image":
             front_right = ImagePreppedForOpenGL(image)
-        elif image.source.name == 'frontleft_fisheye_image':
+        elif image.source.name == "frontleft_fisheye_image":
             front_left = ImagePreppedForOpenGL(image)
 
     if front_right is None or front_left is None:
@@ -438,12 +503,13 @@ def stitch(robot, jpeg_quality_percent=50, crop_image=False):
     # Quit pygame
     pygame.quit()
 
-    if crop_image: 
-        return image[134:634,:] # Crop the image to exclude the black edges
-    
-    else: 
-        return image 
-    
+    if crop_image:
+        return image[134:634, :]  # Crop the image to exclude the black edges
+
+    else:
+        return image
+
+
 def stitch_RGB(fl_img, fr_img, crop_image=False):
     """Stitch two front fisheye images together and return a single stitched image."""
     # Initialize OpenGL context
@@ -452,9 +518,13 @@ def stitch_RGB(fl_img, fr_img, crop_image=False):
     pygame.display.set_mode(display, pygame.DOUBLEBUF | pygame.OPENGL | pygame.HIDDEN)
 
     # Load shaders
-    with open('/home/aaron/spot_tools/spot_tools/data/shader/shader_vert.glsl', 'r') as file:
+    with open(
+        "/home/aaron/spot_tools/spot_tools/data/shader/shader_vert.glsl", "r"
+    ) as file:
         vert_shader = file.read()
-    with open('/home/aaron/spot_tools/spot_tools/data/shader/shader_frag.glsl', 'r') as file:
+    with open(
+        "/home/aaron/spot_tools/spot_tools/data/shader/shader_frag.glsl", "r"
+    ) as file:
         frag_shader = file.read()
 
     # Compile shader program
@@ -487,8 +557,8 @@ def stitch_RGB(fl_img, fr_img, crop_image=False):
     # Quit pygame
     pygame.quit()
 
-    if crop_image: 
-        return image[134:634,:] # Crop the image to exclude the black edges
-    
-    else: 
-        return image 
+    if crop_image:
+        return image[134:634, :]  # Crop the image to exclude the black edges
+
+    else:
+        return image

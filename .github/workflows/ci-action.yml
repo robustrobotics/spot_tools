@@ -27,7 +27,9 @@ jobs:
       - name: Pre-commit
         run: pip install pre-commit && cd ${{ github.workspace }}/spot_tools_repo && pre-commit run --all-files
       - name: Install Spot Tools
-        run: cd ${{ github.workspace }}/spot_tools_repo && pwd && pip install .
+        run: |
+            pip install ${{ github.workspace }}/spot_tools_repo/spot_tools
+            pip install ${{ github.workspace }}/spot_tools_repo/spot_tools_ros
       #- name: Run test script
       #  run: cd ${{ github.workspace }}/ouroboros_repo && pytest --ignore=third_party
       #- run: echo "🍏 This job's status is ${{ job.status }}."
