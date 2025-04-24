@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """ROS Python Package for Hydra-ROS."""
 
-from dataclasses import dataclass
-from typing import Optional
-
 import geometry_msgs.msg
 from sensor_msgs.msg import Image, CompressedImage, CameraInfo
 import std_msgs.msg
@@ -17,9 +14,14 @@ import bosdyn.client.util
 from bosdyn.api import image_pb2
 from bosdyn.client.image import ImageClient, build_image_request
 
+
 SpotImage = image_pb2.Image
 SpotPixelFormat = image_pb2.Image.PixelFormat
-ParamType = rclpy.Parameter.Type
+
+
+def _get_param(node, name, default):
+    node.declare_parameter(name, default)
+    return node.get_parameter(name).get_parameter_value()
 
 
 def _get_local_time(robot, robot_stamp):
@@ -102,81 +104,30 @@ def _build_transform_msg(robot, shot, child_frame, transform):
     return msg
 
 
-@dataclass
-class CameraConfig:
-    """Struct modeling Spot API camera configuration."""
-
-    name: str
-    color_suffix: str = "fisheye_image"
-    depth_suffix: str = "depth_in_visual_frame"
-    quality: Optional[int] = None
-    image_scale: Optional[float] = None
-    color_transport: int = SpotImage.FORMAT_RAW
-    color_format: SpotPixelFormat = SpotPixelFormat.PIXEL_FORMAT_RGB_U8
-    depth_format: SpotPixelFormat = SpotPixelFormat.PIXEL_FORMAT_DEPTH_U16
-
-    @classmethod
-    def from_ros(cls):
-        """Parse config from ROS."""
-        name = rospy.get_param("~name", None)
-        if not name:
-            rospy.logfatal("failed to retrieve name!")
-            return None
-
-        conf = cls(name)
-        conf.color_suffix = rospy.get_param("~color_suffix", conf.color_suffix)
-        conf.depth_suffix = rospy.get_param("~depth_suffix", conf.depth_suffix)
-        conf.quality = rospy.get_param("~quality", conf.quality)
-        conf.image_scale = rospy.get_param("~image_scale", conf.image_scale)
-
-        use_compressed = rospy.get_param("~use_compressed", False)
-        if use_compressed:
-            conf.color_transport = SpotImage.FORMAT_JPEG
-
-        return conf
-
-    @property
-    def color_request(self):
-        """Get color image request protobuf message."""
-        kwargs = {
-            "image_format": self.color_transport,
-            "pixel_format": self.color_format,
-        }
-
-        if self.quality:
-            kwargs["quality_percent"] = self.quality
-
-        if self.image_scale:
-            kwargs["resize_ratio"] = self.image_scale
-
-        name = f"{self.name}_{self.color_suffix}"
-        return build_image_request(name, **kwargs)
-
-    @property
-    def depth_request(self):
-        """Get color image request protobuf message."""
-        kwargs = {
-            "image_format": SpotImage.FORMAT_RAW,
-            "pixel_format": self.depth_format,
-        }
-
-        if self.image_scale:
-            kwargs["resize_ratio"] = self.image_scale
-
-        name = f"{self.name}_{self.depth_suffix}"
-        return build_image_request(name, **kwargs)
-
-
 class CameraPublisher:
     """Publisher for a single camera."""
 
-    def __init__(self, node, name, is_compressed):
+    def __init__(self, node, name):
+        self.name = name
+        self.color_suffix = _get_param(
+            node, f"{name}.color_suffix", "fisheye_image"
+        ).string_value()
+        self.depth_suffix = _get_param(
+            node, f"{name}.depth_suffix", "depth_in_visual_frame"
+        ).string_value()
+
+        node.declare_parameter(f"{name}.quality", 100.0)
+        self.quality = node.get_parameter(f"{name}.quality").float_value()
+
+        node.declare_paramter(f"{name}.use_compressed", True)
+        self.use_compressed = node.get_parameter(f"{name}.use_compressed").bool_value()
+
         color_topic = f"spot/{name}/color/image_raw"
         depth_topic = f"spot/{name}/depth/image_rect"
         color_info_topic = f"spot/{name}/color/camera_info"
         depth_info_topic = f"spot/{name}/depth/camera_info"
 
-        if is_compressed:
+        if self.use_compressed:
             color_topic = f"{color_topic}/compressed"
             self._rgb_pub = node.create_publish(CompressedImage, color_topic, 10)
         else:
@@ -186,22 +137,33 @@ class CameraPublisher:
         self._rgb_info_pub = node.create_publisher(CameraInfo, color_info_topic, 10)
         self._depth_info_pub = node.create_publisher(CameraInfo, depth_info_topic, 10)
         self._last_time = None
-        self._name = name
+
+    @property
+    def requests(self):
+        rgb_kwargs = {"pixel_format": SpotPixelFormat.PIXEL_FORMAT_RGB_U8}
+        rgb_kwargs["image_format"] = (
+            SpotImage.FORMAT_JPEG if self.use_compressed else SpotImage.FORMAT_RAW
+        )
+        if self.quality:
+            rgb_kwargs["quality_percent"] = self.quality
+
+        depth_kwargs = {
+            "image_format": SpotImage.FORMAT_RAW,
+            "pixel_format": SpotPixelFormat.PIXEL_FORMAT_DEPTH_U16,
+        }
+
+        return [
+            build_image_request(f"{self.name}_{self.color_suffix}", **rgb_kwargs),
+            build_image_request(f"{self.name}_{self.depth_suffix}", **depth_kwargs),
+        ]
 
     def _has_work(self):
-        if self._rgb_pub.get_subscription_count() > 0:
-            return True
-
-        if self._rgb_info_pub.get_subscription_count() > 0:
-            return True
-
-        if self._depth_pub.get_subscription_count() > 0:
-            return True
-
-        if self._depth_info_pub.get_subscription_count() > 0:
-            return True
-
-        return False
+        return (
+            self._rgb_pub.get_subscription_count() > 0
+            or self._rgb_info_pub.get_subscription_count() > 0
+            or self._depth_pub.get_subscription_count() > 0
+            or self._depth_info_pub.get_subscription_count() > 0
+        )
 
     def _publish(self, logger, color_stamp, color, depth):
         if not self._has_work():
@@ -231,32 +193,28 @@ class CameraPublisher:
 class SpotClientNode(Node):
     """Spot client for requesting (rectified) RGBD data."""
 
-    def __init__(self, config):
+    def __init__(self):
         """Make a camera client."""
         super().__init__("spot_client_node")
-        robot_ip = self._get_param("robot.ip", "192.168.80.3", ParamType.STRING)
-        setup_logging = self._get_param("robot.setup_logging", True, ParamType.BOOL)
-        should_retry = self._get_param("robot.should_retry", False, ParamType.BOOL)
+        robot_ip = self._get_param("robot.ip", "192.168.80.3").string_value()
+        setup_logging = self._get_param("robot.setup_logging", True).bool_value()
+        should_retry = self._get_param("robot.should_retry", False).bool_value()
+        poll_period_s = self._get_param("poll_period_s", 0.05).float_value()
+        names = self._get_param("cameras", ["frontleft", "frontright"])
+        for camera in names:
+            self._cameras[camera] = CameraPublisher(self, camera)
 
         self._robot = self.connect(robot_ip, setup_logging, should_retry)
         self._client = self._robot.ensure_client(ImageClient.default_service_name)
-        self._config = config
 
-        self._last_time = None
         # TODO(nathan) configurable exluded frames
-        self._published_transforms = False
         self._excluded_frames = ["vision", "odom", "body"]
         self._tfs = []
         self._tf_broadcaster = tf2_ros.StaticTransformBroadcaster()
-
-        self._reqs = [config.color_request, config.depth_request]
-
-        poll_period_s = self._get_param("poll_period_s", 0.05, ParamType.DOUBLE)
         self._timer = rclpy.create_time(poll_period_s, self._callback)
 
-    def _get_param(self, name, default, ptype=rclpy.Parameter.Type.DYNAMIC):
-        self.declare_parameter(name, default, ptype)
-        self.get_parameter(name).get_parameter_value()
+    def _get_param(self, name, default):
+        return _get_param(self, name, default)
 
     def _connect(self, robot_ip, setup_logging, should_retry):
         # uses node name to seed spot client
