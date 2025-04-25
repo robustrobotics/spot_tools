@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 """ROS Python Package for Hydra-ROS."""
 
-import geometry_msgs.msg
-from sensor_msgs.msg import Image, CompressedImage, CameraInfo
-import std_msgs.msg
-import tf2_ros
-import threading
 import queue
 import re
-
-from rclpy.node import Node
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
-import rclpy
+import threading
 
 import bosdyn.client
 import bosdyn.client.util
+import geometry_msgs.msg
+import rclpy
+import std_msgs.msg
+import tf2_ros
 from bosdyn.api import image_pb2
 from bosdyn.client.image import ImageClient, build_image_request
 from bosdyn.client.robot_state import RobotStateClient
-
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.node import Node
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
 SpotImage = image_pb2.Image
 SpotPixelFormat = image_pb2.Image.PixelFormat
@@ -314,8 +312,13 @@ class SpotClientNode(Node):
                 if frame == "" or parent_frame == "":
                     continue
 
-                is_static = static_matcher.match(frame) and static_matcher.match(parent_frame)
-                existing = [(t.header.frame_id, t.child_frame_id) for t in (static_tfs if is_static else dynamic_tfs)]
+                is_static = static_matcher.match(frame) and static_matcher.match(
+                    parent_frame
+                )
+                existing = [
+                    (t.header.frame_id, t.child_frame_id)
+                    for t in (static_tfs if is_static else dynamic_tfs)
+                ]
                 if (parent_frame, frame) in existing:
                     continue
 
