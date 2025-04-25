@@ -4,11 +4,17 @@ import time
 
 import numpy as np
 from bosdyn.client import math_helpers
-from bosdyn.client.frame_helpers import (BODY_FRAME_NAME, ODOM_FRAME_NAME,
-                                         VISION_FRAME_NAME, get_a_tform_b)
-from bosdyn.client.robot_command import (RobotCommandBuilder,
-                                         RobotCommandClient,
-                                         block_until_arm_arrives)
+from bosdyn.client.frame_helpers import (
+    BODY_FRAME_NAME,
+    ODOM_FRAME_NAME,
+    VISION_FRAME_NAME,
+    get_a_tform_b,
+)
+from bosdyn.client.robot_command import (
+    RobotCommandBuilder,
+    RobotCommandClient,
+    block_until_arm_arrives,
+)
 from bosdyn.client.robot_state import RobotStateClient
 
 

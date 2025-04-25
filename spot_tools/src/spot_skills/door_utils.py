@@ -10,11 +10,6 @@ from bosdyn.api.manipulation_api_pb2 import (
     ManipulationApiRequest,
     WalkToObjectInImage,
 )
-from bosdyn.api import (basic_command_pb2, geometry_pb2, image_pb2,
-                        manipulation_api_pb2)
-from bosdyn.api.manipulation_api_pb2 import (ManipulationApiFeedbackRequest,
-                                             ManipulationApiRequest,
-                                             WalkToObjectInImage)
 from bosdyn.api.spot import door_pb2
 from bosdyn.client import frame_helpers
 from bosdyn.client.door import DoorClient
@@ -23,10 +18,6 @@ from ultralytics import YOLOWorld
 
 from spot_skills.primitives import execute_recovery_action
 from spot_skills.skills_definitions import OpenDoorFeedback, OpenDoorParams
-from spot_skills.arm_utils import close_gripper, open_gripper, stow_arm
-from spot_skills.primitives import execute_recovery_action
-from spot_skills.skills_definitions import OpenDoorFeedback, OpenDoorParams
-from ultralytics import YOLOWorld
 
 DOOR_ID = 0
 HANDLE_ID = 1

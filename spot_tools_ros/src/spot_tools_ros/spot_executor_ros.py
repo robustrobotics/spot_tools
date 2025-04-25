@@ -7,8 +7,8 @@ import spot_executor as se
 import tf2_ros
 import yaml
 from cv_bridge import CvBridge
-
 from geometry_msgs.msg import Pose2D
+
 # from cv_bridge import CvBridge
 from nav_msgs.msg import Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -256,9 +256,7 @@ class SpotExecutorRos(Node):
         )
 
         if not use_fake_spot_interface:
-            self.pose_pub = self.create_publisher(
-                Pose2D, "~/spot_pose", 1
-            )
+            self.pose_pub = self.create_publisher(Pose2D, "~/spot_pose", 1)
             timer_period = 1.0  # seconds
             self.pose_timer = self.create_timer(timer_period, self.publish_pose)
 
@@ -271,20 +269,22 @@ class SpotExecutorRos(Node):
 
     def publish_pose(self):
         if self.spot_interface is None:
-            self.get_logger().warn("Spot interface not initialized, cannot publish pose.")
+            self.get_logger().warn(
+                "Spot interface not initialized, cannot publish pose."
+            )
             return
         else:
             pose = self.spot_interface.get_pose()
             if pose is None:
                 self.get_logger().warn("Spot interface returned None for pose.")
                 return
-        #msg = Pose2D(x=pose.x, y=pose.y, theta=pose.angle)
+        # msg = Pose2D(x=pose.x, y=pose.y, theta=pose.angle)
         msg = Pose2D(x=pose[0], y=pose[1], theta=pose[2])
 
         self.pose_pub.publish(msg)
         self.status_str = f"Publishing pose: {pose}"
         self.pose_pub.publish(msg)
-        self.get_logger().info(f'Publishing: {msg}')
+        self.get_logger().info(f"Publishing: {msg}")
 
     def hb_callback(self):
         msg = NodeInfoMsg()

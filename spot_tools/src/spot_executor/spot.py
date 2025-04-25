@@ -7,21 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import onnxruntime as ort
 from bosdyn import geometry
-from bosdyn.api import basic_command_pb2, geometry_pb2, image_pb2, manipulation_api_pb2
-from bosdyn.api.basic_command_pb2 import RobotCommandFeedbackStatus
-from bosdyn.api.geometry_pb2 import SE2Velocity, SE2VelocityLimit, Vec2
-from bosdyn.api.manipulation_api_pb2 import (
-    ManipulationApiFeedbackRequest,
-    ManipulationApiRequest,
-    WalkToObjectInImage,
-)
-from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
-from bosdyn.client import math_helpers
+from bosdyn.api import basic_command_pb2, image_pb2
 from bosdyn.client.frame_helpers import (
     BODY_FRAME_NAME,
-    ODOM_FRAME_NAME,
     VISION_FRAME_NAME,
-    get_a_tform_b,
     get_se2_a_tform_b,
 )
 from bosdyn.client.image import ImageClient
@@ -29,28 +18,11 @@ from bosdyn.client.manipulation_api_client import ManipulationApiClient
 from bosdyn.client.robot_command import (
     RobotCommandBuilder,
     RobotCommandClient,
-    block_until_arm_arrives,
     blocking_stand,
 )
-from bosdyn.client.robot_state import RobotStateClient
-from PIL import Image
 from ultralytics import YOLOWorld
 
 from spot_executor.stitch_front_images import stitch, stitch_live, stitch_RGB
-from spot_skills.arm_utils import (
-    change_gripper,
-    close_gripper,
-    gaze_at_relative_pose,
-    move_hand_to_relative_pose,
-    open_gripper,
-    stow_arm,
-)
-from spot_skills.grasp_utils import look_for_object, object_grasp
-from spot_skills.navigation_utils import (
-    follow_trajectory_continuous,
-    navigate_to_absolute_pose,
-    navigate_to_relative_pose,
-)
 
 
 class Spot:
@@ -67,11 +39,11 @@ class Spot:
         debug=False,
         semantic_name_to_id=None,
     ):
-         # YOLOv8 model for world detection
+        # YOLOv8 model for world detection
         print("Initializing YOLOWorld model. ")
         self.yolo_model = YOLOWorld(yolo_world_path)
-        custom_classes = ['', 'bag', 'wood block', 'pipe']
-        self.yolo_model.set_classes(custom_classes) 
+        custom_classes = ["", "bag", "wood block", "pipe"]
+        self.yolo_model.set_classes(custom_classes)
         print("Set classes for YOLOWorld model.")
 
         self.is_fake = False
@@ -105,8 +77,6 @@ class Spot:
         self.ort_session = ort.InferenceSession(semantic_model_path)
         self.semantic_name_to_id = semantic_name_to_id
 
-       
-        
         if set_estop:
             self.set_estop()
 
@@ -114,8 +84,6 @@ class Spot:
             self.take_lease()
         else:
             self.aquire_lease()
-
-        
 
     def get_state(self):
         return self.state_client.get_robot_state()

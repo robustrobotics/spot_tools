@@ -13,18 +13,19 @@ import bosdyn.client.lease
 import bosdyn.client.util
 import cv2
 import numpy as np
-from bosdyn.api import (
-    geometry_pb2,
-    manipulation_api_pb2,
-    robot_state_pb2,
-)
+from bosdyn.api import geometry_pb2, manipulation_api_pb2, robot_state_pb2
 from bosdyn.client.frame_helpers import (
+    ODOM_FRAME_NAME,
     VISION_FRAME_NAME,
     get_vision_tform_body,
     math_helpers,
 )
 from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arrives
 
+from spot_skills.arm_impedance_control_helpers import (
+    apply_force_at_current_position,
+    get_root_T_ground_body,
+)
 from spot_skills.arm_utils import (
     arm_to_carry,
     arm_to_drop,
@@ -32,19 +33,9 @@ from spot_skills.arm_utils import (
     open_gripper,
     stow_arm,
 )
-from bosdyn.api import geometry_pb2, manipulation_api_pb2, robot_state_pb2
-from bosdyn.client.frame_helpers import (ODOM_FRAME_NAME, VISION_FRAME_NAME,
-                                         get_vision_tform_body, math_helpers)
-from bosdyn.client.robot_command import (RobotCommandBuilder,
-                                         block_until_arm_arrives)
-from spot_skills.arm_utils import (arm_to_carry, arm_to_drop, close_gripper,
-                                   open_gripper, stow_arm)
 
 g_image_click = None
 g_image_display = None
-
-from spot_skills.arm_impedance_control_helpers import (
-    apply_force_at_current_position, get_root_T_ground_body)
 
 
 def wait_until_grasp_state_updates(grasp_override_command, robot_state_client):
@@ -128,20 +119,28 @@ def object_place(spot, semantic_class="bag", position=None):
     stow_arm(spot)
     arm_to_drop(spot)
 
-    odom_T_task = get_root_T_ground_body(robot_state=spot.get_state(), root_frame_name=ODOM_FRAME_NAME)
-    wr1_T_tool = math_helpers.SE3Pose(0.23589, 0, -0.03943, math_helpers.Quat.from_pitch(-np.pi / 2))
-    force_dir_rt_task =  math_helpers.Vec3(0, 0, -1) # adjust downward force here 
+    odom_T_task = get_root_T_ground_body(
+        robot_state=spot.get_state(), root_frame_name=ODOM_FRAME_NAME
+    )
+    wr1_T_tool = math_helpers.SE3Pose(
+        0.23589, 0, -0.03943, math_helpers.Quat.from_pitch(-np.pi / 2)
+    )
+    force_dir_rt_task = math_helpers.Vec3(0, 0, -1)  # adjust downward force here
     robot_cmd = apply_force_at_current_position(
-        force_dir_rt_task_in=force_dir_rt_task, force_magnitude=8,
-        robot_state=spot.get_state(), root_frame_name=ODOM_FRAME_NAME,
-        root_T_task=odom_T_task, wr1_T_tool_nom=wr1_T_tool)
+        force_dir_rt_task_in=force_dir_rt_task,
+        force_magnitude=8,
+        robot_state=spot.get_state(),
+        root_frame_name=ODOM_FRAME_NAME,
+        root_T_task=odom_T_task,
+        wr1_T_tool_nom=wr1_T_tool,
+    )
 
     # Execute the impedance command
     cmd_id = spot.command_client.robot_command(robot_cmd)
-    spot.robot.logger.info('Impedance command issued')
-    impedance_success = block_until_arm_arrives(spot.command_client, cmd_id, 10.0)
+    spot.robot.logger.info("Impedance command issued")
+    block_until_arm_arrives(spot.command_client, cmd_id, 10.0)
     input("Did impedance work")
-    
+
     open_gripper(spot)
     # drop_object(spot)
     stow_arm(spot)
@@ -317,7 +316,9 @@ def object_grasp(
         return success, debug_images
     return success
 
-def object_grasp_YOLO(spot,
+
+def object_grasp_YOLO(
+    spot,
     image_source="hand_color_image",
     user_input=False,
     semantic_class="bag",
@@ -353,14 +354,17 @@ def object_grasp_YOLO(spot,
 
         if not user_input:
             image, img = spot.get_image_RGB(view=img_source)
-            xy = get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=debug)
+            xy = get_centroid_from_YOLO(
+                spot, img, semantic_class, rotate=0, debug=debug
+            )
 
             if xy is None:
                 print("Object not found in image.")
                 xy, image, img, image_source = look_for_object_YOLO(
-                    spot, semantic_class, debug=debug)
+                    spot, semantic_class, debug=debug
+                )
 
-                if xy is None: 
+                if xy is None:
                     print("Object not found near robot.")
                     continue
         else:
@@ -456,16 +460,17 @@ def object_grasp_YOLO(spot,
         return success, debug_images
     return success
 
+
 def get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=False):
-    if rotate == 0: 
+    if rotate == 0:
         model_input = copy(img)
-    elif rotate == 1: 
+    elif rotate == 1:
         model_input = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
     elif rotate == 2:
         model_input = cv2.rotate(img, cv2.ROTATE_180)
 
     results = spot.yolo_model(model_input)
-        
+
     best_box = None
     best_confidence = -1.0
 
@@ -476,13 +481,15 @@ def get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=False):
             class_name = r.names[class_id]
             confidence = float(box.conf[0])
 
-            # Check if the class name matches the semantic class we're looking for and if box is not too big 
+            # Check if the class name matches the semantic class we're looking for and if box is not too big
             box_height = box.xyxy[0][3] - box.xyxy[0][1]  # height of the bounding box
             if box_height > 0.5 * img.shape[0]:
                 continue
             box_width = box.xyxy[0][2] - box.xyxy[0][0]  # width of the bounding box
-            if box_width > 0.5 * img.shape[1]:  # If the box is more than half the width of the image, skip it
-                continue 
+            if (
+                box_width > 0.5 * img.shape[1]
+            ):  # If the box is more than half the width of the image, skip it
+                continue
 
             if class_name == semantic_class and confidence > best_confidence:
                 best_confidence = confidence
@@ -502,15 +509,15 @@ def get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=False):
         elif rotate == 1:
             centroid_x = mid_y
             centroid_y = img.shape[0] - mid_x
-             
-        elif rotate == 2: 
+
+        elif rotate == 2:
             centroid_x = img.shape[1] - mid_x
-            centroid_y = img.shape[0] - mid_y 
+            centroid_y = img.shape[0] - mid_y
 
         print("The centroid of the bounding box is at:", centroid_x, centroid_y)
-        
+
         # # We need to rotate the bounding box coordinates if the image was rotated
-        # if rotate == 1 or rotate == 2: 
+        # if rotate == 1 or rotate == 2:
         #     # Rotate coordinates for 90 degrees clockwise
         #     x1, y1 = y1, img.shape[1] - x2
         #     x2, y2 = y2, img.shape[1] - x1
@@ -518,27 +525,44 @@ def get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=False):
         #     x1, y1 = img.shape[1] - x2, img.shape[0] - y2
         #     x2, y2 = img.shape[1] - x1, img.shape[0] - y1
 
-        if debug: 
+        if debug:
             annotated_img = copy(img)
 
             # Draw bounding box and label
             # cv2.rectangle(annotated_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
             label = f"{r.names[class_id]} {best_confidence:.2f}"
-            cv2.putText(annotated_img, label, (centroid_x, centroid_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.putText(
+                annotated_img,
+                label,
+                (centroid_x, centroid_y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                2,
+            )
 
-            # Label the centroid 
+            # Label the centroid
             cv2.circle(annotated_img, (centroid_x, centroid_y), 5, (255, 0, 0), -1)
-            cv2.putText(annotated_img, "Centroid", (centroid_x + 10, centroid_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-            
+            cv2.putText(
+                annotated_img,
+                "Centroid",
+                (centroid_x + 10, centroid_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 0, 0),
+                2,
+            )
+
             # Display or save the annotated image
-            cv2.imshow('Most Confident Output', annotated_img)
+            cv2.imshow("Most Confident Output", annotated_img)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
         return centroid_x, centroid_y  # Return the centroid of the bounding box
 
-    else: 
+    else:
         return None
+
 
 def cv_mouse_callback(event, x, y, flags, param):
     global g_image_click, g_image_display
@@ -612,28 +636,36 @@ def look_for_object(spot, semantic_ids):
 
     return None, None, None, None
 
+
 def look_for_object_YOLO(spot, semantic_class, debug=False):
     """Look for an object in the image sources using YOLO. Return the centroid of the object, and the image source."""
 
     sources = spot.image_client.list_image_sources()
 
     for source in sources:
-        if "depth" in source.name or source.name == "hand_image": # "hand_image" is only in greyscale, "hand_color_image" is RGB
+        if (
+            "depth" in source.name or source.name == "hand_image"
+        ):  # "hand_image" is only in greyscale, "hand_color_image" is RGB
             continue
 
         image_source = source.name
         print("Getting image from source:", image_source)
         image, img = spot.get_image_RGB(view=image_source)
 
-        rotate = 0 
+        rotate = 0
 
-        if "frontleft_fisheye_image" in image_source or "frontright_fisheye_image" in image_source:
-            rotate = 1 # cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        if (
+            "frontleft_fisheye_image" in image_source
+            or "frontright_fisheye_image" in image_source
+        ):
+            rotate = 1  # cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
 
         elif "right_fisheye_image" in image_source:
-            rotate = 2 # cv2.rotate(img, cv2.ROTATE_180)
+            rotate = 2  # cv2.rotate(img, cv2.ROTATE_180)
 
-        xy = get_centroid_from_YOLO(spot, img, semantic_class, rotate=rotate, debug=debug)
+        xy = get_centroid_from_YOLO(
+            spot, img, semantic_class, rotate=rotate, debug=debug
+        )
         print("Found object centroid:", xy)
         if xy is None:
             print(f"Object not found in {image_source}.")
