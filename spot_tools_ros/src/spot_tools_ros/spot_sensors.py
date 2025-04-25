@@ -5,14 +5,19 @@ import geometry_msgs.msg
 from sensor_msgs.msg import Image, CompressedImage, CameraInfo
 import std_msgs.msg
 import tf2_ros
+import threading
+import queue
 
 from rclpy.node import Node
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 import rclpy
 
 import bosdyn.client
 import bosdyn.client.util
 from bosdyn.api import image_pb2
 from bosdyn.client.image import ImageClient, build_image_request
+from bosdyn.client.robot_state import RobotStateClient
 
 
 SpotImage = image_pb2.Image
@@ -88,10 +93,9 @@ def _build_info_msg(header, response):
     return msg
 
 
-def _build_transform_msg(robot, shot, child_frame, transform):
+def _build_transform_msg(stamp, child_frame, transform):
     pose = transform.parent_tform_child
 
-    stamp = _get_local_time(robot, shot.acquisition_time)
     msg = geometry_msgs.msg.TransformStamped()
     msg.header.stamp = stamp.to_msg()
     msg.header.frame_id = transform.parent_frame_name
@@ -199,7 +203,6 @@ class SpotClientNode(Node):
     def __init__(self):
         """Make a camera client."""
         super().__init__("spot_client_node")
-        poll_period_s = self._get_param("poll_period_s", 0.05).double_value
         names = self._get_param(
             "cameras", ["frontleft", "frontright"]
         ).string_array_value
@@ -209,13 +212,29 @@ class SpotClientNode(Node):
             self._cameras[camera] = CameraPublisher(self, camera)
 
         self._robot = self._connect()
-        self._client = self._robot.ensure_client(ImageClient.default_service_name)
+        self._image_client = self._robot.ensure_client(ImageClient.default_service_name)
+        self._state_client = self._robot.ensure_client(
+            RobotStateClient.default_service_name
+        )
 
         # TODO(nathan) configurable exluded frames
-        self._excluded_frames = ["vision", "odom", "body"]
-        self._tfs = []
-        self._tf_broadcaster = tf2_ros.StaticTransformBroadcaster(self)
-        self._timer = self.create_timer(poll_period_s, self._callback)
+        # self._excluded_frames = ["vision", "odom", "body"]
+        self._excluded_frames = []
+        self._tf_queue = queue.Queue()
+        self._dynamic_pub = tf2_ros.TransformBroadcaster(self)
+        self._static_pub = tf2_ros.StaticTransformBroadcaster(self)
+
+        cam_poll_period_s = self._get_param("camera_poll_period_s", 0.05).double_value
+        self._camera_timer = self.create_timer(cam_poll_period_s, self._camera_callback)
+
+        state_group = MutuallyExclusiveCallbackGroup()
+        state_poll_period_s = self._get_param("state_poll_period_s", 0.01).double_value
+        self._state_timer = self.create_timer(
+            state_poll_period_s, self._state_callback, callback_group=state_group
+        )
+
+        self._tf_thread = threading.Thread(target=self._publish_transforms, daemon=True)
+        self._tf_thread.start()
 
     def _get_param(self, name, default):
         return _get_param(self, name, default)
@@ -262,22 +281,30 @@ class SpotClientNode(Node):
         robot.time_sync.wait_for_sync(10)
         return robot
 
-    def _publish_transforms(self, shot):
-        transform_map = shot.transforms_snapshot.child_to_parent_edge_map
-        for frame in transform_map:
-            if frame in self._excluded_frames:
-                continue
+    def _publish_transforms(self):
+        while rclpy.ok():
+            stamp, transforms = self._tf_queue.get()
+            transform_map = transforms.child_to_parent_edge_map
 
-            transform = transform_map.get(frame)
-            parent_frame = transform.parent_frame_name
-            existing = [(t.header.frame_id, t.child_frame_id) for t in self._tfs]
-            if (parent_frame, frame) in existing:
-                continue
+            tfs = []
+            for frame in transform_map:
+                if frame in self._excluded_frames:
+                    continue
 
-            self._tfs.append(_build_transform_msg(self._robot, shot, frame, transform))
-            self._tf_broadcaster.sendTransform(self._tfs)
+                transform = transform_map.get(frame)
+                parent_frame = transform.parent_frame_name
+                if frame == "" or parent_frame == "":
+                    continue
 
-    def _callback(self):
+                existing = [(t.header.frame_id, t.child_frame_id) for t in tfs]
+                if (parent_frame, frame) in existing:
+                    continue
+
+                tfs.append(_build_transform_msg(stamp, frame, transform))
+
+            self._dynamic_pub.sendTransform(tfs)
+
+    def _camera_callback(self):
         """Poll Spot for new image messages and publish."""
         names = []
         requests = []
@@ -285,11 +312,10 @@ class SpotClientNode(Node):
             requests += camera.requests
             names.append(name)
 
-        if self._client is not None:
-            responses = self._client.get_image(requests)
-        else:
-            print(requests)
-            responses = []
+        responses = self._image_client.get_image(requests)
+        for resp in responses:
+            stamp = _get_local_time(self._robot, resp.shot.acquisition_time)
+            self._tf_queue.put((stamp, resp.shot.transforms_snapshot))
 
         # shots = [resp.shot for resp in responses]
         for idx, name in enumerate(names):
@@ -298,15 +324,25 @@ class SpotClientNode(Node):
             depth = responses[2 * idx + 1]
             cam.publish(self.get_logger(), self._robot, rgb, depth)
 
+    def _state_callback(self):
+        """Poll Spot for new image messages and publish."""
+        state = self._state_client.get_robot_state()
+        pos_state = state.kinematic_state
+        stamp = _get_local_time(self._robot, pos_state.acquisition_timestamp)
+        self._tf_queue.put((stamp, pos_state.transforms_snapshot))
+
 
 def main(args=None):
     """Start client and node."""
     rclpy.init(args=args)
     try:
         node = SpotClientNode()
+        executor = MultiThreadedExecutor()
+        executor.add_node(node)
         try:
-            rclpy.spin(node)
+            executor.spin()
         finally:
+            executor.shutdown()
             node.destroy_node()
     finally:
         rclpy.shutdown()
