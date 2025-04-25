@@ -94,12 +94,12 @@ def _build_info_msg(header, response):
     return msg
 
 
-def _build_transform_msg(stamp, child_frame, transform):
+def _build_transform_msg(stamp, child_frame, parent_frame, transform):
     pose = transform.parent_tform_child
 
     msg = geometry_msgs.msg.TransformStamped()
     msg.header.stamp = stamp.to_msg()
-    msg.header.frame_id = transform.parent_frame_name
+    msg.header.frame_id = parent_frame
     msg.child_frame_id = child_frame
     msg.transform.translation.x = pose.position.x
     msg.transform.translation.y = pose.position.y
@@ -218,6 +218,17 @@ class SpotClientNode(Node):
             RobotStateClient.default_service_name
         )
 
+        self._tf_prefix = self._get_param("tf_prefix", "<ns>").string_value
+        if self._tf_prefix == "<ns>":
+            robot_ns = self.get_namespace()
+            if robot_ns[0] == "/":
+                robot_ns = robot_ns[1:]
+
+            self._tf_prefix = robot_ns
+
+        if len(self._tf_prefix) > 0 and self._tf_prefix[-1] == "/":
+            self._tf_prefix = self._tf_prefix[:-2]
+
         # TODO(nathan) configurable exluded frames
         # self._excluded_frames = ["vision", "odom", "body"]
         self._excluded_frames = []
@@ -308,7 +319,11 @@ class SpotClientNode(Node):
                 if (parent_frame, frame) in existing:
                     continue
 
-                msg = _build_transform_msg(stamp, frame, transform)
+                if self._tf_prefix != "":
+                    frame = f"{self._tf_prefix}/{frame}"
+                    parent_frame = f"{self._tf_prefix}/{parent_frame}"
+
+                msg = _build_transform_msg(stamp, frame, parent_frame, transform)
 
                 if is_static:
                     new_static = True
