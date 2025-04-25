@@ -7,6 +7,7 @@ import std_msgs.msg
 import tf2_ros
 import threading
 import queue
+import re
 
 from rclpy.node import Node
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -220,6 +221,9 @@ class SpotClientNode(Node):
         # TODO(nathan) configurable exluded frames
         # self._excluded_frames = ["vision", "odom", "body"]
         self._excluded_frames = []
+        self._static_frames = self._get_param(
+            "static_frames", ["frontleft.*", "frontright.*", "body"]
+        ).string_array_value
         self._tf_queue = queue.Queue()
         self._dynamic_pub = tf2_ros.TransformBroadcaster(self)
         self._static_pub = tf2_ros.StaticTransformBroadcaster(self)
@@ -282,11 +286,14 @@ class SpotClientNode(Node):
         return robot
 
     def _publish_transforms(self):
+        static_tfs = []
+        static_matcher = re.compile("|".join(self._static_frames))
         while rclpy.ok():
+            new_static = False
             stamp, transforms = self._tf_queue.get()
             transform_map = transforms.child_to_parent_edge_map
 
-            tfs = []
+            dynamic_tfs = []
             for frame in transform_map:
                 if frame in self._excluded_frames:
                     continue
@@ -296,13 +303,23 @@ class SpotClientNode(Node):
                 if frame == "" or parent_frame == "":
                     continue
 
-                existing = [(t.header.frame_id, t.child_frame_id) for t in tfs]
+                is_static = static_matcher.match(frame) and static_matcher.match(parent_frame)
+                existing = [(t.header.frame_id, t.child_frame_id) for t in (static_tfs if is_static else dynamic_tfs)]
                 if (parent_frame, frame) in existing:
                     continue
 
-                tfs.append(_build_transform_msg(stamp, frame, transform))
+                msg = _build_transform_msg(stamp, frame, transform)
 
-            self._dynamic_pub.sendTransform(tfs)
+                if is_static:
+                    new_static = True
+                    static_tfs.append(msg)
+                else:
+                    dynamic_tfs.append(msg)
+
+            if new_static:
+                self._static_pub.sendTransform(static_tfs)
+
+            self._dynamic_pub.sendTransform(dynamic_tfs)
 
     def _camera_callback(self):
         """Poll Spot for new image messages and publish."""
