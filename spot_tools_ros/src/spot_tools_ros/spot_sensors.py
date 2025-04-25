@@ -36,12 +36,12 @@ def _get_local_time(robot, robot_stamp):
     if local_ns < 0:
         raise ValueError(f"Invalid stamp {local_s} [s] {local_ns} [ns]")
 
-    return rclpy.Time(int(local_s), local_ns)
+    return rclpy.time.Time(seconds=int(local_s), nanoseconds=local_ns)
 
 
-def _build_header(stamp, frame_id):
+def _build_header(stamp: rclpy.time.Time, frame_id: str) -> std_msgs.msg.Header:
     header = std_msgs.msg.Header()
-    header.stamp = stamp
+    header.stamp = stamp.to_msg()
     header.frame_id = frame_id
     return header
 
@@ -78,22 +78,23 @@ def _build_info_msg(header, response):
     msg.height = response.shot.image.rows
     msg.width = response.shot.image.cols
     msg.distortion_model = "plumb_bob"
-    msg.K[0] = intrinsics.focal_length.x
-    msg.K[2] = intrinsics.principal_point.x
-    msg.K[4] = intrinsics.focal_length.y
-    msg.K[5] = intrinsics.principal_point.y
-    msg.P[0] = intrinsics.focal_length.x
-    msg.P[2] = intrinsics.principal_point.x
-    msg.P[5] = intrinsics.focal_length.y
-    msg.P[6] = intrinsics.principal_point.y
+    msg.k[0] = intrinsics.focal_length.x
+    msg.k[2] = intrinsics.principal_point.x
+    msg.k[4] = intrinsics.focal_length.y
+    msg.k[5] = intrinsics.principal_point.y
+    msg.p[0] = intrinsics.focal_length.x
+    msg.p[2] = intrinsics.principal_point.x
+    msg.p[5] = intrinsics.focal_length.y
+    msg.p[6] = intrinsics.principal_point.y
     return msg
 
 
 def _build_transform_msg(robot, shot, child_frame, transform):
     pose = transform.parent_tform_child
 
+    stamp = _get_local_time(robot, shot.acquisition_time)
     msg = geometry_msgs.msg.TransformStamped()
-    msg.header.stamp = _get_local_time(robot, shot.acquisition_time)
+    msg.header.stamp = stamp.to_msg()
     msg.header.frame_id = transform.parent_frame_name
     msg.child_frame_id = child_frame
     msg.transform.translation.x = pose.position.x
@@ -167,7 +168,7 @@ class CameraPublisher:
             or self._depth_info_pub.get_subscription_count() > 0
         )
 
-    def _publish(self, logger, robot, color, depth):
+    def publish(self, logger, robot, color, depth):
         if not self._has_work():
             return
 
@@ -176,7 +177,7 @@ class CameraPublisher:
             return  # skip previously published images
 
         self._last_time = color_stamp
-        header = _build_header(color_stamp, self._name)
+        header = _build_header(color_stamp, self.name)
 
         rgb_msg = _build_image_msg(header, color.shot)
         if rgb_msg is not None:
@@ -202,20 +203,17 @@ class SpotClientNode(Node):
         robot_ip = self._get_param("robot.ip", "192.168.80.3").string_value
         setup_logging = self._get_param("robot.setup_logging", True).bool_value
         should_retry = self._get_param("robot.should_retry", False).bool_value
-        should_connect = self._get_param("connect_to_robot", False).bool_value
         poll_period_s = self._get_param("poll_period_s", 0.05).double_value
-        names = self._get_param("cameras", ["frontleft", "frontright"]).string_array_value
+        names = self._get_param(
+            "cameras", ["frontleft", "frontright"]
+        ).string_array_value
 
         self._cameras = {}
         for camera in names:
             self._cameras[camera] = CameraPublisher(self, camera)
 
-        if should_connect:
-            self._robot = self._connect(robot_ip, setup_logging, should_retry)
-            self._client = self._robot.ensure_client(ImageClient.default_service_name)
-        else:
-            self._robot = None
-            self._client = None
+        self._robot = self._connect(robot_ip, setup_logging, should_retry)
+        self._client = self._robot.ensure_client(ImageClient.default_service_name)
 
         # TODO(nathan) configurable exluded frames
         self._excluded_frames = ["vision", "odom", "body"]
@@ -239,6 +237,7 @@ class SpotClientNode(Node):
             bosdyn.client.util.setup_logging()
 
         env_prefix = self._get_param("env_prefix", "ADT4_BOSDYN").string_value
+
         def _get_login_info():
             pass_env = f"{env_prefix}_PASSWORD"
             user_env = f"{env_prefix}_USERNAME"
@@ -250,7 +249,7 @@ class SpotClientNode(Node):
         while True:
             try:
                 bosdyn.client.util.authenticate(robot, _get_login_info)
-                return
+                break
             except Exception as e:
                 self.get_logger().error(e)
                 if not should_retry:
