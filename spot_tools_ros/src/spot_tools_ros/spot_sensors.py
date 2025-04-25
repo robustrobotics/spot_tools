@@ -8,7 +8,6 @@ import tf2_ros
 
 from rclpy.node import Node
 import rclpy
-import os
 
 import bosdyn.client
 import bosdyn.client.util
@@ -125,10 +124,10 @@ class CameraPublisher:
         param = node.declare_parameter(f"{name}.use_compressed", True)
         self.use_compressed = param.get_parameter_value().bool_value
 
-        color_topic = f"spot/{name}/color/image_raw"
-        depth_topic = f"spot/{name}/depth/image_rect"
-        color_info_topic = f"spot/{name}/color/camera_info"
-        depth_info_topic = f"spot/{name}/depth/camera_info"
+        color_topic = f"{name}/color/image_raw"
+        depth_topic = f"{name}/depth/image_rect"
+        color_info_topic = f"{name}/color/camera_info"
+        depth_info_topic = f"{name}/depth/camera_info"
 
         if self.use_compressed:
             color_topic = f"{color_topic}/compressed"
@@ -200,9 +199,6 @@ class SpotClientNode(Node):
     def __init__(self):
         """Make a camera client."""
         super().__init__("spot_client_node")
-        robot_ip = self._get_param("robot.ip", "192.168.80.3").string_value
-        setup_logging = self._get_param("robot.setup_logging", True).bool_value
-        should_retry = self._get_param("robot.should_retry", False).bool_value
         poll_period_s = self._get_param("poll_period_s", 0.05).double_value
         names = self._get_param(
             "cameras", ["frontleft", "frontright"]
@@ -212,7 +208,7 @@ class SpotClientNode(Node):
         for camera in names:
             self._cameras[camera] = CameraPublisher(self, camera)
 
-        self._robot = self._connect(robot_ip, setup_logging, should_retry)
+        self._robot = self._connect()
         self._client = self._robot.ensure_client(ImageClient.default_service_name)
 
         # TODO(nathan) configurable exluded frames
@@ -224,11 +220,26 @@ class SpotClientNode(Node):
     def _get_param(self, name, default):
         return _get_param(self, name, default)
 
-    def _connect(self, robot_ip, setup_logging, should_retry):
+    def _connect(self):
+        setup_logging = self._get_param("robot.setup_logging", True).bool_value
+        should_retry = self._get_param("robot.should_retry", False).bool_value
+
         # uses node name to seed spot client
         name = self.get_name().replace("/", "_")
         if name[0] == "_":
             name = name[1:]
+
+        robot_ip = self._get_param("robot.ip", "").string_value
+        if robot_ip == "":
+            raise ValueError("IP address required")
+
+        username = self._get_param("robot.username", "").string_value
+        if username == "":
+            raise ValueError("Robot username required!")
+
+        password = self._get_param("robot.password", "").string_value
+        if password == "":
+            raise ValueError("Robot password required!")
 
         sdk = bosdyn.client.create_standard_sdk(name)
         robot = sdk.create_robot(robot_ip)
@@ -236,15 +247,8 @@ class SpotClientNode(Node):
         if setup_logging:
             bosdyn.client.util.setup_logging()
 
-        env_prefix = self._get_param("env_prefix", "ADT4_BOSDYN").string_value
-
         def _get_login_info():
-            pass_env = f"{env_prefix}_PASSWORD"
-            user_env = f"{env_prefix}_USERNAME"
-            if user_env not in os.environ or pass_env not in os.environ:
-                return None, None
-
-            return os.environ[user_env], os.environ[pass_env]
+            return username, password
 
         while True:
             try:

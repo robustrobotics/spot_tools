@@ -19,6 +19,7 @@ def get_share_info(top_level, pattern, dest=None):
 launch_files = get_share_info("launch", "*.launch.yaml")
 config_files = get_share_info("config", "*.yaml")
 config_files_csv = get_share_info("config", "*.csv")
+rviz_files = get_share_info("rviz", "*.rviz")
 
 data_files = (
     [
@@ -28,6 +29,7 @@ data_files = (
     + launch_files
     + config_files
     + config_files_csv
+    + rviz_files
 )
 
 
