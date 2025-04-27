@@ -24,8 +24,6 @@ from ultralytics import YOLOWorld
 
 from spot_executor.stitch_front_images import stitch, stitch_live, stitch_RGB
 
-from spot_executor.stitch_front_images import stitch, stitch_live, stitch_RGB
-
 
 class Spot:
     def __init__(
