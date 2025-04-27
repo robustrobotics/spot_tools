@@ -22,7 +22,6 @@ from spot_skills.arm_utils import (
     stow_arm,
 )
 from spot_skills.door_utils import execute_open_door
-from spot_skills.grasp_utils import object_grasp
 from spot_skills.grasp_utils import object_grasp, object_grasp_YOLO, object_place
 from spot_skills.navigation_utils import (
     navigate_to_relative_pose,
