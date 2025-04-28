@@ -105,7 +105,7 @@ def test_image_encoding(client):
     print(completion.choices[0].message.content)
 
 
-def test_image_encoding(client):
+def test_enforced_output(client):
     class CalendarEvent(BaseModel):
         name: str
         date: str

@@ -26,6 +26,10 @@ from bosdyn.client.frame_helpers import (
 )
 from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arrives
 
+from spot_skills.arm_impedance_control_helpers import (
+    apply_force_at_current_position,
+    get_root_T_ground_body,
+)
 from spot_skills.arm_utils import (
     arm_to_carry,
     arm_to_drop,
@@ -36,11 +40,6 @@ from spot_skills.arm_utils import (
 
 g_image_click = None
 g_image_display = None
-
-from spot_skills.arm_impedance_control_helpers import (
-    apply_force_at_current_position,
-    get_root_T_ground_body,
-)
 
 
 def wait_until_grasp_state_updates(grasp_override_command, robot_state_client):
@@ -143,7 +142,7 @@ def object_place(spot, semantic_class="bag", position=None):
     # Execute the impedance command
     cmd_id = spot.command_client.robot_command(robot_cmd)
     spot.robot.logger.info("Impedance command issued")
-    impedance_success = block_until_arm_arrives(spot.command_client, cmd_id, 10.0)
+    block_until_arm_arrives(spot.command_client, cmd_id, 10.0)
     input("Did impedance work")
 
     open_gripper(spot)
