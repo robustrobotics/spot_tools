@@ -112,8 +112,9 @@ def _build_transform_msg(stamp, child_frame, parent_frame, transform):
 class CameraPublisher:
     """Publisher for a single camera."""
 
-    def __init__(self, node, name):
+    def __init__(self, node, name, tf_prefix):
         self.name = name
+        self.tf_prefix = tf_prefix
         self.color_suffix = _get_param(
             node, f"{name}.color_suffix", "fisheye_image"
         ).string_value
@@ -179,7 +180,8 @@ class CameraPublisher:
             return  # skip previously published images
 
         self._last_time = color_stamp
-        header = _build_header(color_stamp, self.name)
+        frame_name = self.tf_prefix + "/" + self.name
+        header = _build_header(color_stamp, frame_name)
 
         rgb_msg = _build_image_msg(header, color.shot)
         if rgb_msg is not None:
@@ -206,10 +208,6 @@ class SpotClientNode(Node):
             "cameras", ["frontleft", "frontright"]
         ).string_array_value
 
-        self._cameras = {}
-        for camera in names:
-            self._cameras[camera] = CameraPublisher(self, camera)
-
         self._robot = self._connect()
         self._image_client = self._robot.ensure_client(ImageClient.default_service_name)
         self._state_client = self._robot.ensure_client(
@@ -226,6 +224,10 @@ class SpotClientNode(Node):
 
         if len(self._tf_prefix) > 0 and self._tf_prefix[-1] == "/":
             self._tf_prefix = self._tf_prefix[:-2]
+
+        self._cameras = {}
+        for camera in names:
+            self._cameras[camera] = CameraPublisher(self, camera, self._tf_prefix)
 
         # TODO(nathan) configurable exluded frames
         # self._excluded_frames = ["vision", "odom", "body"]
