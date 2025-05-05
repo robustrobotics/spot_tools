@@ -1,0 +1,37 @@
+---
+launch:
+  - arg: {name: robot_name, default: spot, description: Robot name to use}
+  - group:
+    - push_ros_namespace: {namespace: $(var robot_name)}
+    - node:
+        pkg: spot_tools_ros
+        exec: spot_sensor_node
+        name: spot_sensor_node
+        param:
+          - {from: $(find-pkg-share spot_tools_ros)/config/sensor_params.yaml, allow_substs: true}
+    - node:
+        pkg: rviz2
+        exec: rviz2
+        args: -d $(find-pkg-share spot_tools_ros)/rviz/spot_sensors.rviz
+    - group:
+      - push_ros_namespace: {namespace: frontleft}
+      - node:
+          pkg: image_transport
+          exec: republish
+          param:
+            - {name: in_transport, value: compressed}
+            - {name: out_transport, value: raw}
+          remap:
+            - {from: in/compressed, to: color/image_raw/compressed}
+            - {from: out, to: color/image_raw}
+    - group:
+      - push_ros_namespace: {namespace: frontright}
+      - node:
+          pkg: image_transport
+          exec: republish
+          param:
+            - {name: in_transport, value: compressed}
+            - {name: out_transport, value: raw}
+          remap:
+            - {from: in/compressed, to: color/image_raw/compressed}
+            - {from: out, to: color/image_raw}
