@@ -20,6 +20,8 @@ launch_files = get_share_info("launch", "*.launch.yaml")
 config_files = get_share_info("config", "*.yaml")
 config_files_csv = get_share_info("config", "*.csv")
 rviz_files = get_share_info("rviz", "*.rviz")
+urdf_files = get_share_info("urdf", "*.urdf") + get_share_info("urdf", "*.xacro")
+mesh_files = get_share_info("meshes", "*.obj") + get_share_info("meshes", "*.mtl")
 
 data_files = (
     [
@@ -30,6 +32,8 @@ data_files = (
     + config_files
     + config_files_csv
     + rviz_files
+    + urdf_files
+    + mesh_files
 )
 
 

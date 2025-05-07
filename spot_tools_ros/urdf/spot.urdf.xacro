@@ -1,0 +1,30 @@
+<?xml version="1.0" ?>
+<robot name="spot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Macro for loading Spot -->
+  <xacro:include filename="$(find spot_tools_ros)/urdf/spot_macro.xacro" />
+
+  <!-- String that will be prepended to all joints and links-->
+  <xacro:arg name="tf_prefix" default="spot/" />
+
+  <!-- Set to true if Spot has an arm -->
+  <xacro:arg name="arm" default="false" />
+
+  <!-- Set to true if Spot has an arm but not a gripper -->
+  <xacro:arg name="gripperless" default="false" />
+
+  <!-- Set to true to put links at the feet of Spot -->
+  <xacro:arg name="feet" default="false" />
+
+  <!-- Set to true to enable joints -->
+  <xacro:arg name="include_transmissions" default="false" />^M
+
+  <!-- Load Spot -->
+  <xacro:load_spot
+    arm="$(arg arm)"
+    feet="$(arg feet)"
+    tf_prefix="$(arg tf_prefix)"
+    gripperless="$(arg gripperless)"
+    include_transmissions="$(arg include_transmissions)" />
+
+</robot>
