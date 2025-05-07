@@ -420,7 +420,8 @@ class SpotClientNode(Node):
                 # TODO(nathan) consider logging
                 continue
 
-            msg.name.append(joint_name)
+            prefixed_joint_name = _prefix_frame(self._tf_prefix, joint_name)
+            msg.name.append(prefixed_joint_name)
             msg.position.append(joint.position.value)
             msg.velocity.append(joint.velocity.value)
             msg.effort.append(joint.load.value)
