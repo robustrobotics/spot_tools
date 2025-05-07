@@ -266,7 +266,7 @@ class SpotClientNode(Node):
         self._tf_queue = queue.Queue()
         self._dynamic_pub = tf2_ros.TransformBroadcaster(self)
         self._static_pub = tf2_ros.StaticTransformBroadcaster(self)
-        self._joint_pub = self.create_publisher(JointState, "joint_state", 10)
+        self._joint_pub = self.create_publisher(JointState, "joint_states", 10)
 
         cam_poll_period_s = self._get_param("camera_poll_period_s", 0.05).double_value
         self._camera_timer = self.create_timer(cam_poll_period_s, self._camera_callback)
