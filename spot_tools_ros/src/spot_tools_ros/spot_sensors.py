@@ -17,10 +17,38 @@ from bosdyn.client.robot_state import RobotStateClient
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from sensor_msgs.msg import CameraInfo, CompressedImage, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image, JointState
 
 SpotImage = image_pb2.Image
 SpotPixelFormat = image_pb2.Image.PixelFormat
+
+
+# borrowed from: https://github.com/heuristicus/spot_ros
+JOINT_NAMES = {
+    "fl.hx": "front_left_hip_x",
+    "fl.hy": "front_left_hip_y",
+    "fl.kn": "front_left_knee",
+    "fr.hx": "front_right_hip_x",
+    "fr.hy": "front_right_hip_y",
+    "fr.kn": "front_right_knee",
+    "hl.hx": "rear_left_hip_x",
+    "hl.hy": "rear_left_hip_y",
+    "hl.kn": "rear_left_knee",
+    "hr.hx": "rear_right_hip_x",
+    "hr.hy": "rear_right_hip_y",
+    "hr.kn": "rear_right_knee",
+    "arm0.sh0": "arm_joint1",
+    "arm0.sh1": "arm_joint2",
+    "arm0.el0": "arm_joint3",
+    "arm0.el1": "arm_joint4",
+    "arm0.wr0": "arm_joint5",
+    "arm0.wr1": "arm_joint6",
+    "arm0.f1x": "arm_gripper",
+}
+
+
+def _prefix_frame(tf_prefix, frame_id):
+    return frame_id if tf_prefix == "" else f"{tf_prefix}/{frame_id}"
 
 
 def _get_param(node, name, default):
@@ -180,7 +208,7 @@ class CameraPublisher:
             return  # skip previously published images
 
         self._last_time = color_stamp
-        frame_name = self.tf_prefix + "/" + self.name
+        frame_name = _prefix_frame(self.tf_prefix, self.name)
         header = _build_header(color_stamp, frame_name)
 
         rgb_msg = _build_image_msg(header, color.shot)
@@ -238,6 +266,7 @@ class SpotClientNode(Node):
         self._tf_queue = queue.Queue()
         self._dynamic_pub = tf2_ros.TransformBroadcaster(self)
         self._static_pub = tf2_ros.StaticTransformBroadcaster(self)
+        self._joint_pub = self.create_publisher(JointState, "joint_state", 10)
 
         cam_poll_period_s = self._get_param("camera_poll_period_s", 0.05).double_value
         self._camera_timer = self.create_timer(cam_poll_period_s, self._camera_callback)
@@ -301,10 +330,21 @@ class SpotClientNode(Node):
         static_matcher = re.compile("|".join(self._static_frames))
         while rclpy.ok():
             new_static = False
-            stamp, transforms = self._tf_queue.get()
+            stamp, transforms, feet_pos = self._tf_queue.get()
             transform_map = transforms.child_to_parent_edge_map
 
             dynamic_tfs = []
+            if feet_pos is not None:
+                for name, pos in feet_pos:
+                    msg = geometry_msgs.msg.TransformStamped()
+                    msg.header.stamp = stamp.to_msg()
+                    msg.header.frame_id = _prefix_frame(self._tf_prefix, "body")
+                    msg.child_frame_id = _prefix_frame(self._tf_prefix, name)
+                    msg.transform.translation.x = pos.x
+                    msg.transform.translation.y = pos.y
+                    msg.transform.translation.z = pos.z
+                    dynamic_tfs.append(msg)
+
             for frame in transform_map:
                 if frame in self._excluded_frames:
                     continue
@@ -324,10 +364,8 @@ class SpotClientNode(Node):
                 if (parent_frame, frame) in existing:
                     continue
 
-                if self._tf_prefix != "":
-                    frame = f"{self._tf_prefix}/{frame}"
-                    parent_frame = f"{self._tf_prefix}/{parent_frame}"
-
+                frame = _prefix_frame(self._tf_prefix, frame)
+                parent_frame = _prefix_frame(self._tf_prefix, parent_frame)
                 msg = _build_transform_msg(stamp, frame, parent_frame, transform)
 
                 if is_static:
@@ -352,9 +390,8 @@ class SpotClientNode(Node):
         responses = self._image_client.get_image(requests)
         for resp in responses:
             stamp = _get_local_time(self._robot, resp.shot.acquisition_time)
-            self._tf_queue.put((stamp, resp.shot.transforms_snapshot))
+            self._tf_queue.put((stamp, resp.shot.transforms_snapshot, None))
 
-        # shots = [resp.shot for resp in responses]
         for idx, name in enumerate(names):
             cam = self._cameras[name]
             rgb = responses[2 * idx]
@@ -366,7 +403,29 @@ class SpotClientNode(Node):
         state = self._state_client.get_robot_state()
         pos_state = state.kinematic_state
         stamp = _get_local_time(self._robot, pos_state.acquisition_timestamp)
-        self._tf_queue.put((stamp, pos_state.transforms_snapshot))
+
+        feet_names = ["front_left", "front_right", "rear_left", "rear_right"]
+        feet_pos = {
+            feet_names[i]: foot.foot_position_rt_body
+            for i, foot in enumerate(state.foot_state)
+        }
+
+        self._tf_queue.put((stamp, pos_state.transforms_snapshot, feet_pos))
+
+        msg = JointState()
+        msg.header.stamp = stamp.to_msg()
+        for joint in pos_state.joint_states:
+            joint_name = JOINT_NAMES.get(joint.name)
+            if joint_name is None:
+                # TODO(nathan) consider logging
+                continue
+
+            msg.name.append(joint_name)
+            msg.position.append(joint.position.value)
+            msg.velocity.append(joint.velocity.value)
+            msg.effort.append(joint.load.value)
+
+        self._joint_pub(msg)
 
 
 def main(args=None):
