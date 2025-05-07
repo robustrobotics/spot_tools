@@ -65,7 +65,10 @@ class Spot:
             RobotCommandClient.default_service_name
         )
         self.lease_keep_alive = None
-        self.ort_session = ort.InferenceSession(semantic_model_path)
+        if semantic_model_path is not None:
+            self.ort_session = ort.InferenceSession(semantic_model_path)
+        else:
+            self.ort_session = None
         self.semantic_name_to_id = semantic_name_to_id
 
         if set_estop:
@@ -166,6 +169,10 @@ class Spot:
         class_name="bag",
         show=False,
     ):
+
+        if self.ort_session is None:
+            raise Exception("Cannot segment image if no ort_session is loaded!")
+
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
         image = cv2.resize(image, (512, 512))  # Resize to match the model's input size
 
@@ -187,8 +194,6 @@ class Spot:
         # Convert to the format (batch_size, channels, height, width)
         image = np.transpose(image, (2, 0, 1))  # Change shape to (3, 512, 512)
         image = np.expand_dims(image, axis=0)  # Add batch dimension
-
-        # ort_session = ort.InferenceSession(model_path)
 
         # Run the model on the input image
         input_name = self.ort_session.get_inputs()[0].name
