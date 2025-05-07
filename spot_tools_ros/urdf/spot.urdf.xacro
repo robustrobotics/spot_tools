@@ -17,7 +17,7 @@
   <xacro:arg name="feet" default="false" />
 
   <!-- Set to true to enable joints -->
-  <xacro:arg name="include_transmissions" default="false" />^M
+  <xacro:arg name="include_transmissions" default="true" />^M
 
   <!-- Load Spot -->
   <xacro:load_spot

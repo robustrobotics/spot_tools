@@ -335,11 +335,11 @@ class SpotClientNode(Node):
 
             dynamic_tfs = []
             if feet_pos is not None:
-                for name, pos in feet_pos:
+                for name, pos in feet_pos.items():
                     msg = geometry_msgs.msg.TransformStamped()
                     msg.header.stamp = stamp.to_msg()
                     msg.header.frame_id = _prefix_frame(self._tf_prefix, "body")
-                    msg.child_frame_id = _prefix_frame(self._tf_prefix, name)
+                    msg.child_frame_id = _prefix_frame(self._tf_prefix, f"foot_{name}")
                     msg.transform.translation.x = pos.x
                     msg.transform.translation.y = pos.y
                     msg.transform.translation.z = pos.z
@@ -425,7 +425,7 @@ class SpotClientNode(Node):
             msg.velocity.append(joint.velocity.value)
             msg.effort.append(joint.load.value)
 
-        self._joint_pub(msg)
+        self._joint_pub.publish(msg)
 
 
 def main(args=None):
