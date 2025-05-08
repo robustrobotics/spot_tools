@@ -169,7 +169,6 @@ class Spot:
         class_name="bag",
         show=False,
     ):
-
         if self.ort_session is None:
             raise Exception("Cannot segment image if no ort_session is loaded!")
 
