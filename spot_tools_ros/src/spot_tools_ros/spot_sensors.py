@@ -13,6 +13,7 @@ import std_msgs.msg
 import tf2_ros
 from bosdyn.api import image_pb2
 from bosdyn.client.image import ImageClient, build_image_request
+from bosdyn.client.math_helpers import SE3Pose
 from bosdyn.client.robot_state import RobotStateClient
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -45,6 +46,24 @@ JOINT_NAMES = {
     "arm0.wr1": "arm_joint6",
     "arm0.f1x": "arm_gripper",
 }
+
+
+STATIC_IDS = [
+    "body",
+    "frontright.*",
+    "frontleft.*",
+    "left.*",
+    "right.*",
+    "rear.*",
+]
+
+
+def _compile_regex(filters):
+    if len(filters) == 0:
+        # see https://stackoverflow.com/a/942122
+        return re.compile("(?!)")
+    else:
+        return re.compile("|".join(filters))
 
 
 def _prefix_frame(tf_prefix, frame_id):
@@ -120,9 +139,7 @@ def _build_info_msg(header, response):
     return msg
 
 
-def _build_transform_msg(stamp, child_frame, parent_frame, transform):
-    pose = transform.parent_tform_child
-
+def _build_transform_msg(stamp, child_frame, parent_frame, pose):
     msg = geometry_msgs.msg.TransformStamped()
     msg.header.stamp = stamp.to_msg()
     msg.header.frame_id = parent_frame
@@ -257,12 +274,18 @@ class SpotClientNode(Node):
         for camera in names:
             self._cameras[camera] = CameraPublisher(self, camera, self._tf_prefix)
 
-        # TODO(nathan) configurable exluded frames
-        # self._excluded_frames = ["vision", "odom", "body"]
-        self._excluded_frames = []
-        self._static_frames = self._get_param(
-            "static_frames", ["frontleft.*", "frontright.*", "body"]
-        ).string_array_value
+        allowed_parents = ["vision", "odom", "body"]
+        self._parent_frame = self._get_param("parent_frame", "vision").string_value
+        if self._parent_frame not in allowed_parents:
+            err = f"Invalid parent '{self._parent_frame}'. Must be in {allowed_parents}"
+            self.get_logger().error(err)
+
+        excluded_frames = self._get_param("excluded_frames", []).string_array_value
+        self._excluded_matcher = _compile_regex(excluded_frames)
+
+        static_frames = self._get_param("static_frames", STATIC_IDS).string_array_value
+        self._static_matcher = _compile_regex(static_frames)
+
         self._tf_queue = queue.Queue()
         self._dynamic_pub = tf2_ros.TransformBroadcaster(self)
         self._static_pub = tf2_ros.StaticTransformBroadcaster(self)
@@ -325,9 +348,11 @@ class SpotClientNode(Node):
         robot.time_sync.wait_for_sync(10)
         return robot
 
+    def _is_tf_static(self, child, parent):
+        return self._static_matcher.match(child) and self._static_matcher.match(parent)
+
     def _publish_transforms(self):
         static_tfs = []
-        static_matcher = re.compile("|".join(self._static_frames))
         while rclpy.ok():
             new_static = False
             stamp, transforms, feet_pos = self._tf_queue.get()
@@ -346,7 +371,7 @@ class SpotClientNode(Node):
                     dynamic_tfs.append(msg)
 
             for frame in transform_map:
-                if frame in self._excluded_frames:
+                if self._excluded_match.match(frame):
                     continue
 
                 transform = transform_map.get(frame)
@@ -354,9 +379,12 @@ class SpotClientNode(Node):
                 if frame == "" or parent_frame == "":
                     continue
 
-                is_static = static_matcher.match(frame) and static_matcher.match(
-                    parent_frame
-                )
+                pose = transform.parent_tform_child
+                if frame == self._parent_frame:
+                    pose = SE3Pose.from_proto(pose).inverse().to_proto()
+                    parent_frame, frame = frame, parent_frame
+
+                is_static = self._is_tf_static(frame, parent_frame)
                 existing = [
                     (t.header.frame_id, t.child_frame_id)
                     for t in (static_tfs if is_static else dynamic_tfs)
@@ -366,7 +394,7 @@ class SpotClientNode(Node):
 
                 frame = _prefix_frame(self._tf_prefix, frame)
                 parent_frame = _prefix_frame(self._tf_prefix, parent_frame)
-                msg = _build_transform_msg(stamp, frame, parent_frame, transform)
+                msg = _build_transform_msg(stamp, frame, parent_frame, pose)
 
                 if is_static:
                     new_static = True
@@ -417,7 +445,7 @@ class SpotClientNode(Node):
         for joint in pos_state.joint_states:
             joint_name = JOINT_NAMES.get(joint.name)
             if joint_name is None:
-                # TODO(nathan) consider logging
+                self.get_logger.debug(f"unknown joint '{joint.name}'")
                 continue
 
             prefixed_joint_name = _prefix_frame(self._tf_prefix, joint_name)
