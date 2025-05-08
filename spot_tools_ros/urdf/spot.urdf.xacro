@@ -16,10 +16,14 @@
   <!-- Set to true to enable joints -->
   <xacro:arg name="include_transmissions" default="true" />^M
 
+  <!-- Set to the accent color you want for spot -->
+  <xacro:arg name="spot_color" default="yellow" />
+
   <!-- Load Spot -->
   <xacro:load_spot
     arm="$(arg arm)"
     tf_prefix="$(arg tf_prefix)"
+    spot_color="$(arg spot_color)"
     gripperless="$(arg gripperless)"
     include_transmissions="$(arg include_transmissions)" />
 

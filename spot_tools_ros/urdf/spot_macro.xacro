@@ -3,21 +3,25 @@
 <robot name="spot" xmlns:xacro="http://www.ros.org/wiki/xacro">
     <xacro:macro name="load_spot" params="
     arm:=false
+    tf_prefix
+    spot_color:=yellow
     gripperless:=false
     custom_gripper_base_link:=''
-    tf_prefix
     include_transmissions=false">
 
         <link name="${tf_prefix}body">
             <visual>
                 <geometry>
-                    <mesh filename="package://spot_tools_ros/meshes/base/visual/body.obj" />
+                    <mesh filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/body.obj" />
                 </geometry>
+                <material name="red">
+                    <color rgba="1 0 0 1"/>
+                </material>
             </visual>
             <collision>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/collision/body_collision.obj" />
+                        filename="package://spot_tools_ros/meshes/collision/body_collision.obj" />
                 </geometry>
             </collision>
         </link>
@@ -67,7 +71,7 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/front_left_hip.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/front_left_hip.obj" />
                 </geometry>
             </visual>
             <inertial>
@@ -101,13 +105,13 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/front_left_upper_leg.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/front_left_upper_leg.obj" />
                 </geometry>
             </visual>
             <collision>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/collision/left_upper_leg_collision.obj" />
+                        filename="package://spot_tools_ros/meshes/collision/left_upper_leg_collision.obj" />
                 </geometry>
             </collision>
             <inertial>
@@ -141,13 +145,13 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/front_left_lower_leg.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/front_left_lower_leg.obj" />
                 </geometry>
             </visual>
             <collision>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/collision/left_lower_leg_collision.obj" />
+                        filename="package://spot_tools_ros/meshes/collision/left_lower_leg_collision.obj" />
                 </geometry>
             </collision>
             <collision>
@@ -188,7 +192,7 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/front_right_hip.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/front_right_hip.obj" />
                 </geometry>
             </visual>
             <inertial>
@@ -222,13 +226,13 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/front_right_upper_leg.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/front_right_upper_leg.obj" />
                 </geometry>
             </visual>
             <collision>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/collision/right_upper_leg_collision.obj" />
+                        filename="package://spot_tools_ros/meshes/collision/right_upper_leg_collision.obj" />
                 </geometry>
             </collision>
             <inertial>
@@ -262,13 +266,13 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/front_right_lower_leg.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/front_right_lower_leg.obj" />
                 </geometry>
             </visual>
             <collision>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/collision/right_lower_leg_collision.obj" />
+                        filename="package://spot_tools_ros/meshes/collision/right_lower_leg_collision.obj" />
                 </geometry>
             </collision>
             <collision>
@@ -309,7 +313,7 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/rear_left_hip.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/rear_left_hip.obj" />
                 </geometry>
             </visual>
             <inertial>
@@ -343,13 +347,13 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/rear_left_upper_leg.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/rear_left_upper_leg.obj" />
                 </geometry>
             </visual>
             <collision>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/collision/left_upper_leg_collision.obj" />
+                        filename="package://spot_tools_ros/meshes/collision/left_upper_leg_collision.obj" />
                 </geometry>
             </collision>
             <inertial>
@@ -383,13 +387,13 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/rear_left_lower_leg.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/rear_left_lower_leg.obj" />
                 </geometry>
             </visual>
             <collision>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/collision/left_lower_leg_collision.obj" />
+                        filename="package://spot_tools_ros/meshes/collision/left_lower_leg_collision.obj" />
                 </geometry>
             </collision>
             <collision>
@@ -430,7 +434,7 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/rear_right_hip.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/rear_right_hip.obj" />
                 </geometry>
             </visual>
             <inertial>
@@ -464,13 +468,13 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/rear_right_upper_leg.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/rear_right_upper_leg.obj" />
                 </geometry>
             </visual>
             <collision>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/collision/right_upper_leg_collision.obj" />
+                        filename="package://spot_tools_ros/meshes/collision/right_upper_leg_collision.obj" />
                 </geometry>
             </collision>
             <inertial>
@@ -504,13 +508,13 @@
             <visual>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/visual/rear_right_lower_leg.obj" />
+                        filename="package://spot_tools_ros/meshes/visual/spot_${spot_color}/rear_right_lower_leg.obj" />
                 </geometry>
             </visual>
             <collision>
                 <geometry>
                     <mesh
-                        filename="package://spot_tools_ros/meshes/base/collision/right_lower_leg_collision.obj" />
+                        filename="package://spot_tools_ros/meshes/collision/right_lower_leg_collision.obj" />
                 </geometry>
             </collision>
             <collision>
@@ -555,7 +559,7 @@
         <!-- Include Arm if necessary-->
         <xacro:if value="${arm}">
             <xacro:include filename="$(find spot_tools_ros)/urdf/spot_arm_macro.urdf" />
-            <xacro:load_arm tf_prefix="${tf_prefix}" gripperless="${gripperless}" custom_gripper_base_link="${custom_gripper_base_link}" />
+            <xacro:load_arm tf_prefix="${tf_prefix}" spot_color="spot_${spot_color}" gripperless="${gripperless}" custom_gripper_base_link="${custom_gripper_base_link}" />
         </xacro:if>
     </xacro:macro>
 </robot>
