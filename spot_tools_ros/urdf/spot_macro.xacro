@@ -3,7 +3,6 @@
 <robot name="spot" xmlns:xacro="http://www.ros.org/wiki/xacro">
     <xacro:macro name="load_spot" params="
     arm:=false
-    feet:=false
     gripperless:=false
     custom_gripper_base_link:=''
     tf_prefix
@@ -549,26 +548,14 @@
                     </transmission>
         </xacro:if>
 
-        <!-- Standard accessories. -->
-        <xacro:include filename="$(find spot_tools_ros)/urdf/accessories.urdf.xacro" />
-
         <!-- Optional custom includes. -->
-
         <xacro:property name="default_empty_urdf" value="$(find spot_tools_ros)/urdf/empty.urdf" />
         <xacro:include filename="$(optenv SPOT_URDF_EXTRAS ${default_empty_urdf})" />
 
         <!-- Include Arm if necessary-->
         <xacro:if value="${arm}">
             <xacro:include filename="$(find spot_tools_ros)/urdf/spot_arm_macro.urdf" />
-            <xacro:load_arm tf_prefix="${tf_prefix}"
-                            gripperless="${gripperless}"
-                            custom_gripper_base_link="${custom_gripper_base_link}" />
-        </xacro:if>
-
-        <!-- Include links at feet if necessary -->
-        <xacro:if value="${feet}">
-            <xacro:include filename="$(find spot_tools_ros)/urdf/spot_feet_macro.urdf" />
-            <xacro:load_feet tf_prefix="${tf_prefix}" />
+            <xacro:load_arm tf_prefix="${tf_prefix}" gripperless="${gripperless}" custom_gripper_base_link="${custom_gripper_base_link}" />
         </xacro:if>
     </xacro:macro>
 </robot>
