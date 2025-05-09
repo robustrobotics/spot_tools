@@ -1,37 +1,45 @@
 ---
 launch:
   - arg: {name: robot_name, default: spot, description: Robot name to use}
+  - arg: {name: spot_color, default: yellow, description: URDF accent_color}
+  - arg: {name: launch_spot_state_publisher, default: 'true'}
   - group:
-    - push_ros_namespace: {namespace: $(var robot_name)}
-    - node:
-        pkg: spot_tools_ros
-        exec: spot_sensor_node
-        name: spot_sensor_node
-        param:
-          - {from: $(find-pkg-share spot_tools_ros)/config/sensor_params.yaml, allow_substs: true}
-    - node:
-        pkg: rviz2
-        exec: rviz2
-        args: -d $(find-pkg-share spot_tools_ros)/rviz/spot_sensors.rviz
-    - group:
-      - push_ros_namespace: {namespace: frontleft}
+      - push_ros_namespace: {namespace: $(var robot_name)}
+      - node:
+          pkg: spot_tools_ros
+          exec: spot_sensor_node
+          name: spot_sensor_node
+          param:
+            - {from: $(find-pkg-share spot_tools_ros)/config/sensor_params.yaml, allow_substs: true}
+      - node:
+          if: $(var launch_spot_state_publisher)
+          pkg: robot_state_publisher
+          name: robot_state_publisher
+          exec: robot_state_publisher
+          param:
+            - {name: robot_description, value: $(command 'xacro $(find-pkg-share spot_tools_ros)/urdf/spot.urdf.xacro tf_prefix:=$(var robot_name)/ spot_color:=$(var spot_color)')}
+            - {name: frame_prefix, value: $(var robot_name)}
       - node:
           pkg: image_transport
           exec: republish
+          namespace: frontleft
           param:
             - {name: in_transport, value: compressed}
             - {name: out_transport, value: raw}
           remap:
             - {from: in/compressed, to: color/image_raw/compressed}
             - {from: out, to: color/image_raw}
-    - group:
-      - push_ros_namespace: {namespace: frontright}
       - node:
           pkg: image_transport
           exec: republish
+          namespace: frontright
           param:
             - {name: in_transport, value: compressed}
             - {name: out_transport, value: raw}
           remap:
             - {from: in/compressed, to: color/image_raw/compressed}
             - {from: out, to: color/image_raw}
+      - node:
+          pkg: rviz2
+          exec: rviz2
+          args: -d $(find-pkg-share spot_tools_ros)/rviz/spot_sensors.rviz
