@@ -371,7 +371,7 @@ class SpotClientNode(Node):
                     dynamic_tfs.append(msg)
 
             for frame in transform_map:
-                if self._excluded_match.match(frame):
+                if self._excluded_matcher.match(frame):
                     continue
 
                 transform = transform_map.get(frame)
