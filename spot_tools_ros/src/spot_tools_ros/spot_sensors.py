@@ -412,8 +412,6 @@ class SpotClientNode(Node):
                 if frame == "" or parent_frame == "":
                     continue
 
-                frame = self._frame_remaps.get(frame, frame)
-                parent_frame = self._frame_remaps.get(parent_frame, parent_frame)
                 pose = transform.parent_tform_child
                 if frame == self._parent_frame:
                     pose = SE3Pose.from_proto(pose).inverse().to_proto()
@@ -428,6 +426,8 @@ class SpotClientNode(Node):
                 if not is_static and not _check_seen(dynamic_seen, parent_frame, frame):
                     continue
 
+                frame = self._frame_remaps.get(frame, frame)
+                parent_frame = self._frame_remaps.get(parent_frame, parent_frame)
                 frame = _prefix_frame(self._tf_prefix, frame)
                 parent_frame = _prefix_frame(self._tf_prefix, parent_frame)
                 msg = _build_transform_msg(stamp, frame, parent_frame, pose)
