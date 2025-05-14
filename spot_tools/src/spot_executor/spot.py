@@ -92,7 +92,7 @@ class Spot:
             transforms, VISION_FRAME_NAME, BODY_FRAME_NAME
         )
 
-        return out_tform_body
+        return np.array([out_tform_body.x, out_tform_body.y, out_tform_body.angle])
 
     def get_image(self, view="hand_color_image", show=False):
         self.robot.logger.info("Getting an image from: %s", view)

@@ -133,7 +133,7 @@ class SpotExecutor:
                 command.path2d,
             )
 
-        goal_tolerance = 1
+        goal_tolerance = 2.8
         path_distance = np.sum(
             np.linalg.norm(np.diff(command_to_send[:, :2], axis=0), axis=1)
         )
