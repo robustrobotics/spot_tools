@@ -2,6 +2,7 @@
 /**:
   ros__parameters:
     cameras: [frontleft, frontright]
+    state_poll_period_s: 0.01
     robot:
       setup_logging: false
       should_retry: true

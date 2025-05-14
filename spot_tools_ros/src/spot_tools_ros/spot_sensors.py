@@ -243,6 +243,18 @@ class CameraPublisher:
             logger.logerr(f"Invalid pixel format: {depth.shot.image.pixel_format}")
 
 
+def _check_seen(seen_dict, parent, child):
+    if parent not in seen_dict:
+        seen_dict[parent] = set([child])
+        return True
+
+    if child not in seen_dict[parent]:
+        seen_dict[parent].add(child)
+        return True
+
+    return False
+
+
 class SpotClientNode(Node):
     """Spot client for requesting (rectified) RGBD data."""
 
@@ -286,10 +298,14 @@ class SpotClientNode(Node):
         static_frames = self._get_param("static_frames", STATIC_IDS).string_array_value
         self._static_matcher = _compile_regex(static_frames)
 
-        self._tf_queue = queue.Queue()
+        queue_size = self._get_param("max_tf_queue_size", 10).integer_value
+        self._tf_queue = queue.Queue(queue_size)
         self._dynamic_pub = tf2_ros.TransformBroadcaster(self)
         self._static_pub = tf2_ros.StaticTransformBroadcaster(self)
         self._joint_pub = self.create_publisher(JointState, "joint_states", 10)
+
+        self._tf_thread = threading.Thread(target=self._publish_transforms, daemon=True)
+        self._tf_thread.start()
 
         cam_poll_period_s = self._get_param("camera_poll_period_s", 0.05).double_value
         self._camera_timer = self.create_timer(cam_poll_period_s, self._camera_callback)
@@ -299,9 +315,6 @@ class SpotClientNode(Node):
         self._state_timer = self.create_timer(
             state_poll_period_s, self._state_callback, callback_group=state_group
         )
-
-        self._tf_thread = threading.Thread(target=self._publish_transforms, daemon=True)
-        self._tf_thread.start()
 
     def _get_param(self, name, default):
         return _get_param(self, name, default)
@@ -353,12 +366,14 @@ class SpotClientNode(Node):
 
     def _publish_transforms(self):
         static_tfs = []
+        static_seen = {}
         while rclpy.ok():
             new_static = False
             stamp, transforms, feet_pos = self._tf_queue.get()
             transform_map = transforms.child_to_parent_edge_map
 
             dynamic_tfs = []
+            dynamic_seen = {}
             if feet_pos is not None:
                 for name, pos in feet_pos.items():
                     msg = geometry_msgs.msg.TransformStamped()
@@ -385,11 +400,12 @@ class SpotClientNode(Node):
                     parent_frame, frame = frame, parent_frame
 
                 is_static = self._is_tf_static(frame, parent_frame)
-                existing = [
-                    (t.header.frame_id, t.child_frame_id)
-                    for t in (static_tfs if is_static else dynamic_tfs)
-                ]
-                if (parent_frame, frame) in existing:
+                # check if repeated static frame
+                if is_static and not _check_seen(static_seen, parent_frame, frame):
+                    continue
+
+                # check if repeated dynamic frame
+                if not is_static and not _check_seen(dynamic_seen, parent_frame, frame):
                     continue
 
                 frame = _prefix_frame(self._tf_prefix, frame)
@@ -398,6 +414,9 @@ class SpotClientNode(Node):
 
                 if is_static:
                     new_static = True
+                    self.get_logger().info(
+                        f"New static TF {parent_frame}_T_{frame} @ {stamp.nanoseconds} [ns]"
+                    )
                     static_tfs.append(msg)
                 else:
                     dynamic_tfs.append(msg)
@@ -418,7 +437,10 @@ class SpotClientNode(Node):
         responses = self._image_client.get_image(requests)
         for resp in responses:
             stamp = _get_local_time(self._robot, resp.shot.acquisition_time)
-            self._tf_queue.put((stamp, resp.shot.transforms_snapshot, None))
+            try:
+                self._tf_queue.put_nowait((stamp, resp.shot.transforms_snapshot, None))
+            except queue.Full:
+                self.get_logger().warn(f"TF queue is full! Dropping TF @ {stamp.nanoseconds} [ns]")
 
         for idx, name in enumerate(names):
             cam = self._cameras[name]
@@ -438,7 +460,11 @@ class SpotClientNode(Node):
             for i, foot in enumerate(state.foot_state)
         }
 
-        self._tf_queue.put((stamp, pos_state.transforms_snapshot, feet_pos))
+        try:
+            self._tf_queue.put_nowait((stamp, pos_state.transforms_snapshot, feet_pos))
+        except queue.Full:
+            self.get_logger().warn(f"TF queue is full! Dropping TF @ {stamp.nanoseconds} [ns]")
+
 
         msg = JointState()
         msg.header.stamp = stamp.to_msg()
