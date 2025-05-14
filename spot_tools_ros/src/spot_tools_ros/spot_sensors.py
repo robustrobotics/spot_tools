@@ -57,6 +57,8 @@ STATIC_IDS = [
     "rear.*",
 ]
 
+FRAME_REMAPS = ["odom:kinematic", "vision:odom"]
+
 
 def _compile_regex(filters):
     if len(filters) == 0:
@@ -87,6 +89,19 @@ def _get_local_time(robot, robot_stamp):
         raise ValueError(f"Invalid stamp {local_s} [s] {local_ns} [ns]")
 
     return rclpy.time.Time(seconds=int(local_s), nanoseconds=local_ns)
+
+
+def _parse_remaps(logger, remap_list):
+    remaps = {}
+    for entry in remap_list:
+        parts = entry.split(":")
+        if len(parts) != 2:
+            logger.error(f"Invalid frame remap: '{entry}'. Must be of form 'rom:to'")
+            continue
+
+        remaps[parts[0]] = parts[1]
+
+    return remaps
 
 
 def _build_header(stamp: rclpy.time.Time, frame_id: str) -> std_msgs.msg.Header:
@@ -298,6 +313,9 @@ class SpotClientNode(Node):
         static_frames = self._get_param("static_frames", STATIC_IDS).string_array_value
         self._static_matcher = _compile_regex(static_frames)
 
+        remaps = self._get_param("frame_remaps", FRAME_REMAPS).string_array_value
+        self._frame_remaps = _parse_remaps(self.get_logger(), remaps)
+
         queue_size = self._get_param("max_tf_queue_size", 10).integer_value
         self._tf_queue = queue.Queue(queue_size)
         self._dynamic_pub = tf2_ros.TransformBroadcaster(self)
@@ -394,6 +412,8 @@ class SpotClientNode(Node):
                 if frame == "" or parent_frame == "":
                     continue
 
+                frame = self._frame_remaps.get(frame, frame)
+                parent_frame = self._frame_remaps.get(parent_frame, parent_frame)
                 pose = transform.parent_tform_child
                 if frame == self._parent_frame:
                     pose = SE3Pose.from_proto(pose).inverse().to_proto()
