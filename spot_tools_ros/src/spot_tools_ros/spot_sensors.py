@@ -440,7 +440,9 @@ class SpotClientNode(Node):
             try:
                 self._tf_queue.put_nowait((stamp, resp.shot.transforms_snapshot, None))
             except queue.Full:
-                self.get_logger().warn(f"TF queue is full! Dropping TF @ {stamp.nanoseconds} [ns]")
+                self.get_logger().warn(
+                    f"TF queue is full! Dropping TF @ {stamp.nanoseconds} [ns]"
+                )
 
         for idx, name in enumerate(names):
             cam = self._cameras[name]
@@ -463,8 +465,9 @@ class SpotClientNode(Node):
         try:
             self._tf_queue.put_nowait((stamp, pos_state.transforms_snapshot, feet_pos))
         except queue.Full:
-            self.get_logger().warn(f"TF queue is full! Dropping TF @ {stamp.nanoseconds} [ns]")
-
+            self.get_logger().warn(
+                f"TF queue is full! Dropping TF @ {stamp.nanoseconds} [ns]"
+            )
 
         msg = JointState()
         msg.header.stamp = stamp.to_msg()
