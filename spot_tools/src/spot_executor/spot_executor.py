@@ -1,5 +1,3 @@
-import time
-
 import numpy as np
 import skimage as ski
 from robot_executor_interface.action_descriptions import (
@@ -18,23 +16,36 @@ from spot_skills.navigation_utils import (
 )
 
 
-def transform_command_frame(tf_trans, tf_q, command):
+def transform_command_frame(tf_trans, tf_q, command, feedback=None):
     # command is Nx3 numpy array
     print("command in: ", command)
 
+    R = Rotation.from_quat([tf_q.x, tf_q.y, tf_q.z, tf_q.w])
+    _, _, yaw = R.as_euler("xyz", degrees=False)
+
+    if feedback is not None:
+        feedback.print("INFO", "rotating path")
+        feedback.print("INFO", f"translation: {str(tf_trans)}")
+        feedback.print("INFO", f"rotration: {yaw}")
+
+    feedback.print("INFO", "path before:")
+    feedback.print("INFO", str(command))
     for ix in range(len(command)):
-        R = Rotation.from_quat([tf_q.x, tf_q.y, tf_q.z, tf_q.w])
-        _, _, yaw = R.as_euler("xyz", degrees=False)
-
         c = command[ix]
+        x, y = c[0:2]
 
-        command[ix, 0] = np.cos(yaw) * c[0] - np.sin(yaw) * c[1] + tf_trans[0]
-        command[ix, 1] = np.sin(yaw) * c[0] + np.cos(yaw) * c[1] + tf_trans[1]
+        # command[ix, 0] = np.cos(yaw) * c[0] - np.sin(yaw) * c[1] + tf_trans[0]
+        # command[ix, 1] = np.sin(yaw) * c[0] + np.cos(yaw) * c[1] + tf_trans[1]
+
+        command[ix, 0] = np.cos(yaw) * x - np.sin(yaw) * y + tf_trans[0]
+        command[ix, 1] = np.sin(yaw) * x + np.cos(yaw) * y + tf_trans[1]
 
         # TODO: check if this actually transforms yaw correctly
         command[ix, 2] += yaw
 
-    print("command out: ", command)
+    feedback.print("INFO", "path after:")
+    feedback.print("INFO", str(command))
+
     return command
 
 
@@ -43,7 +54,7 @@ class SpotExecutor:
         self.debug = False
         self.spot_interface = spot_interface
         self.transform_lookup = transform_lookup
-        self.fixed_frame = "vision"
+        self.fixed_frame = "map"
         self.follower_lookahead = 2
 
     def process_action_sequence(self, sequence, feedback):
@@ -123,14 +134,18 @@ class SpotExecutor:
 
     def execute_follow(self, command, feedback):
         feedback.print("INFO", "Executing `follow` command")
+        feedback.print("INFO", f"self.fixed_frame: {self.fixed_frame}")
         if self.fixed_frame == "vision":
+            feedback.print("INFO", "passing through command")
             command_to_send = command.path2d
         else:
-            t, r = self.transform_lookup(self.fixed_frame, "vision", time.time())
+            feedback.print(
+                "INFO", f"transforming path from {self.fixed_frame} to euclid/odom"
+            )
+            # t, r = self.transform_lookup(self.fixed_frame, "euclid/odom")
+            t, r = self.transform_lookup("euclid/odom", self.fixed_frame)
             command_to_send = transform_command_frame(
-                t,
-                r,
-                command.path2d,
+                t, r, command.path2d, feedback=feedback
             )
 
         goal_tolerance = 2.8
