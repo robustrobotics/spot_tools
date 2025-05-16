@@ -5,6 +5,7 @@ import rclpy
 import rclpy.time
 import spot_executor as se
 import tf2_ros
+import tf_transformations
 import yaml
 from cv_bridge import CvBridge
 
@@ -24,6 +25,36 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.utils import waypoints_to_path
+
+
+def get_robot_pose(tf_buffer, parent_frame: str, child_frame: str):
+    """
+    Looks up the transform from parent_frame to child_frame and returns [x, y, z, yaw].
+
+    """
+    # TODO: use Time(0) instead of now?
+    try:
+        now = rclpy.time.Time()
+        tf_buffer.can_transform(
+            parent_frame,
+            child_frame,
+            now,
+            timeout=rclpy.duration.Duration(seconds=1.0),
+        )
+        transform = tf_buffer.lookup_transform(parent_frame, child_frame, now)
+
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+
+        # Convert quaternion to Euler angles
+        quat = [rotation.x, rotation.y, rotation.z, rotation.w]
+        roll, pitch, yaw = tf_transformations.euler_from_quaternion(quat)
+
+        return np.array([translation.x, translation.y, translation.z]), rotation
+
+    except tf2_ros.TransformException as e:
+        print(f"Transform error: {e}")
+        raise
 
 
 def load_inverse_semantic_id_map_from_label_space(fn):
@@ -241,7 +272,7 @@ class SpotExecutorRos(Node):
 
         def tf_lookup_fn(parent, child):
             try:
-                return self.tf_buffer.lookup_transform(parent, child, rclpy.time.Time())
+                return get_robot_pose(self.tf_buffer, parent, child)
             except tf2_ros.TransformException as e:
                 self.get_logger.warn(f"Failed to get transform: {e}")
 
