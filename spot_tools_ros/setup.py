@@ -14,6 +14,7 @@ materials = output_path.rglob("spot.mtl")
 for material in materials:
     shutil.copytree(template_path, material.parent, dirs_exist_ok=True)
 
+
 def get_share_info(top_level, pattern, dest=None):
     dest = pathlib.Path("share") / package_name if dest is None else pathlib.Path(dest)
     files = [x.relative_to(curr_path) for x in (curr_path / top_level).rglob(pattern)]
@@ -67,5 +68,3 @@ setup(
         ],
     },
 )
-
-
