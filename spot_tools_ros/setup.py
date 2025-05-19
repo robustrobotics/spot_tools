@@ -4,8 +4,8 @@ import shutil
 from setuptools import find_packages, setup
 
 package_name = "spot_tools_ros"
-curr_path = pathlib.Path(__file__).absolute().parent
-
+# resolve is required for symlink installs
+curr_path = pathlib.Path(__file__).resolve().parent
 
 # copies all base meshes to directories containing unique colors
 template_path = curr_path / "meshes" / "templates"
@@ -13,7 +13,6 @@ output_path = curr_path / "meshes" / "visual"
 materials = output_path.rglob("spot.mtl")
 for material in materials:
     shutil.copytree(template_path, material.parent, dirs_exist_ok=True)
-
 
 def get_share_info(top_level, pattern, dest=None):
     dest = pathlib.Path("share") / package_name if dest is None else pathlib.Path(dest)
@@ -48,7 +47,6 @@ data_files = (
     + mesh_files
 )
 
-
 setup(
     name=package_name,
     version="0.0.0",
@@ -69,3 +67,5 @@ setup(
         ],
     },
 )
+
+
