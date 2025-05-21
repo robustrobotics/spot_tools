@@ -1,5 +1,3 @@
-import time
-
 import numpy as np
 import skimage as ski
 from robot_executor_interface.action_descriptions import (
@@ -18,33 +16,31 @@ from spot_skills.navigation_utils import (
 )
 
 
-def transform_command_frame(tf_trans, tf_q, command):
+def transform_command_frame(tf_trans, tf_q, command, feedback=None):
     # command is Nx3 numpy array
-    print("command in: ", command)
+
+    R = Rotation.from_quat([tf_q.x, tf_q.y, tf_q.z, tf_q.w])
+    _, _, yaw = R.as_euler("xyz", degrees=False)
 
     for ix in range(len(command)):
-        R = Rotation.from_quat([tf_q.x, tf_q.y, tf_q.z, tf_q.w])
-        _, _, yaw = R.as_euler("xyz", degrees=False)
-
         c = command[ix]
+        x, y = c[0:2]
 
-        command[ix, 0] = np.cos(yaw) * c[0] - np.sin(yaw) * c[1] + tf_trans[0]
-        command[ix, 1] = np.sin(yaw) * c[0] + np.cos(yaw) * c[1] + tf_trans[1]
-
-        # TODO: check if this actually transforms yaw correctly
+        command[ix, 0] = np.cos(yaw) * x - np.sin(yaw) * y + tf_trans[0]
+        command[ix, 1] = np.sin(yaw) * x + np.cos(yaw) * y + tf_trans[1]
         command[ix, 2] += yaw
-
-    print("command out: ", command)
     return command
 
 
 class SpotExecutor:
-    def __init__(self, spot_interface, transform_lookup):
+    def __init__(
+        self, spot_interface, transform_lookup, follower_lookahead=2, goal_tolerance=2.8
+    ):
         self.debug = False
         self.spot_interface = spot_interface
         self.transform_lookup = transform_lookup
-        self.fixed_frame = "vision"
-        self.follower_lookahead = 2
+        self.follower_lookahead = follower_lookahead
+        self.goal_tolerance = goal_tolerance
 
     def process_action_sequence(self, sequence, feedback):
         feedback.print("INFO", "Would like to execute: ")
@@ -78,6 +74,7 @@ class SpotExecutor:
                 )
 
     def execute_gaze(self, command, feedback, pick_next=False):
+        # TODO: need to transform command to robot odom frame
         feedback.print("INFO", "Executing `gaze` command")
         current_pose = self.spot_interface.get_pose()
         turn_to_point(self.spot_interface, current_pose, command.gaze_point)
@@ -123,24 +120,24 @@ class SpotExecutor:
 
     def execute_follow(self, command, feedback):
         feedback.print("INFO", "Executing `follow` command")
-        if self.fixed_frame == "vision":
-            command_to_send = command.path2d
-        else:
-            t, r = self.transform_lookup(self.fixed_frame, "vision", time.time())
-            command_to_send = transform_command_frame(
-                t,
-                r,
-                command.path2d,
-            )
+        feedback.print(
+            "INFO", f"transforming path from {command.frame} to <spot_vision_frame>"
+        )
 
-        goal_tolerance = 2.8
+        # <spot_vision_frame> gets remapped to the actual robot odom frame name
+        # by the transform_lookup function.
+        t, r = self.transform_lookup("<spot_vision_frame>", command.frame)
+        command_to_send = transform_command_frame(
+            t, r, command.path2d, feedback=feedback
+        )
+
         path_distance = np.sum(
             np.linalg.norm(np.diff(command_to_send[:, :2], axis=0), axis=1)
         )
         timeout = path_distance * 6
         feedback.print(
             "INFO",
-            f"Using continous follower with params:\n\tlookahead: {self.follower_lookahead}\n\tgoal tolerance: {goal_tolerance}\n\ttimeout: {timeout}",
+            f"Using continous follower with params:\n\tlookahead: {self.follower_lookahead}\n\tgoal tolerance: {self.goal_tolerance}\n\ttimeout: {timeout}",
         )
 
         feedback.follow_path_feedback(command_to_send)
@@ -148,7 +145,7 @@ class SpotExecutor:
             self.spot_interface,
             command_to_send,
             self.follower_lookahead,
-            goal_tolerance,
+            self.goal_tolerance,
             timeout,
             feedback=feedback,
         )
