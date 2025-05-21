@@ -182,9 +182,13 @@ class SpotExecutorRos(Node):
         assert bdai_password != ""
 
         # Follow Skill
-        self.declare_parameter("follower_lookahead", -1.0)
-        self.follower_lookahead = self.get_parameter("follower_lookahead").value
-        assert self.follower_lookahead > 0
+        self.declare_parameter("follower_lookahead", 0.0)
+        follower_lookahead = self.get_parameter("follower_lookahead").value
+        assert follower_lookahead > 0
+
+        self.declare_parameter("goal_tolerance", 0.0)
+        goal_tolerance = self.get_parameter("goal_tolerance").value
+        assert goal_tolerance > 0
 
         # Pick/Inspect Skill
         self.declare_parameter("semantic_model_path", "")
@@ -270,13 +274,23 @@ class SpotExecutorRos(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
+        # <spot_vision_frame> must get mapped to the TF frame corresponding
+        # to Spot's vision odom estimate.
+        special_tf_remaps = {"<spot_vision_frame>": odom_frame}
+
         def tf_lookup_fn(parent, child):
+            if parent in special_tf_remaps:
+                parent = special_tf_remaps[parent]
+            if child in special_tf_remaps:
+                child = special_tf_remaps[child]
             try:
                 return get_robot_pose(self.tf_buffer, parent, child)
             except tf2_ros.TransformException as e:
                 self.get_logger.warn(f"Failed to get transform: {e}")
 
-        self.spot_executor = se.SpotExecutor(self.spot_interface, tf_lookup_fn)
+        self.spot_executor = se.SpotExecutor(
+            self.spot_interface, tf_lookup_fn, follower_lookahead, goal_tolerance
+        )
 
         self.action_sequence_sub = self.create_subscription(
             ActionSequenceMsg,
