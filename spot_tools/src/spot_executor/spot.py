@@ -34,13 +34,13 @@ class Spot:
         take_lease=True,
         set_estop=False,
         verbose=False,
-        semantic_model_path=None, 
+        semantic_model_path=None,
         yolo_world_path=None,
         debug=False,
         semantic_name_to_id=None,
     ):
         # YOLOv8 model for world detection
-        if yolo_world_path is not None: 
+        if yolo_world_path is not None:
             print("Initializing YOLOWorld model. ")
             self.yolo_model = YOLOWorld(yolo_world_path)
             custom_classes = ["", "bag", "wood block", "pipe"]

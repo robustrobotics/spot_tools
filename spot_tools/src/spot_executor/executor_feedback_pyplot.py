@@ -1,6 +1,7 @@
+import cv2
 import matplotlib.pyplot as plt
 import shapely
-import cv2
+
 
 class FeedbackCollector:
     def __init__(self):
@@ -43,10 +44,12 @@ class FeedbackCollector:
         )
         plt.pause(0.1)
 
-    def bounding_box_detection_feedback(self, annotated_img, centroid_x, centroid_y, class_id, best_confidence):
+    def bounding_box_detection_feedback(
+        self, annotated_img, centroid_x, centroid_y, semantic_class, best_confidence
+    ):
         # Draw bounding box and label
         # cv2.rectangle(annotated_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        label = f"{r.names[class_id]} {best_confidence:.2f}"
+        label = f"{semantic_class} {best_confidence:.2f}"
         cv2.putText(
             annotated_img,
             label,

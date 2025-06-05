@@ -328,7 +328,7 @@ def object_grasp_YOLO(
     semantic_class="bag",
     grasp_constraint=None,
     debug=False,
-    feedback=None
+    feedback=None,
 ):
     debug_images = []
     if spot.is_fake:
@@ -465,7 +465,9 @@ def object_grasp_YOLO(
     return success
 
 
-def get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=False, feedback=None):
+def get_centroid_from_YOLO(
+    spot, img, semantic_class, rotate=0, debug=False, feedback=None
+):
     if rotate == 0:
         model_input = copy(img)
     elif rotate == 1:
@@ -532,7 +534,9 @@ def get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=False, fee
         if debug and feedback is not None:
             annotated_img = copy(img)
 
-            feedback.bounding_box_detection_feedback(annotated_img, centroid_x, centroid_y, class_id, best_confidence)
+            feedback.bounding_box_detection_feedback(
+                annotated_img, centroid_x, centroid_y, class_id, best_confidence
+            )
 
         return centroid_x, centroid_y  # Return the centroid of the bounding box
 
