@@ -327,7 +327,6 @@ def object_grasp_YOLO(
     user_input=False,
     semantic_class="bag",
     grasp_constraint=None,
-    labelspace_map=None,
     debug=False,
 ):
     debug_images = []

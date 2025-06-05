@@ -89,6 +89,9 @@ class SpotExecutor:
 
     def execute_pick(self, command, feedback):
         feedback.print("INFO", "Executing `pick` command")
+        # COMMENT: I'm not sure if we want to delete this, I think command should have a 
+        # 'command.model_type' that calls the appropriate function or something to that effect.
+
         # success = object_grasp(
         #     self.spot_interface,
         #     semantic_class=command.object_class,
