@@ -99,7 +99,7 @@ class SpotExecutor:
         #     debug=self.debug,
         # )
 
-        success = object_grasp_YOLO(self.spot_interface, command.object_class)
+        success = object_grasp_YOLO(self.spot_interface, command.object_class, feedback)
 
         if self.debug:
             success, debug_images = success

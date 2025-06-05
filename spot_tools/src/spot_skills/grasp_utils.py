@@ -328,6 +328,7 @@ def object_grasp_YOLO(
     semantic_class="bag",
     grasp_constraint=None,
     debug=False,
+    feedback=None
 ):
     debug_images = []
     if spot.is_fake:
@@ -358,13 +359,13 @@ def object_grasp_YOLO(
         if not user_input:
             image, img = spot.get_image_RGB(view=img_source)
             xy = get_centroid_from_YOLO(
-                spot, img, semantic_class, rotate=0, debug=debug
+                spot, img, semantic_class, rotate=0, debug=debug, feedback=feedback
             )
 
             if xy is None:
                 print("Object not found in image.")
                 xy, image, img, image_source = look_for_object_YOLO(
-                    spot, semantic_class, debug=debug
+                    spot, semantic_class, debug=debug, feedback=feedback
                 )
 
                 if xy is None:
@@ -464,7 +465,7 @@ def object_grasp_YOLO(
     return success
 
 
-def get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=False):
+def get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=False, feedback=None):
     if rotate == 0:
         model_input = copy(img)
     elif rotate == 1:
@@ -528,38 +529,10 @@ def get_centroid_from_YOLO(spot, img, semantic_class, rotate=0, debug=False):
         #     x1, y1 = img.shape[1] - x2, img.shape[0] - y2
         #     x2, y2 = img.shape[1] - x1, img.shape[0] - y1
 
-        if debug:
+        if debug and feedback is not None:
             annotated_img = copy(img)
 
-            # Draw bounding box and label
-            # cv2.rectangle(annotated_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            label = f"{r.names[class_id]} {best_confidence:.2f}"
-            cv2.putText(
-                annotated_img,
-                label,
-                (centroid_x, centroid_y - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 255, 0),
-                2,
-            )
-
-            # Label the centroid
-            cv2.circle(annotated_img, (centroid_x, centroid_y), 5, (255, 0, 0), -1)
-            cv2.putText(
-                annotated_img,
-                "Centroid",
-                (centroid_x + 10, centroid_y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (255, 0, 0),
-                2,
-            )
-
-            # Display or save the annotated image
-            cv2.imshow("Most Confident Output", annotated_img)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+            feedback.bounding_box_detection_feedback(annotated_img, centroid_x, centroid_y, class_id, best_confidence)
 
         return centroid_x, centroid_y  # Return the centroid of the bounding box
 
@@ -640,7 +613,7 @@ def look_for_object(spot, semantic_ids):
     return None, None, None, None
 
 
-def look_for_object_YOLO(spot, semantic_class, debug=False):
+def look_for_object_YOLO(spot, semantic_class, debug=False, feedback=None):
     """Look for an object in the image sources using YOLO. Return the centroid of the object, and the image source."""
 
     sources = spot.image_client.list_image_sources()
@@ -667,7 +640,7 @@ def look_for_object_YOLO(spot, semantic_class, debug=False):
             rotate = 2  # cv2.rotate(img, cv2.ROTATE_180)
 
         xy = get_centroid_from_YOLO(
-            spot, img, semantic_class, rotate=rotate, debug=debug
+            spot, img, semantic_class, rotate=rotate, debug=debug, feedback=feedback
         )
         print("Found object centroid:", xy)
         if xy is None:
