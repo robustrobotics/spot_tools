@@ -535,7 +535,7 @@ def get_centroid_from_YOLO(
             annotated_img = copy(img)
 
             feedback.bounding_box_detection_feedback(
-                annotated_img, centroid_x, centroid_y, class_id, best_confidence
+                annotated_img, centroid_x, centroid_y, semantic_class, best_confidence
             )
 
         return centroid_x, centroid_y  # Return the centroid of the bounding box
