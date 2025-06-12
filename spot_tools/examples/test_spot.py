@@ -28,6 +28,8 @@ from spot_skills.navigation_utils import (
 )
 from spot_skills.skills_definitions import OpenDoorFeedback, OpenDoorParams
 
+from spot_skills.detection_utils import YOLODetector 
+
 
 def _run_walking_test(spot) -> None:
     # Put inside a function to avoid variable scoping issues.
@@ -164,42 +166,21 @@ def _run_grasp_test(spot) -> None:
     gaze_at_relative_pose(spot, relative_pose)
     time.sleep(0.2)
 
+    detector = YOLODetector(spot, yolo_world_path="/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt")
     object_grasp(
         spot,
+        detector,
         image_source="hand_color_image",
         user_input=False,
-        #  semantic_model_path='data/models/efficientvit_seg_l2.onnx',
         semantic_class="bag",
         grasp_constraint=None,
+        debug=False,
+        feedback=None,
     )
 
     open_gripper(spot)
     stow_arm(spot)
     close_gripper(spot)
-
-    pass
-
-
-def _run_YOLO_grasp_test(spot):
-    open_gripper(spot)
-    relative_pose = math_helpers.Vec3(x=1, y=0, z=0)
-    gaze_at_relative_pose(spot, relative_pose)
-    time.sleep(0.2)
-
-    object_grasp_YOLO(
-        spot,
-        image_source="hand_color_image",
-        user_input=False,
-        semantic_class="wood block",
-        grasp_constraint=None,
-        debug=True,
-    )
-
-    open_gripper(spot)
-    stow_arm(spot)
-    close_gripper(spot)
-
-    pass
 
 
 def _run_place_test(spot):
