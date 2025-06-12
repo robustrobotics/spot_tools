@@ -1,23 +1,28 @@
-from copy import copy 
-import cv2 
-import numpy as np 
+from copy import copy
+
+import cv2
+import numpy as np
+
 
 class Detector:
     def __init__(self, spot):
         self.spot = spot
 
+
 class YOLODetector(Detector):
     def __init__(self, spot):
         super().__init__(spot)
-        if self.spot.yolo_model is None: 
-            raise Exception("Must have initialized a YOLOWorld model to use this detector!")
+        if self.spot.yolo_model is None:
+            raise Exception(
+                "Must have initialized a YOLOWorld model to use this detector!"
+            )
 
     def set_up_detector(self, semantic_class):
-        # Get list of current classes recognized by YOLO World model 
-        recognized_classes = self.spot.yolo_model.model.names 
+        # Get list of current classes recognized by YOLO World model
+        recognized_classes = self.spot.yolo_model.model.names
 
         # If the classes were never set by the users, the recognized classes (model.model.names)
-        # will be a dictionary. Otherwise, it'll be a list. 
+        # will be a dictionary. Otherwise, it'll be a list.
         if isinstance(recognized_classes, dict):
             recognized_classes = list(recognized_classes.values())
 
@@ -30,15 +35,19 @@ class YOLODetector(Detector):
     def return_centroid(self, img_source, semantic_class, debug, feedback):
         image, img = self.spot.get_image_RGB(view=img_source)
 
-        xy = self._get_centroid(img, semantic_class, rotate=0, debug=debug, feedback=feedback)
-        if xy == None: 
+        xy = self._get_centroid(
+            img, semantic_class, rotate=0, debug=debug, feedback=feedback
+        )
+        if xy is None:
             print("Object not found in first image. Looking around!")
-            xy, image, img, image_source = self._look_for_object(semantic_class, debug=debug, feedback=feedback)
+            xy, image, img, image_source = self._look_for_object(
+                semantic_class, debug=debug, feedback=feedback
+            )
 
-            if xy is None: 
+            if xy is None:
                 print("Object not found near robot")
 
-        return xy, image  
+        return xy, image
 
     # @memoize
     # def get_yolo_model(self, semantic_class):
@@ -71,11 +80,15 @@ class YOLODetector(Detector):
                 confidence = float(box.conf[0])
 
                 # Check if the class name matches the semantic class we're looking for and if box is not too big
-                box_height = box.xyxy[0][3] - box.xyxy[0][1]  # height of the bounding box
+                box_height = (
+                    box.xyxy[0][3] - box.xyxy[0][1]
+                )  # height of the bounding box
                 if box_height > 0.5 * img.shape[0]:
                     continue
                 box_width = box.xyxy[0][2] - box.xyxy[0][0]  # width of the bounding box
-                if box_width > 0.5 * img.shape[1]:  # If the box is more than half the width of the image, skip it
+                if (
+                    box_width > 0.5 * img.shape[1]
+                ):  # If the box is more than half the width of the image, skip it
                     continue
 
                 if class_name == semantic_class and confidence > best_confidence:
@@ -107,7 +120,11 @@ class YOLODetector(Detector):
                 annotated_img = copy(img)
 
                 feedback.bounding_box_detection_feedback(
-                    annotated_img, centroid_x, centroid_y, semantic_class, best_confidence
+                    annotated_img,
+                    centroid_x,
+                    centroid_y,
+                    semantic_class,
+                    best_confidence,
                 )
 
             return centroid_x, centroid_y  # Return the centroid of the bounding box
@@ -119,7 +136,9 @@ class YOLODetector(Detector):
         sources = self.spot.image_client.list_image_sources()
 
         for source in sources:
-            if "depth" in source.name or source.name == "hand_image":  # "hand_image" is only in greyscale, "hand_color_image" is RGB
+            if (
+                "depth" in source.name or source.name == "hand_image"
+            ):  # "hand_image" is only in greyscale, "hand_color_image" is RGB
                 continue
 
             image_source = source.name
@@ -128,14 +147,18 @@ class YOLODetector(Detector):
 
             rotate = 0
 
-            if "frontleft_fisheye_image" in image_source or "frontright_fisheye_image" in image_source:
+            if (
+                "frontleft_fisheye_image" in image_source
+                or "frontright_fisheye_image" in image_source
+            ):
                 rotate = 1  # cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
 
             elif "right_fisheye_image" in image_source:
                 rotate = 2  # cv2.rotate(img, cv2.ROTATE_180)
 
-            xy = self.get_centroid(img, semantic_class, rotate=rotate, debug=debug, feedback=feedback
-                                   )
+            xy = self.get_centroid(
+                img, semantic_class, rotate=rotate, debug=debug, feedback=feedback
+            )
             print("Found object centroid:", xy)
             if xy is None:
                 print(f"Object not found in {image_source}.")
@@ -144,14 +167,17 @@ class YOLODetector(Detector):
                 return xy, image, img, image_source
 
         return None, None, None, None
-            
-class SemanticDetector(Detector): 
+
+
+class SemanticDetector(Detector):
     def __init__(self, spot, labelspace_map):
         super().__init__(spot)
 
-        if self.spot.semantic_name_to_id is None: 
-            raise Exception("Semantic names must be mapped to their id's (semantic_name_to_id is undefined).")
-        
+        if self.spot.semantic_name_to_id is None:
+            raise Exception(
+                "Semantic names must be mapped to their id's (semantic_name_to_id is undefined)."
+            )
+
         self.semantic_ids_to_grab = []
 
     def set_up_detector(self, semantic_class):
@@ -183,18 +209,19 @@ class SemanticDetector(Detector):
         # mask[gray == class_index] = 255
         mask[np.isin(gray, self.semantic_ids_to_grab)] = 255
 
-
         xy = self._get_centroid(semantic_image, self.semantic_ids_to_grab, img)
 
-        if xy == None: 
+        if xy is None:
             print("Object not found in first image. Looking around!")
-            xy, image, img, image_source = self._look_for_object(self.semantic_ids_to_grab)
+            xy, image, img, image_source = self._look_for_object(
+                self.semantic_ids_to_grab
+            )
             if xy is None:
                 print("Object not found near robot.")
 
-        return xy, image 
-    
-    def _get_centroid(self, segmented_image, class_indices, image): 
+        return xy, image
+
+    def _get_centroid(self, segmented_image, class_indices, image):
         """Get the centroid of a class in a segmented image."""
 
         # Convert to grayscale if needed
@@ -236,7 +263,7 @@ class SemanticDetector(Detector):
             return (cX * x_scale, cY * y_scale)
         else:
             return None  # Centroid calculation failed
-    
+
     def _look_for_object(self, semantic_ids):
         """Look for an object in the image sources. Return the centroid of the object, and the image source."""
 
@@ -264,5 +291,3 @@ class SemanticDetector(Detector):
                 return xy, image, img, image_source
 
         return None, None, None, None
-
-

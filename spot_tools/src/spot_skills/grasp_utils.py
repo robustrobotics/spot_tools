@@ -5,7 +5,6 @@ Grasping an object with the arm (likely a backpack)
 import argparse
 import sys
 import time
-from copy import copy
 
 import bosdyn.client
 import bosdyn.client.estop
@@ -37,9 +36,7 @@ from spot_skills.arm_utils import (
     open_gripper,
     stow_arm,
 )
-from spot_skills.detection_utils import (
-    Detector
-)
+from spot_skills.detection_utils import Detector
 
 g_image_click = None
 g_image_display = None
@@ -155,29 +152,30 @@ def object_place(spot, semantic_class="bag", position=None):
     time.sleep(0.25)
     return True
 
+
 def object_grasp(
-    spot, 
+    spot,
     detector,
     image_source="hand_color_image",
     user_input=False,
     semantic_class="bag",
-    grasp_constraint=None, 
-    debug=False, 
-    feedback=None
+    grasp_constraint=None,
+    debug=False,
+    feedback=None,
 ):
     debug_images = []
-    if spot.is_fake: 
-        if debug: 
-            return None, None 
-        
+    if spot.is_fake:
+        if debug:
+            return None, None
+
     """Using the Boston Dynamics API to command Spot's arm"""
     if not isinstance(detector, Detector):
         raise Exception("You need to define a valid detector to pick up an object.")
-    
+
     print(f'Grasping object of class "{semantic_class}"')
 
     open_gripper(spot)
-    robot = spot.robot 
+    robot = spot.robot
 
     robot_state_client = spot.state_client
     manipulation_api_client = spot.manipulation_api_client
@@ -191,22 +189,24 @@ def object_grasp(
     while attempts < 2 and not success:
         attempts += 1
 
-        if not user_input: 
+        if not user_input:
             # Try to get the centroid using the detector passed into the function.
-            xy, image = detector.return_centroid(image_source, semantic_class, debug=debug, feedback=feedback)
+            xy, image = detector.return_centroid(
+                image_source, semantic_class, debug=debug, feedback=feedback
+            )
 
             # If the detector fails to return the centroid, then try again until max_attempts
-            if xy is None: 
-                continue 
+            if xy is None:
+                continue
 
-        else: 
+        else:
             image, img = spot.get_image_RGB(view=image_source)
             xy = get_user_grasp_input(spot, img)
             print("Found object centroid:", xy)
-    
+
     pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
     stow_arm(spot)
-    
+
     # Build the proto
     grasp = manipulation_api_pb2.PickObjectInImage(
         pixel_xy=pick_vec,
@@ -255,10 +255,7 @@ def object_grasp(
             print("Grasp failed.")
             break
 
-        if (
-            response.current_state
-            == manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED
-        ):
+        if response.current_state == manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED:
             success = True
             break
 
