@@ -21,14 +21,13 @@ from spot_skills.arm_utils import (
     open_gripper,
     stow_arm,
 )
+from spot_skills.detection_utils import YOLODetector
 from spot_skills.door_utils import execute_open_door
-from spot_skills.grasp_utils import object_grasp, object_grasp_YOLO, object_place
+from spot_skills.grasp_utils import object_grasp, object_place
 from spot_skills.navigation_utils import (
     navigate_to_relative_pose,
 )
 from spot_skills.skills_definitions import OpenDoorFeedback, OpenDoorParams
-
-from spot_skills.detection_utils import YOLODetector 
 
 
 def _run_walking_test(spot) -> None:
@@ -166,7 +165,10 @@ def _run_grasp_test(spot) -> None:
     gaze_at_relative_pose(spot, relative_pose)
     time.sleep(0.2)
 
-    detector = YOLODetector(spot, yolo_world_path="/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt")
+    detector = YOLODetector(
+        spot,
+        yolo_world_path="/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt",
+    )
     object_grasp(
         spot,
         detector,
