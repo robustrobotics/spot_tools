@@ -20,7 +20,6 @@ from bosdyn.client.robot_command import (
     RobotCommandClient,
     blocking_stand,
 )
-from ultralytics import YOLOWorld
 
 from spot_executor.stitch_front_images import stitch, stitch_live, stitch_RGB
 
@@ -35,18 +34,9 @@ class Spot:
         set_estop=False,
         verbose=False,
         semantic_model_path=None,
-        yolo_world_path=None,
         debug=False,
         semantic_name_to_id=None,
     ):
-        # YOLOv8 model for world detection
-        if yolo_world_path is not None:
-            print("Initializing YOLOWorld model. ")
-            self.yolo_model = YOLOWorld(yolo_world_path)
-            custom_classes = ["", "bag", "wood block", "pipe"]
-            self.yolo_model.set_classes(custom_classes)
-            print("Set classes for YOLOWorld model.")
-
         self.is_fake = False
         self.verbose = verbose
         bosdyn.client.util.setup_logging(verbose)

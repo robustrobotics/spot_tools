@@ -2,6 +2,7 @@ from copy import copy
 
 import cv2
 import numpy as np
+from ultralytics import YOLOWorld
 
 
 class Detector:
@@ -10,16 +11,18 @@ class Detector:
 
 
 class YOLODetector(Detector):
-    def __init__(self, spot):
+    def __init__(self, spot, yolo_world_path):
         super().__init__(spot)
-        if self.spot.yolo_model is None:
-            raise Exception(
-                "Must have initialized a YOLOWorld model to use this detector!"
-            )
+
+        print("Initializing YOLOWorld model. ")
+        self.yolo_model = YOLOWorld(yolo_world_path)
+        custom_classes = ["", "bag", "wood block", "pipe"]
+        self.yolo_model.set_classes(custom_classes)
+        print("Set classes for YOLOWorld model.")
 
     def set_up_detector(self, semantic_class):
         # Get list of current classes recognized by YOLO World model
-        recognized_classes = self.spot.yolo_model.model.names
+        recognized_classes = self.yolo_model.model.names
 
         # If the classes were never set by the users, the recognized classes (model.model.names)
         # will be a dictionary. Otherwise, it'll be a list.
@@ -29,7 +32,7 @@ class YOLODetector(Detector):
         # Check if the class exists in the list (lowercase for consistency)
         if semantic_class.lower() not in [cls.lower() for cls in recognized_classes]:
             updated_classes = recognized_classes + [semantic_class.lower()]
-            self.spot.yolo_model.model.set_classes(updated_classes)
+            self.yolo_model.model.set_classes(updated_classes)
             print(f"Updated recognized classes: {updated_classes}")
 
     def return_centroid(self, img_source, semantic_class, debug, feedback):
@@ -65,9 +68,7 @@ class YOLODetector(Detector):
         elif rotate == 2:
             model_input = cv2.rotate(img, cv2.ROTATE_180)
 
-        model = self.get_yolo_model(semantic_class)
-        results = model(model_input)
-        results = self.spot.yolo_model(model_input)
+        results = self.yolo_model(model_input)
 
         best_box = None
         best_confidence = -1.0
