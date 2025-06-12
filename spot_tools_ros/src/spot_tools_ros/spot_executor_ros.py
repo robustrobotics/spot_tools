@@ -312,7 +312,6 @@ class SpotExecutorRos(Node):
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
 
-
     def hb_callback(self):
         msg = NodeInfoMsg()
         msg.nickname = "spot_executor"
