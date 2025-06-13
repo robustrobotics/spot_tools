@@ -204,7 +204,7 @@ class SpotExecutorRos(Node):
         # with open(labelspace_grouping_path, "r") as f:
         #    grouping_info = yaml.safe_load(f)
         # turn list of dictionaries into single dictionary
-        self.labelspace_map = {}
+        # self.labelspace_map = {}
         # offset = int(grouping_info["offset"])
         # for group in grouping_info["groups"]:
         #    self.labelspace_map[group["name"]] = [g + offset for g in group["labels"]]
