@@ -13,9 +13,8 @@ from openai import OpenAI  # Import the OpenAI package
 from PIL import Image
 from pydantic import BaseModel
 
-from spot_executor.spot import Spot
 from spot_executor.fake_spot import FakeSpot
-
+from spot_executor.spot import Spot
 from spot_skills.arm_utils import (
     close_gripper,
     gaze_at_relative_pose,
@@ -407,9 +406,10 @@ def save_images_constant_rate(spot, object_name, folder_name, rate=1.0):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--fake", type=bool, default=False, help="Use a fake Spot robot for testing")
+    parser.add_argument(
+        "--fake", type=bool, default=False, help="Use a fake Spot robot for testing"
+    )
     parser.add_argument("--ip", type=str, default="192.168.80.3")
     parser.add_argument("--username", type=str, default="user")
     parser.add_argument("--password", type=str, default="password")
@@ -422,14 +422,16 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.fake: 
+    if args.fake:
         spot_init_pose2d = np.array([0, 0, 0, 0])
-        spot = FakeSpot(username=args.username, password=args.password, init_pose=spot_init_pose2d)
-    else: 
+        spot = FakeSpot(
+            username=args.username, password=args.password, init_pose=spot_init_pose2d
+        )
+    else:
         spot = Spot(ip=args.ip, username=args.username, password=args.password)
-    
+
     print(f"Spot ID: {spot.id}")
-    
+
     # spot.set_estop()
     # spot.take_lease()
     spot.robot.power_on(timeout_sec=20)

@@ -72,7 +72,7 @@ class FakeRobot:
     def ensure_client(self, service_name):
         print(f"Pretending that service {service_name} exists.")
         return FakeCommandClient(self.fake_spot)
-    
+
     def power_on(self, timeout_sec=None):
         print("Pretending to power on the fake robot.")
 
@@ -208,7 +208,7 @@ class FakeSpot:
         )
 
         return joint_to_state
-    
+
     def stand(self):
         print("Simulating Spot standing up.")
 

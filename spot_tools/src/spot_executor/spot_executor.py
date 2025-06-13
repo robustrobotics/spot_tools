@@ -90,7 +90,7 @@ class SpotExecutor:
     def execute_pick(self, command, feedback):
         feedback.print("INFO", "Executing `pick` command")
 
-        success = object_grasp_YOLO(self.spot_interface, command.object_class, feedback)
+        success = object_grasp(self.spot_interface, command.object_class, feedback)
 
         if self.debug:
             success, debug_images = success
