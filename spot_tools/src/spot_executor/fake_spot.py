@@ -72,6 +72,9 @@ class FakeRobot:
     def ensure_client(self, service_name):
         print(f"Pretending that service {service_name} exists.")
         return FakeCommandClient(self.fake_spot)
+    
+    def power_on(self, timeout_sec=None):
+        print("Pretending to power on the fake robot.")
 
 
 class FakeSpot:
@@ -98,6 +101,8 @@ class FakeSpot:
 
         self.cmd_vel_linear = np.zeros(3)
         self.cmd_vel_angular = np.zeros(3)
+
+        self.id = "fake_spot_id"
 
     def step(self, dt):
         self.update_velocity_control(dt)
@@ -203,3 +208,12 @@ class FakeSpot:
         )
 
         return joint_to_state
+    
+    def stand(self):
+        print("Simulating Spot standing up.")
+
+    def sit(self):
+        print("Simulating Spot sitting down.")
+
+    def pitch_up(self):
+        print("Simulating Spot pitching up.")

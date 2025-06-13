@@ -9,7 +9,7 @@ from robot_executor_interface.action_descriptions import (
 from scipy.spatial.transform import Rotation
 
 from spot_skills.arm_utils import gaze_at_vision_pose
-from spot_skills.grasp_utils import object_grasp_YOLO, object_place
+from spot_skills.grasp_utils import object_grasp, object_place
 from spot_skills.navigation_utils import (
     follow_trajectory_continuous,
     turn_to_point,

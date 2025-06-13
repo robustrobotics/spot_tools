@@ -14,6 +14,8 @@ from PIL import Image
 from pydantic import BaseModel
 
 from spot_executor.spot import Spot
+from spot_executor.fake_spot import FakeSpot
+
 from spot_skills.arm_utils import (
     close_gripper,
     gaze_at_relative_pose,
@@ -122,41 +124,6 @@ def _run_gaze_test(spot) -> None:
         stow_arm(spot)
         input("Press enter when ready to move on")
         # time.sleep(0.5)
-
-
-# def _run_traj_test(spot, frame=VISION_FRAME_NAME, stairs=False) -> None:
-#     relative_poses = [
-#         math_helpers.SE2Pose(x=0, y=0, angle=0),
-#         math_helpers.SE2Pose(x=1.0, y=-0.1, angle=0),
-#         math_helpers.SE2Pose(x=2.0, y=0.0, angle=0),
-#         math_helpers.SE2Pose(x=2.0, y=1.0, angle=0),
-#         math_helpers.SE2Pose(x=5.0, y=1.3, angle=0),
-#         math_helpers.SE2Pose(x=7.0, y=1.0, angle=180),
-#         # math_helpers.SE2Pose(x=-1, y=-0.5, angle=0),
-#         # math_helpers.SE2Pose(x=1, y=0.5, angle=np.pi),
-#         # math_helpers.SE2Pose(x=1, y=0.5, angle=-np.pi)
-#     ]
-#     waypoints_list = []
-#     current_pose = spot.get_pose()
-#     print(current_pose)
-#     for relative_pose in relative_poses:
-#         pose = current_pose * relative_pose
-#         print(pose)
-#         waypoint = [pose.x, pose.y, pose.angle]
-#         waypoints_list.append(waypoint)
-#     print(waypoints_list)
-#     from spot_skills.bezier_path import plot_curves, smooth_path
-
-#     path = smooth_path(waypoints_list, heading_mode="average", n_points=10)
-#     plot_curves(path, np.array(waypoints_list))
-
-#     try:
-#         return follow_trajectory(spot, waypoints_list, frame_name=frame, stairs=stairs)
-#     finally:
-#         # Send a Stop at the end,
-#         # Send a Stop at the end, regardless of what happened.
-#         # robot_command_client.robot_command(RobotCommandBuilder.stop_command())
-#         pass
 
 
 def _run_grasp_test(spot) -> None:
@@ -440,7 +407,9 @@ def save_images_constant_rate(spot, object_name, folder_name, rate=1.0):
 
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser()
+    parser.add_argument("--fake", type=bool, default=False, help="Use a fake Spot robot for testing")
     parser.add_argument("--ip", type=str, default="192.168.80.3")
     parser.add_argument("--username", type=str, default="user")
     parser.add_argument("--password", type=str, default="password")
@@ -453,9 +422,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    spot = Spot(ip=args.ip, username=args.username, password=args.password)
-    print(spot.id)
-    # assert False
+    if args.fake: 
+        spot_init_pose2d = np.array([0, 0, 0, 0])
+        spot = FakeSpot(username=args.username, password=args.password, init_pose=spot_init_pose2d)
+    else: 
+        spot = Spot(ip=args.ip, username=args.username, password=args.password)
+    
+    print(f"Spot ID: {spot.id}")
+    
     # spot.set_estop()
     # spot.take_lease()
     spot.robot.power_on(timeout_sec=20)
@@ -463,21 +437,16 @@ if __name__ == "__main__":
     # spot.stand()
     # stow_arm(spot)
 
-    # yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
-
     # _run_open_door_test(spot, yoloworld_model_path)
-    # _run_walking_test(spot)
+    _run_walking_test(spot)
     # _run_gaze_test(spot)
     # _run_YOLO_grasp_test(spot)
-    _run_place_test(spot)
+    # _run_place_test(spot)
     # _run_traj_test(spot)
     # _run_grasp_test(spot)
     # _run_segment_test(spot)
     # _run_YOLOWorld_test(spot)
-    # spot.pitch_up()
-    # print(look_for_object(spot, 'bag'))
 
-    # spot.stand()
-    spot.sit()
+    spot.stand()
     # spot.sit()
     # spot.safe_power_off()
