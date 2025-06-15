@@ -164,9 +164,6 @@ def object_grasp(
     feedback=None,
 ):
     debug_images = []
-    if spot.is_fake:
-        if debug:
-            return None, None
 
     """Using the Boston Dynamics API to command Spot's arm"""
     if not isinstance(detector, Detector):
@@ -198,6 +195,9 @@ def object_grasp(
             # If the detector fails to return the centroid, then try again until max_attempts
             if xy is None:
                 continue
+
+            else:
+                success = True
 
         else:
             image, img = spot.get_image_RGB(view=image_source)

@@ -15,6 +15,9 @@ class YOLODetector(Detector):
         super().__init__(spot)
 
         print("Initializing YOLOWorld model. ")
+        if not yolo_world_path:
+            raise ValueError("YOLOWorld model path must be provided.")
+
         self.yolo_model = YOLOWorld(yolo_world_path)
         custom_classes = ["", "bag", "wood block", "pipe"]
         self.yolo_model.set_classes(custom_classes)
@@ -51,14 +54,6 @@ class YOLODetector(Detector):
                 print("Object not found near robot")
 
         return xy, image
-
-    # @memoize
-    # def get_yolo_model(self, semantic_class):
-    #     for classes, model in self.yolo_models.items():
-    #         if semantic_class in classes:
-    #             return model
-    #     # TODO: make new model
-    #     self.yolo_models[extended_classes] = new_model
 
     def _get_centroid(self, img, semantic_class, rotate, debug, feedback):
         if rotate == 0:
@@ -117,7 +112,7 @@ class YOLODetector(Detector):
 
             print("The centroid of the bounding box is at:", centroid_x, centroid_y)
 
-            if debug and feedback is not None:
+            if feedback is not None:
                 annotated_img = copy(img)
 
                 feedback.bounding_box_detection_feedback(
@@ -131,6 +126,17 @@ class YOLODetector(Detector):
             return centroid_x, centroid_y  # Return the centroid of the bounding box
 
         else:
+            if feedback is not None:
+                annotated_img = copy(img)
+
+                feedback.bounding_box_detection_feedback(
+                    annotated_img,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+
             return None
 
     def _look_for_object(self, semantic_class, debug, feedback):
@@ -157,7 +163,7 @@ class YOLODetector(Detector):
             elif "right_fisheye_image" in image_source:
                 rotate = 2  # cv2.rotate(img, cv2.ROTATE_180)
 
-            xy = self.get_centroid(
+            xy = self._get_centroid(
                 img, semantic_class, rotate=rotate, debug=debug, feedback=feedback
             )
             print("Found object centroid:", xy)

@@ -13,6 +13,7 @@ from openai import OpenAI  # Import the OpenAI package
 from PIL import Image
 from pydantic import BaseModel
 
+from spot_executor.executor_feedback_pyplot import FeedbackCollector
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.arm_utils import (
@@ -133,7 +134,7 @@ def _run_grasp_test(spot) -> None:
 
     detector = YOLODetector(
         spot,
-        yolo_world_path="/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt",
+        yolo_world_path="/home/rrg/data/models/yolov8s-world.pt",
     )
     object_grasp(
         spot,
@@ -142,8 +143,8 @@ def _run_grasp_test(spot) -> None:
         user_input=False,
         semantic_class="bag",
         grasp_constraint=None,
-        debug=False,
-        feedback=None,
+        debug=True,
+        feedback=FeedbackCollector(),
     )
 
     open_gripper(spot)
@@ -440,12 +441,11 @@ if __name__ == "__main__":
     # stow_arm(spot)
 
     # _run_open_door_test(spot, yoloworld_model_path)
-    _run_walking_test(spot)
+    # _run_walking_test(spot)
     # _run_gaze_test(spot)
-    # _run_YOLO_grasp_test(spot)
     # _run_place_test(spot)
     # _run_traj_test(spot)
-    # _run_grasp_test(spot)
+    _run_grasp_test(spot)
     # _run_segment_test(spot)
     # _run_YOLOWorld_test(spot)
 

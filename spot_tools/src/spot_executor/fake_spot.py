@@ -1,9 +1,55 @@
 import threading
 import time
 
+import cv2
 import numpy as np
+from bosdyn.api import robot_state_pb2
+from bosdyn.api.geometry_pb2 import FrameTreeSnapshot, SE3Pose
+from bosdyn.client.frame_helpers import (
+    BODY_FRAME_NAME,
+    ODOM_FRAME_NAME,
+)
 
 from spot_executor.bad_proto_mock import FakeFeedbackWrapper
+
+
+class FakeImageClient:
+    def __init__(self, fake_spot):
+        self.fake_spot = fake_spot
+
+    class ImageSource:
+        def __init__(self, name):
+            self.name = name
+
+    def list_image_sources(self):
+        print("Pretending to list image sources.")
+        return [
+            self.ImageSource(name="back_depth"),
+            self.ImageSource(name="back_depth_in_visual_frame"),
+            self.ImageSource(name="back_fisheye_image"),
+            self.ImageSource(name="frontleft_depth"),
+            self.ImageSource(name="frontleft_depth_in_visual_frame"),
+            self.ImageSource(name="frontleft_fisheye_image"),
+            self.ImageSource(name="frontright_depth"),
+            self.ImageSource(name="frontright_depth_in_visual_frame"),
+            self.ImageSource(name="frontright_fisheye_image"),
+            self.ImageSource(name="hand_color_image"),
+            self.ImageSource(name="hand_color_in_hand_depth_frame"),
+            self.ImageSource(name="hand_depth"),
+            self.ImageSource(name="hand_depth_in_hand_color_frame"),
+            self.ImageSource(name="hand_image"),
+            self.ImageSource(name="left_depth"),
+            self.ImageSource(name="left_depth_in_visual_frame"),
+            self.ImageSource(name="left_fisheye_image"),
+            self.ImageSource(name="right_depth"),
+            self.ImageSource(name="right_depth_in_visual_frame"),
+            self.ImageSource(name="right_fisheye_image"),
+        ]
+
+
+class FakeManipulationAPIClient:
+    def __init__(self, fake_spot):
+        self.fake_spot = fake_spot
 
 
 class FakeStateClient:
@@ -11,15 +57,26 @@ class FakeStateClient:
         self.fake_spot = fake_spot
 
     def get_robot_state(self, **kwargs):
-        """Obtain current state of the robot.
+        identity_p = SE3Pose()
+        p = SE3Pose(position={"x": 1})
 
-        Returns:
-            RobotState: The current robot state.
+        # Set up the frame tree snapshot so that odom is the root and body is a child of odom, translated by 1m in x
+        edge_odom = FrameTreeSnapshot.ParentEdge(
+            parent_frame_name="", parent_tform_child=identity_p
+        )
+        edge_body = FrameTreeSnapshot.ParentEdge(
+            parent_frame_name=ODOM_FRAME_NAME, parent_tform_child=p
+        )
 
-        Raises:
-            RpcError: Problem communicating with the robot.
-        """
-        return self.fake_spot.get_pose()
+        snapshot = FrameTreeSnapshot(
+            child_to_parent_edge_map={
+                ODOM_FRAME_NAME: edge_odom,
+                BODY_FRAME_NAME: edge_body,
+            }
+        )
+
+        ks = robot_state_pb2.KinematicState(transforms_snapshot=snapshot)
+        return robot_state_pb2.RobotState(kinematic_state=ks)
 
 
 class FakeCommandClient:
@@ -71,7 +128,12 @@ class FakeRobot:
 
     def ensure_client(self, service_name):
         print(f"Pretending that service {service_name} exists.")
-        return FakeCommandClient(self.fake_spot)
+        if service_name == "robot-state":
+            return FakeStateClient(self.fake_spot)
+        elif service_name == "robot-command":
+            return FakeCommandClient(self.fake_spot)
+        else:
+            raise ValueError(f"Unknown service name: {service_name}")
 
     def power_on(self, timeout_sec=None):
         print("Pretending to power on the fake robot.")
@@ -95,6 +157,8 @@ class FakeSpot:
         self.pose = init_pose
 
         self.state_client = FakeStateClient(self)
+        self.manipulation_api_client = FakeManipulationAPIClient(self)
+        self.image_client = FakeImageClient(self)
 
         self.moving = False
         self.last_move_command = time.time()
@@ -149,8 +213,16 @@ class FakeSpot:
             "get_state not implemented for FakeSpot (what is it supposed to return?)"
         )
 
+    def get_image_RGB(self, view="hand_color_image", show=False):
+        return self.get_image(view=view, show=show)
+
+    def get_image_alt(self, view="hand_depth_image", show=False):
+        return self.get_image(view=view, show=show)
+
     def get_image(self, view="hand_color_image", show=False):
-        raise NotImplementedError("get_image not implemented for FakeSpot")
+        img = cv2.imread("/home/rrg/data/images/bag_image.jpg")
+
+        return None, img
 
     def segment_image(
         self, image, model_path=None, rotate=0, class_name="bag", show=False
