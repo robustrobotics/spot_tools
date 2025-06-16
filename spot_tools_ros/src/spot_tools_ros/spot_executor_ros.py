@@ -8,7 +8,6 @@ import tf2_ros
 import tf_transformations
 import yaml
 from cv_bridge import CvBridge
-from geometry_msgs.msg import Pose2D
 
 # from cv_bridge import CvBridge
 from nav_msgs.msg import Path
@@ -299,11 +298,6 @@ class SpotExecutorRos(Node):
             self.process_action_sequence,
             10,
         )
-
-        if not use_fake_spot_interface:
-            self.pose_pub = self.create_publisher(Pose2D, "~/spot_pose", 1)
-            timer_period = 1.0  # seconds
-            self.pose_timer = self.create_timer(timer_period, self.publish_pose)
 
         self.heartbeat_pub = self.create_publisher(NodeInfoMsg, "~/node_status", 1)
         heartbeat_timer_group = MutuallyExclusiveCallbackGroup()
