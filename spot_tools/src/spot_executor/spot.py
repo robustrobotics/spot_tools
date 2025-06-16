@@ -33,9 +33,10 @@ class Spot:
         take_lease=True,
         set_estop=False,
         verbose=False,
-        semantic_model_path="../data/models/efficientvit_seg_l2.onnx",
+        semantic_model_path=None,
         debug=False,
         semantic_name_to_id=None,
+        labelspace_map=None,
     ):
         self.is_fake = False
         self.verbose = verbose
@@ -70,6 +71,7 @@ class Spot:
         else:
             self.ort_session = None
         self.semantic_name_to_id = semantic_name_to_id
+        self.labelspace_map = labelspace_map
 
         if set_estop:
             self.set_estop()

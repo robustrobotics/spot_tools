@@ -203,7 +203,7 @@ class SpotExecutorRos(Node):
         # with open(labelspace_grouping_path, "r") as f:
         #    grouping_info = yaml.safe_load(f)
         # turn list of dictionaries into single dictionary
-        self.labelspace_map = {}
+        # self.labelspace_map = {}
         # offset = int(grouping_info["offset"])
         # for group in grouping_info["groups"]:
         #    self.labelspace_map[group["name"]] = [g + offset for g in group["labels"]]
@@ -261,11 +261,11 @@ class SpotExecutorRos(Node):
 
         else:
             self.get_logger().info("About to initialize Spot")
+            self.get_logger().info(f"{bdai_username=}, {bdai_password=}, {spot_ip=}")
             self.spot_interface = Spot(
                 username=bdai_username,
                 password=bdai_password,
                 ip=spot_ip,
-                semantic_model_path=None,
             )
 
         self.get_logger().info("Initialized!")

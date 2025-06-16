@@ -105,6 +105,26 @@ def test_image_encoding(client):
     print(completion.choices[0].message.content)
 
 
+def test_enforced_output(client):
+    class CalendarEvent(BaseModel):
+        name: str
+        date: str
+        participants: list[str]
+
+    completion = client.beta.chat.completions.parse(
+        model="gpt-4o-2024-08-06",
+        messages=[
+            {"role": "system", "content": "Extract the event information."},
+            {
+                "role": "user",
+                "content": "Alice and Bob are going to a science fair on Friday.",
+            },
+        ],
+    )
+
+    print(completion.choices[0].message.content)
+
+
 def main():
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY")

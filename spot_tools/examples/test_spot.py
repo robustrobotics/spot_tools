@@ -3,6 +3,7 @@ import base64
 import io
 import os  # Import the os package
 import time
+from copy import copy
 
 import cv2
 import numpy as np
@@ -12,6 +13,8 @@ from openai import OpenAI  # Import the OpenAI package
 from PIL import Image
 from pydantic import BaseModel
 
+from spot_executor.executor_feedback_pyplot import FeedbackCollector
+from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.arm_utils import (
     close_gripper,
@@ -20,8 +23,9 @@ from spot_skills.arm_utils import (
     open_gripper,
     stow_arm,
 )
+from spot_skills.detection_utils import YOLODetector
 from spot_skills.door_utils import execute_open_door
-from spot_skills.grasp_utils import object_grasp
+from spot_skills.grasp_utils import object_grasp, object_place
 from spot_skills.navigation_utils import (
     navigate_to_relative_pose,
 )
@@ -104,55 +108,22 @@ def _run_gaze_test(spot) -> None:
     relative_poses = [
         # (resting_point, "Looking nowhere"),
         # (relative_up, "Looking up"),
-        (relative_up, "Looking up"),
-        (math_helpers.Vec3(x=0, y=5, z=0), "Looking left"),
-        (math_helpers.Vec3(x=0, y=-5, z=0), "Looking right"),
+        # (relative_up, "Looking up"),
+        (math_helpers.Vec3(x=1.76, y=1, z=0.05), "Looking where Travis tells me to"),
+        (math_helpers.Vec3(x=1.29, y=-0.34, z=-0.54), "Looking right"),
         # (math_helpers.Vec3(x=0, y=-0.5, ), "Looking -dy"),
-        # (math_helpers.Vec3(x=0.5, y=0, ), "Looking dx"),
+        # (math_helpers.Vec3(x=0.5, y=0, z=0), "Looking dx"),
         # (math_helpers.Vec3(x=-0.5, y=0, ), "Looking -dx"),
         # (math_helpers.Vec3(x=0, y=0, ), "Looking yaw"),
         # (math_helpers.Vec3(x=0, y=0, ), "Looking -yaw"),
     ]
     for relative_pose, msg in relative_poses:
         print(msg)
-        spot.gaze_at_relative_pose(relative_pose)
+        gaze_at_relative_pose(spot, relative_pose)
+        input("Press enter when ready to move on")
+        stow_arm(spot)
         input("Press enter when ready to move on")
         # time.sleep(0.5)
-
-
-# def _run_traj_test(spot, frame=VISION_FRAME_NAME, stairs=False) -> None:
-#     relative_poses = [
-#         math_helpers.SE2Pose(x=0, y=0, angle=0),
-#         math_helpers.SE2Pose(x=1.0, y=-0.1, angle=0),
-#         math_helpers.SE2Pose(x=2.0, y=0.0, angle=0),
-#         math_helpers.SE2Pose(x=2.0, y=1.0, angle=0),
-#         math_helpers.SE2Pose(x=5.0, y=1.3, angle=0),
-#         math_helpers.SE2Pose(x=7.0, y=1.0, angle=180),
-#         # math_helpers.SE2Pose(x=-1, y=-0.5, angle=0),
-#         # math_helpers.SE2Pose(x=1, y=0.5, angle=np.pi),
-#         # math_helpers.SE2Pose(x=1, y=0.5, angle=-np.pi)
-#     ]
-#     waypoints_list = []
-#     current_pose = spot.get_pose()
-#     print(current_pose)
-#     for relative_pose in relative_poses:
-#         pose = current_pose * relative_pose
-#         print(pose)
-#         waypoint = [pose.x, pose.y, pose.angle]
-#         waypoints_list.append(waypoint)
-#     print(waypoints_list)
-#     from spot_skills.bezier_path import plot_curves, smooth_path
-
-#     path = smooth_path(waypoints_list, heading_mode="average", n_points=10)
-#     plot_curves(path, np.array(waypoints_list))
-
-#     try:
-#         return follow_trajectory(spot, waypoints_list, frame_name=frame, stairs=stairs)
-#     finally:
-#         # Send a Stop at the end,
-#         # Send a Stop at the end, regardless of what happened.
-#         # robot_command_client.robot_command(RobotCommandBuilder.stop_command())
-#         pass
 
 
 def _run_grasp_test(spot) -> None:
@@ -161,20 +132,28 @@ def _run_grasp_test(spot) -> None:
     gaze_at_relative_pose(spot, relative_pose)
     time.sleep(0.2)
 
+    detector = YOLODetector(
+        spot,
+        yolo_world_path="/home/rrg/data/models/yolov8s-world.pt",
+    )
     object_grasp(
         spot,
+        detector,
         image_source="hand_color_image",
         user_input=False,
-        #  semantic_model_path='data/models/efficientvit_seg_l2.onnx',
         semantic_class="bag",
         grasp_constraint=None,
+        debug=True,
+        feedback=FeedbackCollector(),
     )
 
     open_gripper(spot)
     stow_arm(spot)
     close_gripper(spot)
 
-    pass
+
+def _run_place_test(spot):
+    object_place(spot)
 
 
 def _run_segment_test(spot):
@@ -235,6 +214,80 @@ def _run_open_door_test(spot, model_path, max_tries=2) -> None:
     # # cv2.imshow('Ego View', feedback.ego_view)
     # # cv2.waitKey(0)
     # # cv2.destroyAllWindows()
+
+
+def _run_YOLOWorld_test(spot):
+    open_gripper(spot)
+    hand_image_request, hand_image = spot.get_image_RGB()
+    results = spot.yolo_model(hand_image)
+    object_to_pick_up = "wood block"
+    # Process results
+
+    annotated_hand_image = copy(hand_image)
+    # Show all of the detections
+    for r in results:
+        boxes = r.boxes  # Bounding boxes
+        for box in boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            class_id = int(box.cls[0])
+            confidence = float(box.conf[0])
+
+            # Draw bounding box and label
+            cv2.rectangle(annotated_hand_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            label = f"{r.names[class_id]} {confidence:.2f}"
+            cv2.putText(
+                annotated_hand_image,
+                label,
+                (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                2,
+            )
+    # Display or save the annotated image
+    cv2.imshow("YOLO Output", annotated_hand_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    most_confident = copy(hand_image)
+    best_box = None
+    best_confidence = -1.0
+
+    for r in results:
+        boxes = r.boxes
+        for box in boxes:
+            class_id = int(box.cls[0])
+            class_name = r.names[class_id]
+            confidence = float(box.conf[0])
+
+            if class_name == object_to_pick_up and confidence > best_confidence:
+                best_confidence = confidence
+                best_box = box
+
+    if best_box:
+        x1, y1, x2, y2 = map(int, best_box.xyxy[0].tolist())
+        class_id = int(best_box.cls[0])
+
+        # Draw bounding box and label
+        cv2.rectangle(most_confident, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        label = f"{r.names[class_id]} {best_confidence:.2f}"
+        cv2.putText(
+            most_confident,
+            label,
+            (x1, y1 - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            2,
+        )
+
+        # Display or save the annotated image
+        cv2.imshow("Most Confident Output", most_confident)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+    else:
+        raise Exception("No objects of semantic class found")
 
 
 def encode_numpy_image_to_base64(image_np: np.ndarray, format: str = "PNG"):
@@ -355,6 +408,9 @@ def save_images_constant_rate(spot, object_name, folder_name, rate=1.0):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--fake", type=bool, default=False, help="Use a fake Spot robot for testing"
+    )
     parser.add_argument("--ip", type=str, default="192.168.80.3")
     parser.add_argument("--username", type=str, default="user")
     parser.add_argument("--password", type=str, default="password")
@@ -367,54 +423,32 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    spot = Spot(username=args.username, password=args.password)
-    print(spot.id)
-    # assert False
+    if args.fake:
+        spot_init_pose2d = np.array([0, 0, 0, 0])
+        spot = FakeSpot(
+            username=args.username, password=args.password, init_pose=spot_init_pose2d
+        )
+    else:
+        spot = Spot(ip=args.ip, username=args.username, password=args.password)
+
+    print(f"Spot ID: {spot.id}")
+
     # spot.set_estop()
     # spot.take_lease()
     spot.robot.power_on(timeout_sec=20)
     spot.robot.time_sync.wait_for_sync()
-
-    yoloworld_model_path = "/home/aaron/spot_tools/data/models/yolov8x-worldv2-door.pt"
-
-    # fl_img_response, fl_img = spot.get_image_RGB(view='frontleft_fisheye_image')
-    # fr_img_response, fr_img = spot.get_image_RGB(view='frontright_fisheye_image')
-
-    # spot.get_live_stitched_image()
-    # # image = spot.get_stitched_image(fl_img_response, fr_img_response)
-
-    # image = spot.get_stitched_image(jpeg_quality_percent=100, crop_image=True)
-    # print(image.shape)
-    # cv2.imshow("Stitched Image", image)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-
-    # image = spot.get_stitched_image_RGB(fl_img_response, fr_img_response, crop_image=True)
-    # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-    # print(image.shape)
-    # cv2.imshow("Stitched Image", image)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    # spot.stand()
+    # stow_arm(spot)
 
     # _run_open_door_test(spot, yoloworld_model_path)
     # _run_walking_test(spot)
     # _run_gaze_test(spot)
+    # _run_place_test(spot)
     # _run_traj_test(spot)
-    # _run_grasp_test(spot)
+    _run_grasp_test(spot)
     # _run_segment_test(spot)
-    # spot.pitch_up()
-    # print(look_for_object(spot, 'bag'))
+    # _run_YOLOWorld_test(spot)
 
-    save_images_constant_rate(
-        spot,
-        "test_object",
-        "/home/aaron/spot_tools/spot_tools/data/object_images",
-        rate=1,
-    )
-
-    time.sleep(1)
-
-    # spot.stand()
-    # spot.sit()
+    spot.stand()
     # spot.sit()
     # spot.safe_power_off()

@@ -1,9 +1,95 @@
 import threading
 import time
 
+import cv2
 import numpy as np
+from bosdyn.api import (
+    manipulation_api_pb2,
+    robot_state_pb2,
+)
+from bosdyn.api.geometry_pb2 import FrameTreeSnapshot, SE3Pose
+from bosdyn.client.frame_helpers import (
+    BODY_FRAME_NAME,
+    ODOM_FRAME_NAME,
+    VISION_FRAME_NAME,
+)
 
 from spot_executor.bad_proto_mock import FakeFeedbackWrapper
+
+
+class FakeImageClient:
+    def __init__(self, fake_spot):
+        self.fake_spot = fake_spot
+
+    def list_image_sources(self):
+        print("Pretending to list image sources.")
+        return [
+            FakeImageSource(name="back_fisheye_image"),
+            FakeImageSource(name="frontleft_fisheye_image"),
+            FakeImageSource(name="frontright_fisheye_image"),
+            FakeImageSource(name="hand_color_image"),
+            FakeImageSource(name="left_fisheye_image"),
+            FakeImageSource(name="right_fisheye_image"),
+        ]
+
+
+class FakeImageResponse:
+    def __init__(self, name):
+        self.shot = FakeImageCapture()
+        self.source = FakeImageSource(name=name)
+
+
+class FakeImageCapture:
+    def __init__(self):
+        identity_p = SE3Pose()
+
+        # Set up the frame tree snapshot so that odom is the root and body is a child of odom, translated by 1m in x
+        edge_odom = FrameTreeSnapshot.ParentEdge(
+            parent_frame_name="", parent_tform_child=identity_p
+        )
+        edge_vision = FrameTreeSnapshot.ParentEdge(
+            parent_frame_name=ODOM_FRAME_NAME, parent_tform_child=identity_p
+        )
+
+        snapshot = FrameTreeSnapshot(
+            child_to_parent_edge_map={
+                ODOM_FRAME_NAME: edge_odom,
+                VISION_FRAME_NAME: edge_vision,
+            }
+        )
+        self.transforms_snapshot = snapshot
+        self.frame_name_image_sensor = ""
+
+
+class FakeImageSource:
+    def __init__(self, name):
+        self.name = name
+        self.pinhole = None
+
+
+class FakeManipulationAPIClient:
+    def __init__(self, fake_spot):
+        self.fake_spot = fake_spot
+
+    class CommandResponse:
+        def __init__(self):
+            self.manipulation_cmd_id = 0
+
+    class FeedbackResponse:
+        def __init__(self):
+            self.current_state = manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED
+
+    def manipulation_api_command(self, manipulation_api_request):
+        print("Spot would execute manipulation API command with params:")
+        print(f"\tmanipulation_api_request: {manipulation_api_request}")
+
+        return self.CommandResponse()
+
+    def manipulation_api_feedback_command(self, manipulation_api_feedback_request):
+        return self.FeedbackResponse()
+
+    def grasp_override_command(self, override_request):
+        return None
 
 
 class FakeStateClient:
@@ -11,15 +97,29 @@ class FakeStateClient:
         self.fake_spot = fake_spot
 
     def get_robot_state(self, **kwargs):
-        """Obtain current state of the robot.
+        identity_p = SE3Pose()
+        p = SE3Pose(position={"x": 1})
 
-        Returns:
-            RobotState: The current robot state.
+        # Set up the frame tree snapshot so that odom is the root and body is a child of odom, translated by 1m in x
+        edge_odom = FrameTreeSnapshot.ParentEdge(
+            parent_frame_name="", parent_tform_child=identity_p
+        )
+        edge_body = FrameTreeSnapshot.ParentEdge(
+            parent_frame_name=ODOM_FRAME_NAME, parent_tform_child=p
+        )
 
-        Raises:
-            RpcError: Problem communicating with the robot.
-        """
-        return self.fake_spot.get_pose()
+        snapshot = FrameTreeSnapshot(
+            child_to_parent_edge_map={
+                ODOM_FRAME_NAME: edge_odom,
+                BODY_FRAME_NAME: edge_body,
+            }
+        )
+
+        ks = robot_state_pb2.KinematicState(transforms_snapshot=snapshot)
+        ms = robot_state_pb2.ManipulatorState(
+            is_gripper_holding_item=True, carry_state=3
+        )
+        return robot_state_pb2.RobotState(kinematic_state=ks, manipulator_state=ms)
 
 
 class FakeCommandClient:
@@ -71,7 +171,15 @@ class FakeRobot:
 
     def ensure_client(self, service_name):
         print(f"Pretending that service {service_name} exists.")
-        return FakeCommandClient(self.fake_spot)
+        if service_name == "robot-state":
+            return FakeStateClient(self.fake_spot)
+        elif service_name == "robot-command":
+            return FakeCommandClient(self.fake_spot)
+        else:
+            raise ValueError(f"Unknown service name: {service_name}")
+
+    def power_on(self, timeout_sec=None):
+        print("Pretending to power on the fake robot.")
 
 
 class FakeSpot:
@@ -92,12 +200,19 @@ class FakeSpot:
         self.pose = init_pose
 
         self.state_client = FakeStateClient(self)
+        self.manipulation_api_client = FakeManipulationAPIClient(self)
+        self.image_client = FakeImageClient(self)
+        self.command_client = FakeCommandClient(self)
 
         self.moving = False
         self.last_move_command = time.time()
 
         self.cmd_vel_linear = np.zeros(3)
         self.cmd_vel_angular = np.zeros(3)
+
+        self.id = "fake_spot_id"
+
+        #
 
     def step(self, dt):
         self.update_velocity_control(dt)
@@ -144,8 +259,16 @@ class FakeSpot:
             "get_state not implemented for FakeSpot (what is it supposed to return?)"
         )
 
+    def get_image_RGB(self, view="hand_color_image", show=False):
+        return self.get_image(view=view, show=show)
+
+    def get_image_alt(self, view="hand_depth_image", show=False):
+        return self.get_image(view=view, show=show)
+
     def get_image(self, view="hand_color_image", show=False):
-        raise NotImplementedError("get_image not implemented for FakeSpot")
+        img = cv2.imread("/home/rrg/data/images/bag_image.jpg")
+
+        return FakeImageResponse(name=view), img
 
     def segment_image(
         self, image, model_path=None, rotate=0, class_name="bag", show=False
@@ -203,3 +326,12 @@ class FakeSpot:
         )
 
         return joint_to_state
+
+    def stand(self):
+        print("Simulating Spot standing up.")
+
+    def sit(self):
+        print("Simulating Spot sitting down.")
+
+    def pitch_up(self):
+        print("Simulating Spot pitching up.")

@@ -18,12 +18,17 @@ from bosdyn.api import (
     robot_state_pb2,
 )
 from bosdyn.client.frame_helpers import (
+    ODOM_FRAME_NAME,
     VISION_FRAME_NAME,
     get_vision_tform_body,
     math_helpers,
 )
 from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arrives
 
+from spot_skills.arm_impedance_control_helpers import (
+    apply_force_at_current_position,
+    get_root_T_ground_body,
+)
 from spot_skills.arm_utils import (
     arm_to_carry,
     arm_to_drop,
@@ -31,6 +36,7 @@ from spot_skills.arm_utils import (
     open_gripper,
     stow_arm,
 )
+from spot_skills.detection_utils import Detector
 
 g_image_click = None
 g_image_display = None
@@ -55,7 +61,7 @@ def wait_until_grasp_state_updates(grasp_override_command, robot_state_client):
             and grasp_override_command.api_grasp_override.override_request
             == manipulation_api_pb2.ApiGraspOverride.OVERRIDE_NOT_HOLDING
         )
-
+        print(grasp_override_command.carry_state_override.override_request)
         carry_state_updated = has_carry_state_override and (
             robot_state.manipulator_state.carry_state
             == grasp_override_command.carry_state_override.override_request
@@ -114,7 +120,31 @@ def object_place(spot, semantic_class="bag", position=None):
 
     time.sleep(0.25)
     arm_to_carry(spot)
+    stow_arm(spot)
     arm_to_drop(spot)
+
+    odom_T_task = get_root_T_ground_body(
+        robot_state=spot.get_state(), root_frame_name=ODOM_FRAME_NAME
+    )
+    wr1_T_tool = math_helpers.SE3Pose(
+        0.23589, 0, -0.03943, math_helpers.Quat.from_pitch(-np.pi / 2)
+    )
+    force_dir_rt_task = math_helpers.Vec3(0, 0, -1)  # adjust downward force here
+    robot_cmd = apply_force_at_current_position(
+        force_dir_rt_task_in=force_dir_rt_task,
+        force_magnitude=8,
+        robot_state=spot.get_state(),
+        root_frame_name=ODOM_FRAME_NAME,
+        root_T_task=odom_T_task,
+        wr1_T_tool_nom=wr1_T_tool,
+    )
+
+    # Execute the impedance command
+    cmd_id = spot.command_client.robot_command(robot_cmd)
+    spot.robot.logger.info("Impedance command issued")
+    block_until_arm_arrives(spot.command_client, cmd_id, 10.0)
+    input("Did impedance work")
+
     open_gripper(spot)
     # drop_object(spot)
     stow_arm(spot)
@@ -125,140 +155,108 @@ def object_place(spot, semantic_class="bag", position=None):
 
 def object_grasp(
     spot,
+    detector,
     image_source="hand_color_image",
     user_input=False,
     semantic_class="bag",
     grasp_constraint=None,
-    labelspace_map=None,
     debug=False,
+    feedback=None,
 ):
     debug_images = []
-    if spot.is_fake:
-        if debug:
-            return True, None
-        return True
 
-    """Using the Boston Dynamics API to command Spot's arm."""
-
-    if spot.semantic_name_to_id is None:
-        raise Exception(
-            "Must set spot.semantic_name_to_id in order to grasp object based on semantic class"
-        )
+    """Using the Boston Dynamics API to command Spot's arm"""
+    if not isinstance(detector, Detector):
+        raise Exception("You need to define a valid detector to pick up an object.")
 
     print(f'Grasping object of class "{semantic_class}"')
-    if labelspace_map is not None:
-        semantic_ids_to_grab = (
-            labelspace_map[semantic_class]
-            + labelspace_map["clothes"]
-            + labelspace_map["bag"]
-        )
-    else:
-        semantic_ids_to_grab = [
-            spot.semantic_name_to_id[semantic_class],
-            spot.semantic_name_to_id["bag"],
-            spot.semantic_name_to_id["clothes"],
-        ]
 
     open_gripper(spot)
-    robot = spot.robot
 
     robot_state_client = spot.state_client
     manipulation_api_client = spot.manipulation_api_client
 
     attempts = 0
     success = False
-    img_source = image_source
+
+    # Set up the detector (e.g., for YOLOWorld, this may mean updating recognized classes)
+    detector.set_up_detector(semantic_class)
 
     while attempts < 2 and not success:
         attempts += 1
 
         if not user_input:
-            image, img = spot.get_image_alt(view=img_source)
-            semantic_image = spot.segment_image(img)
-            # Convert to grayscale if needed
-            if len(semantic_image.shape) == 3:
-                gray = cv2.cvtColor(semantic_image, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = semantic_image
+            # Try to get the centroid using the detector passed into the function.
+            xy, image = detector.return_centroid(
+                image_source, semantic_class, debug=debug, feedback=feedback
+            )
 
-            # Create a binary mask where the class of interest is white and the rest is black
-            mask = np.zeros_like(gray)
-            # mask[gray == class_index] = 255
-            mask[np.isin(gray, semantic_ids_to_grab)] = 255
-
-            debug_images.append(semantic_image)
-            debug_images.append(mask)
-
-            xy = get_class_centroid(semantic_image, semantic_ids_to_grab, img)
-            print("Found object centroid:", xy)
+            # If the detector fails to return the centroid, then try again until max_attempts
             if xy is None:
-                print("Object not found in image.")
-                xy, image, img, image_source = look_for_object(
-                    spot, semantic_ids_to_grab
-                )
-                if xy is None:
-                    print("Object not found near robot.")
-                    continue
+                continue
+
+            else:
+                success = True
+
         else:
-            image, img = spot.get_image_alt(view=image_source)
+            image, img = spot.get_image_RGB(view=image_source)
             xy = get_user_grasp_input(spot, img)
             print("Found object centroid:", xy)
-        pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
 
-        # Build the proto
-        grasp = manipulation_api_pb2.PickObjectInImage(
-            pixel_xy=pick_vec,
-            transforms_snapshot_for_camera=image.shot.transforms_snapshot,
-            frame_name_image_sensor=image.shot.frame_name_image_sensor,
-            camera_model=image.source.pinhole,
-        )
+    pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
+    stow_arm(spot)
 
-        # Optionally add a grasp constraint.  This lets you tell the robot you only want top-down grasps or side-on grasps.
-        add_grasp_constraint(grasp_constraint, grasp, robot_state_client)
+    # Build the proto
+    grasp = manipulation_api_pb2.PickObjectInImage(
+        pixel_xy=pick_vec,
+        transforms_snapshot_for_camera=image.shot.transforms_snapshot,
+        frame_name_image_sensor=image.shot.frame_name_image_sensor,
+        camera_model=image.source.pinhole,
+    )
 
-        # Ask the robot to pick up the object
-        grasp_request = manipulation_api_pb2.ManipulationApiRequest(
-            pick_object_in_image=grasp
+    # Optionally add a grasp constraint.  This lets you tell the robot you only want top-down grasps or side-on grasps.
+    add_grasp_constraint(grasp_constraint, grasp, robot_state_client)
+
+    # Ask the robot to pick up the object
+    grasp_request = manipulation_api_pb2.ManipulationApiRequest(
+        pick_object_in_image=grasp
+    )
+
+    # Send the request
+    cmd_response = manipulation_api_client.manipulation_api_command(
+        manipulation_api_request=grasp_request
+    )
+
+    # Get feedback from the robot
+    while True:
+        feedback_request = manipulation_api_pb2.ManipulationApiFeedbackRequest(
+            manipulation_cmd_id=cmd_response.manipulation_cmd_id
         )
 
         # Send the request
-        cmd_response = manipulation_api_client.manipulation_api_command(
-            manipulation_api_request=grasp_request
+        response = manipulation_api_client.manipulation_api_feedback_command(
+            manipulation_api_feedback_request=feedback_request
         )
 
-        # Get feedback from the robot
-        while True:
-            feedback_request = manipulation_api_pb2.ManipulationApiFeedbackRequest(
-                manipulation_cmd_id=cmd_response.manipulation_cmd_id
-            )
+        current_state = manipulation_api_pb2.ManipulationFeedbackState.Name(
+            response.current_state
+        )
+        print(f"Current state: {current_state}")
 
-            # Send the request
-            response = manipulation_api_client.manipulation_api_feedback_command(
-                manipulation_api_feedback_request=feedback_request
-            )
+        failed_states = [
+            manipulation_api_pb2.MANIP_STATE_GRASP_FAILED,
+            manipulation_api_pb2.MANIP_STATE_GRASP_PLANNING_NO_SOLUTION,
+            manipulation_api_pb2.MANIP_STATE_GRASP_FAILED_TO_RAYCAST_INTO_MAP,
+            manipulation_api_pb2.MANIP_STATE_GRASP_PLANNING_WAITING_DATA_AT_EDGE,
+        ]
 
-            current_state = manipulation_api_pb2.ManipulationFeedbackState.Name(
-                response.current_state
-            )
-            print(f"Current state: {current_state}")
+        if response.current_state in failed_states:
+            print("Grasp failed.")
+            break
 
-            failed_states = [
-                manipulation_api_pb2.MANIP_STATE_GRASP_FAILED,
-                manipulation_api_pb2.MANIP_STATE_GRASP_PLANNING_NO_SOLUTION,
-                manipulation_api_pb2.MANIP_STATE_GRASP_FAILED_TO_RAYCAST_INTO_MAP,
-                manipulation_api_pb2.MANIP_STATE_GRASP_PLANNING_WAITING_DATA_AT_EDGE,
-            ]
-
-            if response.current_state in failed_states:
-                print("Grasp failed.")
-                break
-
-            if (
-                response.current_state
-                == manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED
-            ):
-                success = True
-                break
+        if response.current_state == manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED:
+            success = True
+            break
 
     close_cmd = RobotCommandBuilder.claw_gripper_close_command(
         build_on_command=None,
@@ -284,7 +282,7 @@ def object_grasp(
     force_stow_arm(manipulation_api_client, robot_state_client, spot.command_client)
     time.sleep(1)
 
-    robot.logger.info("Finished grasp.")
+    print("Finished grasp.")
 
     if debug:
         return success, debug_images
@@ -333,80 +331,6 @@ def get_user_grasp_input(spot, img):
         "Picking object at image location (%s, %s)", g_image_click[0], g_image_click[1]
     )
     return g_image_click
-
-
-def look_for_object(spot, semantic_ids):
-    """Look for an object in the image sources. Return the centroid of the object, and the image source."""
-
-    sources = spot.image_client.list_image_sources()
-
-    for source in sources:
-        if "depth" in source.name:
-            continue
-        image_source = source.name
-        image, img = spot.get_image_alt(view=image_source)
-
-        rotate = 0
-        if "front" in image_source or "hand_image" in image_source:
-            rotate = 1
-        elif "right_fisheye_image" in image_source:
-            rotate = 2
-
-        semantic_image = spot.segment_image(img, rotate=rotate, show=False)
-        xy = get_class_centroid(semantic_image, semantic_ids, img)
-        print("Found object centroid:", xy)
-        if xy is None:
-            print(f"Object not found in {image_source}.")
-            continue
-        else:
-            return xy, image, img, image_source
-
-    return None, None, None, None
-
-
-# def get_class_centroid(segmented_image, class_name, image,label_path='data/config/ade20k_full_label_space.yaml'):
-def get_class_centroid(segmented_image, class_indices, image):
-    """Get the centroid of a class in a segmented image."""
-
-    # Convert to grayscale if needed
-    if len(segmented_image.shape) == 3:
-        gray = cv2.cvtColor(segmented_image, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = segmented_image
-
-    # Create a binary mask where the class of interest is white and the rest is black
-    mask = np.zeros_like(gray)
-    # mask[gray == class_index] = 255
-    mask[np.isin(gray, class_indices)] = 255
-
-    if mask.dtype != np.uint8:
-        mask = mask.astype(np.uint8)
-
-    # Find contours
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    if len(contours) == 0:
-        return None  # No contour found for the class
-
-    # Assuming we take the largest contour if multiple are found
-    largest_contour = max(contours, key=cv2.contourArea)
-
-    # Calculate moments for the largest contour
-    M = cv2.moments(largest_contour)
-
-    # Calculate centroid using moments
-    if M["m00"] != 0:
-        cX = int(M["m10"] / M["m00"])
-        cY = int(M["m01"] / M["m00"])
-
-        seg_image_size = segmented_image.shape
-        image_size = image.shape
-        x_scale = image_size[1] / seg_image_size[1]
-        y_scale = image_size[0] / seg_image_size[0]
-
-        return (cX * x_scale, cY * y_scale)
-    else:
-        return None  # Centroid calculation failed
 
 
 def add_grasp_constraint(grasp_constraint, grasp, robot_state_client):

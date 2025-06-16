@@ -1,3 +1,4 @@
+import cv2
 import matplotlib.pyplot as plt
 import shapely
 
@@ -42,3 +43,41 @@ class FeedbackCollector:
             color="b",
         )
         plt.pause(0.1)
+
+    def bounding_box_detection_feedback(
+        self, annotated_img, centroid_x, centroid_y, semantic_class, best_confidence
+    ):
+        # Draw bounding box and label
+        # cv2.rectangle(annotated_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+        if centroid_x is None or centroid_y is None:
+            pass
+
+        else:
+            label = f"{semantic_class} {best_confidence:.2f}"
+            cv2.putText(
+                annotated_img,
+                label,
+                (centroid_x, centroid_y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                2,
+            )
+
+            # Label the centroid
+            cv2.circle(annotated_img, (centroid_x, centroid_y), 5, (255, 0, 0), -1)
+            cv2.putText(
+                annotated_img,
+                "Centroid",
+                (centroid_x + 10, centroid_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 0, 0),
+                2,
+            )
+
+        # Display or save the annotated image
+        cv2.imshow("Most Confident Output", annotated_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
