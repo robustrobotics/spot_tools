@@ -3,11 +3,15 @@ import time
 
 import cv2
 import numpy as np
-from bosdyn.api import robot_state_pb2
+from bosdyn.api import (
+    manipulation_api_pb2,
+    robot_state_pb2,
+)
 from bosdyn.api.geometry_pb2 import FrameTreeSnapshot, SE3Pose
 from bosdyn.client.frame_helpers import (
     BODY_FRAME_NAME,
     ODOM_FRAME_NAME,
+    VISION_FRAME_NAME,
 )
 
 from spot_executor.bad_proto_mock import FakeFeedbackWrapper
@@ -17,39 +21,75 @@ class FakeImageClient:
     def __init__(self, fake_spot):
         self.fake_spot = fake_spot
 
-    class ImageSource:
-        def __init__(self, name):
-            self.name = name
-
     def list_image_sources(self):
         print("Pretending to list image sources.")
         return [
-            self.ImageSource(name="back_depth"),
-            self.ImageSource(name="back_depth_in_visual_frame"),
-            self.ImageSource(name="back_fisheye_image"),
-            self.ImageSource(name="frontleft_depth"),
-            self.ImageSource(name="frontleft_depth_in_visual_frame"),
-            self.ImageSource(name="frontleft_fisheye_image"),
-            self.ImageSource(name="frontright_depth"),
-            self.ImageSource(name="frontright_depth_in_visual_frame"),
-            self.ImageSource(name="frontright_fisheye_image"),
-            self.ImageSource(name="hand_color_image"),
-            self.ImageSource(name="hand_color_in_hand_depth_frame"),
-            self.ImageSource(name="hand_depth"),
-            self.ImageSource(name="hand_depth_in_hand_color_frame"),
-            self.ImageSource(name="hand_image"),
-            self.ImageSource(name="left_depth"),
-            self.ImageSource(name="left_depth_in_visual_frame"),
-            self.ImageSource(name="left_fisheye_image"),
-            self.ImageSource(name="right_depth"),
-            self.ImageSource(name="right_depth_in_visual_frame"),
-            self.ImageSource(name="right_fisheye_image"),
+            FakeImageSource(name="back_fisheye_image"),
+            FakeImageSource(name="frontleft_fisheye_image"),
+            FakeImageSource(name="frontright_fisheye_image"),
+            FakeImageSource(name="hand_color_image"),
+            FakeImageSource(name="left_fisheye_image"),
+            FakeImageSource(name="right_fisheye_image"),
         ]
+
+
+class FakeImageResponse:
+    def __init__(self, name):
+        self.shot = FakeImageCapture()
+        self.source = FakeImageSource(name=name)
+
+
+class FakeImageCapture:
+    def __init__(self):
+        identity_p = SE3Pose()
+
+        # Set up the frame tree snapshot so that odom is the root and body is a child of odom, translated by 1m in x
+        edge_odom = FrameTreeSnapshot.ParentEdge(
+            parent_frame_name="", parent_tform_child=identity_p
+        )
+        edge_vision = FrameTreeSnapshot.ParentEdge(
+            parent_frame_name=ODOM_FRAME_NAME, parent_tform_child=identity_p
+        )
+
+        snapshot = FrameTreeSnapshot(
+            child_to_parent_edge_map={
+                ODOM_FRAME_NAME: edge_odom,
+                VISION_FRAME_NAME: edge_vision,
+            }
+        )
+        self.transforms_snapshot = snapshot
+        self.frame_name_image_sensor = ""
+
+
+class FakeImageSource:
+    def __init__(self, name):
+        self.name = name
+        self.pinhole = None
 
 
 class FakeManipulationAPIClient:
     def __init__(self, fake_spot):
         self.fake_spot = fake_spot
+
+    class CommandResponse:
+        def __init__(self):
+            self.manipulation_cmd_id = 0
+
+    class FeedbackResponse:
+        def __init__(self):
+            self.current_state = manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED
+
+    def manipulation_api_command(self, manipulation_api_request):
+        print("Spot would execute manipulation API command with params:")
+        print(f"\tmanipulation_api_request: {manipulation_api_request}")
+
+        return self.CommandResponse()
+
+    def manipulation_api_feedback_command(self, manipulation_api_feedback_request):
+        return self.FeedbackResponse()
+
+    def grasp_override_command(self, override_request):
+        return None
 
 
 class FakeStateClient:
@@ -76,7 +116,10 @@ class FakeStateClient:
         )
 
         ks = robot_state_pb2.KinematicState(transforms_snapshot=snapshot)
-        return robot_state_pb2.RobotState(kinematic_state=ks)
+        ms = robot_state_pb2.ManipulatorState(
+            is_gripper_holding_item=True, carry_state=3
+        )
+        return robot_state_pb2.RobotState(kinematic_state=ks, manipulator_state=ms)
 
 
 class FakeCommandClient:
@@ -159,6 +202,7 @@ class FakeSpot:
         self.state_client = FakeStateClient(self)
         self.manipulation_api_client = FakeManipulationAPIClient(self)
         self.image_client = FakeImageClient(self)
+        self.command_client = FakeCommandClient(self)
 
         self.moving = False
         self.last_move_command = time.time()
@@ -167,6 +211,8 @@ class FakeSpot:
         self.cmd_vel_angular = np.zeros(3)
 
         self.id = "fake_spot_id"
+
+        #
 
     def step(self, dt):
         self.update_velocity_control(dt)
@@ -222,7 +268,7 @@ class FakeSpot:
     def get_image(self, view="hand_color_image", show=False):
         img = cv2.imread("/home/rrg/data/images/bag_image.jpg")
 
-        return None, img
+        return FakeImageResponse(name=view), img
 
     def segment_image(
         self, image, model_path=None, rotate=0, class_name="bag", show=False

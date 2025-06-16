@@ -61,7 +61,7 @@ def wait_until_grasp_state_updates(grasp_override_command, robot_state_client):
             and grasp_override_command.api_grasp_override.override_request
             == manipulation_api_pb2.ApiGraspOverride.OVERRIDE_NOT_HOLDING
         )
-
+        print(grasp_override_command.carry_state_override.override_request)
         carry_state_updated = has_carry_state_override and (
             robot_state.manipulator_state.carry_state
             == grasp_override_command.carry_state_override.override_request
@@ -172,7 +172,6 @@ def object_grasp(
     print(f'Grasping object of class "{semantic_class}"')
 
     open_gripper(spot)
-    robot = spot.robot
 
     robot_state_client = spot.state_client
     manipulation_api_client = spot.manipulation_api_client
@@ -283,7 +282,7 @@ def object_grasp(
     force_stow_arm(manipulation_api_client, robot_state_client, spot.command_client)
     time.sleep(1)
 
-    robot.logger.info("Finished grasp.")
+    print("Finished grasp.")
 
     if debug:
         return success, debug_images
