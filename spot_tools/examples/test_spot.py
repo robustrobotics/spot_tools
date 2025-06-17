@@ -127,6 +127,8 @@ def _run_gaze_test(spot) -> None:
 
 
 def _run_grasp_test(spot) -> None:
+    spot.stand()
+    stow_arm(spot)
     open_gripper(spot)
     relative_pose = math_helpers.Vec3(x=1, y=0, z=0)
     gaze_at_relative_pose(spot, relative_pose)
@@ -141,15 +143,13 @@ def _run_grasp_test(spot) -> None:
         detector,
         image_source="hand_color_image",
         user_input=False,
-        semantic_class="bag",
+        semantic_class="wood block",
         grasp_constraint=None,
         debug=True,
         feedback=FeedbackCollector(),
     )
 
-    open_gripper(spot)
     stow_arm(spot)
-    close_gripper(spot)
 
 
 def _run_place_test(spot):
@@ -450,5 +450,5 @@ if __name__ == "__main__":
     # _run_YOLOWorld_test(spot)
 
     spot.stand()
-    # spot.sit()
+    spot.sit()
     # spot.safe_power_off()
