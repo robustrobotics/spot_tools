@@ -9,6 +9,7 @@ from robot_executor_interface.action_descriptions import (
 from scipy.spatial.transform import Rotation
 
 from spot_skills.arm_utils import gaze_at_vision_pose
+from spot_skills.detection_utils import YOLODetector
 from spot_skills.grasp_utils import object_grasp, object_place
 from spot_skills.navigation_utils import (
     follow_trajectory_continuous,
@@ -90,7 +91,22 @@ class SpotExecutor:
     def execute_pick(self, command, feedback):
         feedback.print("INFO", "Executing `pick` command")
 
-        success = object_grasp(self.spot_interface, command.object_class, feedback)
+        if command.object_class == "":
+            command.object_class = "bag"
+
+        detector = YOLODetector(
+            self.spot_interface,
+            yolo_world_path="/home/rrg/data/models/yolov8s-world.pt",
+        )
+        success = object_grasp(
+            self.spot_interface,
+            detector,
+            image_source="hand_color_image",
+            user_input=False,
+            semantic_class=command.object_class,
+        )
+
+        # success = object_grasp(self.spot_interface, command.object_class, feedback)
 
         if self.debug:
             success, debug_images = success
