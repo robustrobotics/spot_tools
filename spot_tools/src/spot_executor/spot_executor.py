@@ -106,8 +106,6 @@ class SpotExecutor:
             semantic_class=command.object_class,
         )
 
-        # success = object_grasp(self.spot_interface, command.object_class, feedback)
-
         if self.debug:
             success, debug_images = success
             sem_img = ski.util.img_as_ubyte(debug_images[0])
