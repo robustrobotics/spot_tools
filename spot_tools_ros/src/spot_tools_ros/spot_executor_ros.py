@@ -208,6 +208,10 @@ class SpotExecutorRos(Node):
         # for group in grouping_info["groups"]:
         #    self.labelspace_map[group["name"]] = [g + offset for g in group["labels"]]
 
+        self.declare_parameter("odom_frame", "")
+        odom_frame = self.get_parameter("odom_frame").value
+        assert odom_frame != ""
+
         # Robot Initialization
         self.declare_parameter("use_fake_spot_interface", False)
         use_fake_spot_interface = self.get_parameter("use_fake_spot_interface").value
