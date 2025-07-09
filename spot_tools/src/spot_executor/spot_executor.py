@@ -140,10 +140,10 @@ class SpotExecutor:
             command_to_send = command.path2d
         else:
             feedback.print(
-                "INFO", f"transforming path from {self.fixed_frame} to euclid/odom"
+                "INFO", f"transforming path from {self.fixed_frame} to hamilton/odom"
             )
-            # t, r = self.transform_lookup(self.fixed_frame, "euclid/odom")
-            t, r = self.transform_lookup("euclid/odom", self.fixed_frame)
+            # t, r = self.transform_lookup(self.fixed_frame, "hamilton/odom")
+            t, r = self.transform_lookup("hamilton/odom", self.fixed_frame)
             command_to_send = transform_command_frame(
                 t, r, command.path2d, feedback=feedback
             )
