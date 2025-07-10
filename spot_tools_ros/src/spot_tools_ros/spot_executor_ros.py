@@ -267,6 +267,9 @@ class SpotExecutorRos(Node):
                 ip=spot_ip,
                 semantic_model_path=None,
             )
+            self.declare_parameter("odom_frame", "")
+            odom_frame = self.get_parameter("odom_frame").value
+            assert odom_frame != ""
 
         self.get_logger().info("Initialized!")
         self.status_str = "Idle"
