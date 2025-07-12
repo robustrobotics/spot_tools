@@ -37,6 +37,7 @@ from spot_skills.arm_utils import (
     stow_arm,
 )
 from spot_skills.detection_utils import Detector
+from spot_skills.primitives import execute_recovery_action
 
 g_image_click = None
 g_image_display = None
@@ -61,7 +62,6 @@ def wait_until_grasp_state_updates(grasp_override_command, robot_state_client):
             and grasp_override_command.api_grasp_override.override_request
             == manipulation_api_pb2.ApiGraspOverride.OVERRIDE_NOT_HOLDING
         )
-        print(grasp_override_command.carry_state_override.override_request)
         carry_state_updated = has_carry_state_override and (
             robot_state.manipulator_state.carry_state
             == grasp_override_command.carry_state_override.override_request
@@ -171,8 +171,6 @@ def object_grasp(
 
     print(f'Grasping object of class "{semantic_class}"')
 
-    open_gripper(spot)
-
     robot_state_client = spot.state_client
     manipulation_api_client = spot.manipulation_api_client
 
@@ -202,6 +200,13 @@ def object_grasp(
             image, img = spot.get_image_RGB(view=image_source)
             xy = get_user_grasp_input(spot, img)
             print("Found object centroid:", xy)
+
+    if xy is None:
+        execute_recovery_action(spot, recover_arm=True)
+        spot.sit()
+        raise Exception(
+            "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input."
+        )
 
     pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
     stow_arm(spot)
