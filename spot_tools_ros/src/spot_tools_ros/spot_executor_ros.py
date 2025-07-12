@@ -212,6 +212,10 @@ class SpotExecutorRos(Node):
         self.declare_parameter("use_fake_spot_interface", False)
         use_fake_spot_interface = self.get_parameter("use_fake_spot_interface").value
 
+        self.declare_parameter("odom_frame", "")
+        odom_frame = self.get_parameter("odom_frame").value
+        assert odom_frame != ""
+
         if use_fake_spot_interface:
             self.declare_parameter("fake_spot_external_pose", False)
             external_pose = self.get_parameter("fake_spot_external_pose").value
@@ -242,10 +246,6 @@ class SpotExecutorRos(Node):
                 init_pose=spot_init_pose2d,
                 semantic_model_path=None,
             )
-
-            self.declare_parameter("odom_frame", "")
-            odom_frame = self.get_parameter("odom_frame").value
-            assert odom_frame != ""
 
             self.declare_parameter("body_frame", "")
             body_frame = self.get_parameter("body_frame").value
