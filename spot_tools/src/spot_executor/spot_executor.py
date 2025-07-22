@@ -92,7 +92,7 @@ class SpotExecutor:
     def execute_pick(self, command, feedback):
         feedback.print("INFO", "Executing `pick` command")
 
-        #if command.object_class == "":
+        # if command.object_class == "":
         #    command.object_class = "bag"
 
         detector = YOLODetector(
