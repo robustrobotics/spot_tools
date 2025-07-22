@@ -21,6 +21,7 @@ from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
+from spot_skills.detection_utils import YOLODetector
 from visualization_msgs.msg import Marker, MarkerArray
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
@@ -194,6 +195,8 @@ class SpotExecutorRos(Node):
         self.declare_parameter("semantic_model_path", "")
         self.declare_parameter("labelspace_path", "")
         self.declare_parameter("labelspace_grouping_path", "")
+        self.declare_parameter("detector_model_path", "")
+        detector_model_path = self.get_parameter("detector_model_path").value
         # semantic_model_path = self.get_parameter("semantic_model_path").value
         # labelspace_path = self.get_parameter("labelspace_path").value
         # semantic_name_to_id = load_inverse_semantic_id_map_from_label_space(
@@ -207,6 +210,10 @@ class SpotExecutorRos(Node):
         # offset = int(grouping_info["offset"])
         # for group in grouping_info["groups"]:
         #    self.labelspace_map[group["name"]] = [g + offset for g in group["labels"]]
+
+        self.declare_parameter("odom_frame", "")
+        odom_frame = self.get_parameter("odom_frame").value
+        assert odom_frame != ""
 
         # Robot Initialization
         self.declare_parameter("use_fake_spot_interface", False)
@@ -288,8 +295,17 @@ class SpotExecutorRos(Node):
             except tf2_ros.TransformException as e:
                 self.get_logger.warn(f"Failed to get transform: {e}")
 
+        detector = YOLODetector(
+            self.spot_interface,
+            yolo_world_path=detector_model_path,
+        )
+
         self.spot_executor = se.SpotExecutor(
-            self.spot_interface, tf_lookup_fn, follower_lookahead, goal_tolerance
+            self.spot_interface,
+            detector,
+            tf_lookup_fn,
+            follower_lookahead,
+            goal_tolerance,
         )
 
         self.action_sequence_sub = self.create_subscription(

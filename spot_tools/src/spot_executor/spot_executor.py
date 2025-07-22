@@ -8,6 +8,7 @@ from robot_executor_interface.action_descriptions import (
 )
 from scipy.spatial.transform import Rotation
 
+from spot_executor.executor_feedback_pyplot import FeedbackCollector
 from spot_skills.arm_utils import gaze_at_vision_pose
 from spot_skills.grasp_utils import object_grasp, object_place
 from spot_skills.navigation_utils import (
@@ -34,13 +35,19 @@ def transform_command_frame(tf_trans, tf_q, command, feedback=None):
 
 class SpotExecutor:
     def __init__(
-        self, spot_interface, transform_lookup, follower_lookahead=2, goal_tolerance=2.8
+        self,
+        spot_interface,
+        detector,
+        transform_lookup,
+        follower_lookahead=2,
+        goal_tolerance=2.8,
     ):
         self.debug = False
         self.spot_interface = spot_interface
         self.transform_lookup = transform_lookup
         self.follower_lookahead = follower_lookahead
         self.goal_tolerance = goal_tolerance
+        self.detector = detector
 
     def process_action_sequence(self, sequence, feedback):
         feedback.print("INFO", "Would like to execute: ")
@@ -90,7 +97,14 @@ class SpotExecutor:
     def execute_pick(self, command, feedback):
         feedback.print("INFO", "Executing `pick` command")
 
-        success = object_grasp(self.spot_interface, command.object_class, feedback)
+        success = object_grasp(
+            self.spot_interface,
+            self.detector,
+            image_source="hand_color_image",
+            user_input=False,
+            semantic_class=command.object_class,
+            feedback=FeedbackCollector(),
+        )
 
         if self.debug:
             success, debug_images = success

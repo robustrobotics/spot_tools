@@ -79,12 +79,12 @@ class YOLODetector(Detector):
                 box_height = (
                     box.xyxy[0][3] - box.xyxy[0][1]
                 )  # height of the bounding box
-                if box_height > 0.5 * img.shape[0]:
+                if box_height > 0.95 * img.shape[0]:
                     continue
                 box_width = box.xyxy[0][2] - box.xyxy[0][0]  # width of the bounding box
                 if (
-                    box_width > 0.5 * img.shape[1]
-                ):  # If the box is more than half the width of the image, skip it
+                    box_width > 0.95 * img.shape[1]
+                ):  # If the box is more than 95% the width of the image, skip it
                     continue
 
                 if class_name == semantic_class and confidence > best_confidence:
