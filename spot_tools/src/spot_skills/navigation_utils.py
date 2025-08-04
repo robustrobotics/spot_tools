@@ -167,6 +167,8 @@ def follow_trajectory_continuous(
         )
         if distance_from_end < goal_tolerance:
             feedback.print("INFO", "Spot reached end of path")
+            endpoint = math_helpers.SE2Pose(x=tform_body_in_vision[0], y=tform_body_in_vision[1], angle=tform_body_in_vision[2])
+            navigate_to_absolute_pose(spot, endpoint, frame_name, stairs=stairs)
             break
 
         # 1. project to current path distance
