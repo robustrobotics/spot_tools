@@ -1,5 +1,6 @@
 import time
 
+import cv2
 import numpy as np
 import rclpy
 import rclpy.time
@@ -97,6 +98,44 @@ def build_progress_markers(current_point, target_point):
 
 
 class RosFeedbackCollector:
+    def bounding_box_detection_feedback(
+        self, annotated_img, centroid_x, centroid_y, semantic_class, best_confidence
+    ):
+        if centroid_x is None or centroid_y is None:
+            pass
+
+        else:
+            bridge = CvBridge()
+
+            label = f"{semantic_class} {best_confidence:.2f}"
+            cv2.putText(
+                annotated_img,
+                label,
+                (centroid_x - 100, centroid_y - 200),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                5,
+                (0, 0, 225),
+                20,
+            )
+
+            # Label the centroid
+            cv2.drawMarker(
+                annotated_img,
+                (centroid_x, centroid_y),
+                (0, 0, 255),
+                markerType=cv2.MARKER_TILTED_CROSS,
+                markerSize=200,
+                thickness=30,
+            )
+
+        annotated_img_msg = bridge.cv2_to_imgmsg(annotated_img, encoding="passthrough")
+        self.annotated_img_pub.publish(annotated_img_msg)
+
+        # Display or save the annotated image
+        cv2.imshow("Most Confident Output", annotated_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
     def pick_image_feedback(self, semantic_image, mask_image):
         bridge = CvBridge()
         semantic_hand_msg = bridge.cv2_to_imgmsg(semantic_image, encoding="passthrough")
@@ -160,6 +199,10 @@ class RosFeedbackCollector:
 
         self.progress_point_pub = node.create_publisher(
             MarkerArray, "~/progress_point_visualizer", qos_profile=latching_qos
+        )
+
+        self.annotated_img_pub = node.create_publisher(
+            Image, "~/annotated_image", qos_profile=latching_qos
         )
 
 

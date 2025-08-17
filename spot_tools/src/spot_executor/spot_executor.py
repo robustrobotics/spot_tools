@@ -8,7 +8,6 @@ from robot_executor_interface.action_descriptions import (
 )
 from scipy.spatial.transform import Rotation
 
-from spot_executor.executor_feedback_pyplot import FeedbackCollector
 from spot_skills.arm_utils import gaze_at_vision_pose
 from spot_skills.grasp_utils import object_grasp, object_place
 from spot_skills.navigation_utils import (
@@ -103,7 +102,7 @@ class SpotExecutor:
             image_source="hand_color_image",
             user_input=False,
             semantic_class=command.object_class,
-            feedback=FeedbackCollector(),
+            feedback=feedback,
         )
 
         if self.debug:
