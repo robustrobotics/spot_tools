@@ -1,3 +1,4 @@
+import threading
 import time
 
 import cv2
@@ -9,8 +10,6 @@ import tf2_ros
 import tf_transformations
 import yaml
 from cv_bridge import CvBridge
-
-# from cv_bridge import CvBridge
 from nav_msgs.msg import Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -23,6 +22,7 @@ from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
+from std_msgs.msg import Bool
 from visualization_msgs.msg import Marker, MarkerArray
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
@@ -34,7 +34,7 @@ def get_robot_pose(tf_buffer, parent_frame: str, child_frame: str):
     Looks up the transform from parent_frame to child_frame and returns [x, y, z, yaw].
 
     """
-    # TODO: use Time(0) instead of now?
+
     try:
         now = rclpy.time.Time()
         tf_buffer.can_transform(
@@ -98,15 +98,15 @@ def build_progress_markers(current_point, target_point):
 
 
 class RosFeedbackCollector:
+    def __init__(self):
+        self.confirmation_event = threading.Event()
+
     def bounding_box_detection_feedback(
         self, annotated_img, centroid_x, centroid_y, semantic_class, best_confidence
     ):
-        if centroid_x is None or centroid_y is None:
-            pass
+        bridge = CvBridge()
 
-        else:
-            bridge = CvBridge()
-
+        if centroid_x is not None and centroid_y is not None:
             label = f"{semantic_class} {best_confidence:.2f}"
             cv2.putText(
                 annotated_img,
@@ -131,10 +131,12 @@ class RosFeedbackCollector:
         annotated_img_msg = bridge.cv2_to_imgmsg(annotated_img, encoding="passthrough")
         self.annotated_img_pub.publish(annotated_img_msg)
 
-        # Display or save the annotated image
-        cv2.imshow("Most Confident Output", annotated_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        self.confirmation_event.clear()
+        self.logger.info("Waiting for user to confirm pick action...")
+
+        # Wait until the topic is published to in
+        self.confirmation_event.wait()
+        self.logger.info("Continuing execution...")
 
     def pick_image_feedback(self, semantic_image, mask_image):
         bridge = CvBridge()
@@ -204,6 +206,22 @@ class RosFeedbackCollector:
         self.annotated_img_pub = node.create_publisher(
             Image, "~/annotated_image", qos_profile=latching_qos
         )
+
+        node.create_subscription(
+            Bool,
+            "~/detection_confirmation",
+            self.confirmation_callback,
+            10,
+        )
+
+    def confirmation_callback(self, msg: Bool):
+        if msg.data:
+            self.logger.info("Detection is valid. Continuing pick action!")
+        else:
+            self.logger.warn(
+                "Detection is invalid. Discontinue pick action by pressing CTRL-C (for now)."
+            )
+        self.confirmation_event.set()
 
 
 class SpotExecutorRos(Node):
@@ -370,12 +388,17 @@ class SpotExecutorRos(Node):
         self.heartbeat_pub.publish(msg)
 
     def process_action_sequence(self, msg):
-        self.status_str = "Processing action sequence"
-        self.get_logger().info("Starting action sequence")
-        sequence = from_msg(msg)
-        self.spot_executor.process_action_sequence(sequence, self.feedback_collector)
-        self.get_logger().info("Finished execution action sequence.")
-        self.status_str = "Idle"
+        def process_sequence():
+            self.status_str = "Processing action sequence"
+            self.get_logger().info("Starting action sequence")
+            sequence = from_msg(msg)
+            self.spot_executor.process_action_sequence(
+                sequence, self.feedback_collector
+            )
+            self.get_logger().info("Finished execution action sequence.")
+            self.status_str = "Idle"
+
+        threading.Thread(target=process_sequence, daemon=True).start()
 
 
 def main(args=None):
