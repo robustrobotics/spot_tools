@@ -38,24 +38,22 @@ class YOLODetector(Detector):
             self.yolo_model.model.set_classes(updated_classes)
             print(f"Updated recognized classes: {updated_classes}")
 
-    def return_centroid(self, img_source, semantic_class, debug, feedback):
+    def return_centroid(self, img_source, semantic_class, debug):
         image, img = self.spot.get_image_RGB(view=img_source)
 
-        xy = self._get_centroid(
-            img, semantic_class, rotate=0, debug=debug, feedback=feedback
-        )
+        xy = self._get_centroid(img, semantic_class, rotate=0, debug=debug)
         if xy is None:
             print("Object not found in first image. Looking around!")
             xy, image, img, image_source = self._look_for_object(
-                semantic_class, debug=debug, feedback=feedback
+                semantic_class, debug=debug
             )
 
             if xy is None:
                 print("Object not found near robot")
 
-        return xy, image
+        return xy, image, img
 
-    def _get_centroid(self, img, semantic_class, rotate, debug, feedback):
+    def _get_centroid(self, img, semantic_class, rotate, debug):
         if rotate == 0:
             model_input = copy(img)
         elif rotate == 1:
@@ -112,34 +110,12 @@ class YOLODetector(Detector):
 
             print("The centroid of the bounding box is at:", centroid_x, centroid_y)
 
-            if feedback is not None:
-                annotated_img = copy(img)
-
-                feedback.bounding_box_detection_feedback(
-                    annotated_img,
-                    centroid_x,
-                    centroid_y,
-                    semantic_class,
-                    best_confidence,
-                )
-
-            return centroid_x, centroid_y  # Return the centroid of the bounding box
+            return (centroid_x, centroid_y)  # Return the centroid of the bounding box
 
         else:
-            if feedback is not None:
-                annotated_img = copy(img)
-
-                feedback.bounding_box_detection_feedback(
-                    annotated_img,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-
             return None
 
-    def _look_for_object(self, semantic_class, debug, feedback):
+    def _look_for_object(self, semantic_class, debug):
         sources = self.spot.image_client.list_image_sources()
 
         for source in sources:
@@ -163,9 +139,7 @@ class YOLODetector(Detector):
             elif "right_fisheye_image" in image_source:
                 rotate = 2  # cv2.rotate(img, cv2.ROTATE_180)
 
-            xy = self._get_centroid(
-                img, semantic_class, rotate=rotate, debug=debug, feedback=feedback
-            )
+            xy = self._get_centroid(img, semantic_class, rotate=rotate, debug=debug)
             print("Found object centroid:", xy)
             if xy is None:
                 print(f"Object not found in {image_source}.")
@@ -201,7 +175,7 @@ class SemanticDetector(Detector):
                 self.spot.semantic_name_to_id["clothes"],
             ]
 
-    def return_centroid(self, img_source, semantic_class, debug, feedback):
+    def return_centroid(self, img_source, semantic_class, debug):
         image, img = self.spot.get_image_alt(view=img_source)
         semantic_image = self.spot.segment_image(img)
 
@@ -226,7 +200,7 @@ class SemanticDetector(Detector):
             if xy is None:
                 print("Object not found near robot.")
 
-        return xy, image
+        return xy, image, img
 
     def _get_centroid(self, segmented_image, class_indices, image):
         """Get the centroid of a class in a segmented image."""

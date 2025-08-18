@@ -45,7 +45,7 @@ class FeedbackCollector:
         plt.pause(0.1)
 
     def bounding_box_detection_feedback(
-        self, annotated_img, centroid_x, centroid_y, semantic_class, best_confidence
+        self, annotated_img, centroid_x, centroid_y, semantic_class
     ):
         # Draw bounding box and label
         # cv2.rectangle(annotated_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -54,7 +54,7 @@ class FeedbackCollector:
             pass
 
         else:
-            label = f"{semantic_class} {best_confidence:.2f}"
+            label = f"{semantic_class}"
             cv2.putText(
                 annotated_img,
                 label,

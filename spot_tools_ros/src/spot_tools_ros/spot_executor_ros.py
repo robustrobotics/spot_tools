@@ -99,15 +99,16 @@ def build_progress_markers(current_point, target_point):
 
 class RosFeedbackCollector:
     def __init__(self):
-        self.confirmation_event = threading.Event()
+        self.pick_confirmation_event = threading.Event()
+        self.pick_confirmation_response = None
 
     def bounding_box_detection_feedback(
-        self, annotated_img, centroid_x, centroid_y, semantic_class, best_confidence
+        self, annotated_img, centroid_x, centroid_y, semantic_class
     ):
         bridge = CvBridge()
 
         if centroid_x is not None and centroid_y is not None:
-            label = f"{semantic_class} {best_confidence:.2f}"
+            label = f"{semantic_class}"
             cv2.putText(
                 annotated_img,
                 label,
@@ -131,12 +132,14 @@ class RosFeedbackCollector:
         annotated_img_msg = bridge.cv2_to_imgmsg(annotated_img, encoding="passthrough")
         self.annotated_img_pub.publish(annotated_img_msg)
 
-        self.confirmation_event.clear()
+        self.pick_confirmation_event.clear()
         self.logger.info("Waiting for user to confirm pick action...")
 
-        # Wait until the topic is published to in
-        self.confirmation_event.wait()
-        self.logger.info("Continuing execution...")
+        # Wait until input is received and self.pick_confirmation_response is set
+        self.pick_confirmation_event.wait()
+
+        # This boolean determines whether the executor keeps going
+        return self.pick_confirmation_response
 
     def pick_image_feedback(self, semantic_image, mask_image):
         bridge = CvBridge()
@@ -209,19 +212,20 @@ class RosFeedbackCollector:
 
         node.create_subscription(
             Bool,
-            "~/detection_confirmation",
-            self.confirmation_callback,
+            "~/pick_confirmation",
+            self.pick_confirmation_callback,
             10,
         )
 
-    def confirmation_callback(self, msg: Bool):
+    def pick_confirmation_callback(self, msg):
         if msg.data:
             self.logger.info("Detection is valid. Continuing pick action!")
+            self.pick_confirmation_response = True
         else:
-            self.logger.warn(
-                "Detection is invalid. Discontinue pick action by pressing CTRL-C (for now)."
-            )
-        self.confirmation_event.set()
+            self.logger.warn("Detection is invalid. Discontinuing pick action.")
+            self.pick_confirmation_response = False
+
+        self.pick_confirmation_event.set()
 
 
 class SpotExecutorRos(Node):
