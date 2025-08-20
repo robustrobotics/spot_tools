@@ -1,5 +1,6 @@
 import threading
 import time
+from importlib.resources import as_file, files
 
 import cv2
 import numpy as np
@@ -14,6 +15,7 @@ from bosdyn.client.frame_helpers import (
     VISION_FRAME_NAME,
 )
 
+import spot_executor.resources
 from spot_executor.bad_proto_mock import FakeFeedbackWrapper
 
 
@@ -266,7 +268,8 @@ class FakeSpot:
         return self.get_image(view=view, show=show)
 
     def get_image(self, view="hand_color_image", show=False):
-        img = cv2.imread("/home/rrg/data/images/bag_image.jpg")
+        with as_file(files(spot_executor.resources).joinpath("bag_image.jpg")) as path:
+            img = cv2.imread(path)
 
         return FakeImageResponse(name=view), img
 
