@@ -250,8 +250,15 @@ def object_grasp(
         manipulation_api_request=grasp_request
     )
 
+    loop_timer = time.time()
     # Get feedback from the robot
     while True:
+        current_time = time.time()
+        if current_time - loop_timer > 20:
+            if feedback is not None:
+                feedback.print("INFO", "The pick skill timed out!")
+            print("The pick skill timed out!")
+            break
         feedback_request = manipulation_api_pb2.ManipulationApiFeedbackRequest(
             manipulation_cmd_id=cmd_response.manipulation_cmd_id
         )
