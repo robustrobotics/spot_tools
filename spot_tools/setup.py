@@ -9,7 +9,7 @@ setup(
     description="Tools for Spot",
     package_dir={"": "src"},
     packages=find_packages("src"),
-    package_data={"": ["*.yaml"]},
+    package_data={"": ["*.yaml", "*.jpg"]},
     install_requires=[
         "numpy",
         "matplotlib",
