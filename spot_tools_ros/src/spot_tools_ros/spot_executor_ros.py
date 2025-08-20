@@ -1,5 +1,7 @@
+import threading
 import time
 
+import cv2
 import numpy as np
 import rclpy
 import rclpy.time
@@ -8,8 +10,6 @@ import tf2_ros
 import tf_transformations
 import yaml
 from cv_bridge import CvBridge
-
-# from cv_bridge import CvBridge
 from nav_msgs.msg import Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -22,6 +22,7 @@ from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
+from std_msgs.msg import Bool
 from visualization_msgs.msg import Marker, MarkerArray
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
@@ -33,7 +34,7 @@ def get_robot_pose(tf_buffer, parent_frame: str, child_frame: str):
     Looks up the transform from parent_frame to child_frame and returns [x, y, z, yaw].
 
     """
-    # TODO: use Time(0) instead of now?
+
     try:
         now = rclpy.time.Time()
         tf_buffer.can_transform(
@@ -97,6 +98,59 @@ def build_progress_markers(current_point, target_point):
 
 
 class RosFeedbackCollector:
+    def __init__(self):
+        self.pick_confirmation_event = threading.Event()
+        self.pick_confirmation_response = False
+
+        self.break_out_of_waiting_loop = False
+
+    def bounding_box_detection_feedback(
+        self, annotated_img, centroid_x, centroid_y, semantic_class
+    ):
+        bridge = CvBridge()
+
+        if centroid_x is not None and centroid_y is not None:
+            label = f"{semantic_class}"
+            cv2.putText(
+                annotated_img,
+                label,
+                (centroid_x - 100, centroid_y - 200),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                5,
+                (0, 0, 225),
+                20,
+            )
+
+            # Label the centroid
+            cv2.drawMarker(
+                annotated_img,
+                (centroid_x, centroid_y),
+                (0, 0, 255),
+                markerType=cv2.MARKER_TILTED_CROSS,
+                markerSize=200,
+                thickness=30,
+            )
+
+        annotated_img_msg = bridge.cv2_to_imgmsg(annotated_img, encoding="passthrough")
+        self.annotated_img_pub.publish(annotated_img_msg)
+
+        self.pick_confirmation_event.clear()
+
+        # Wait until input is received and self.pick_confirmation_response is set
+        while (
+            not self.break_out_of_waiting_loop
+            and not self.pick_confirmation_event.is_set()
+        ):
+            self.logger.info("Waiting for user to confirm pick action...")
+            self.pick_confirmation_event.wait(timeout=5)
+
+        if self.break_out_of_waiting_loop:
+            self.logger.info("ROBOT WAS PREEMPTED")
+            self.pick_confirmation_response = False
+
+        # This boolean determines whether the executor keeps going
+        return self.pick_confirmation_response
+
     def pick_image_feedback(self, semantic_image, mask_image):
         bridge = CvBridge()
         semantic_hand_msg = bridge.cv2_to_imgmsg(semantic_image, encoding="passthrough")
@@ -162,11 +216,33 @@ class RosFeedbackCollector:
             MarkerArray, "~/progress_point_visualizer", qos_profile=latching_qos
         )
 
+        self.annotated_img_pub = node.create_publisher(
+            Image, "~/annotated_image", qos_profile=latching_qos
+        )
+
+        node.create_subscription(
+            Bool,
+            "~/pick_confirmation",
+            self.pick_confirmation_callback,
+            10,
+        )
+
+    def pick_confirmation_callback(self, msg):
+        if msg.data:
+            self.logger.info("Detection is valid. Continuing pick action!")
+            self.pick_confirmation_response = True
+        else:
+            self.logger.warn("Detection is invalid. Discontinuing pick action.")
+            self.pick_confirmation_response = False
+
+        self.pick_confirmation_event.set()
+
 
 class SpotExecutorRos(Node):
     def __init__(self):
         super().__init__("spot_executor_ros")
         self.debug = False
+        self.background_thread = None
 
         self.feedback_collector = RosFeedbackCollector()
         self.feedback_collector.register_publishers(self)
@@ -327,12 +403,22 @@ class SpotExecutorRos(Node):
         self.heartbeat_pub.publish(msg)
 
     def process_action_sequence(self, msg):
-        self.status_str = "Processing action sequence"
-        self.get_logger().info("Starting action sequence")
-        sequence = from_msg(msg)
-        self.spot_executor.process_action_sequence(sequence, self.feedback_collector)
-        self.get_logger().info("Finished execution action sequence.")
-        self.status_str = "Idle"
+        def process_sequence():
+            self.status_str = "Processing action sequence"
+            self.get_logger().info("Starting action sequence")
+            sequence = from_msg(msg)
+            self.spot_executor.process_action_sequence(
+                sequence, self.feedback_collector
+            )
+            self.get_logger().info("Finished execution action sequence.")
+            self.status_str = "Idle"
+
+        if self.background_thread is not None and self.background_thread.is_alive():
+            self.spot_executor.terminate_sequence(self.feedback_collector)
+
+        self.feedback_collector.break_out_of_waiting_loop = False
+        self.background_thread = threading.Thread(target=process_sequence, daemon=False)
+        self.background_thread.start()
 
 
 def main(args=None):

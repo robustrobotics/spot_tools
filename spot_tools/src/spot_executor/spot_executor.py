@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import skimage as ski
 from robot_executor_interface.action_descriptions import (
@@ -8,7 +10,6 @@ from robot_executor_interface.action_descriptions import (
 )
 from scipy.spatial.transform import Rotation
 
-from spot_executor.executor_feedback_pyplot import FeedbackCollector
 from spot_skills.arm_utils import gaze_at_vision_pose
 from spot_skills.grasp_utils import object_grasp, object_place
 from spot_skills.navigation_utils import (
@@ -48,37 +49,63 @@ class SpotExecutor:
         self.follower_lookahead = follower_lookahead
         self.goal_tolerance = goal_tolerance
         self.detector = detector
+        self.keep_going = True
+        self.processing_action_sequence = False
+
+    def terminate_sequence(self, feedback):
+        # Tell the actions sequence to break
+        self.keep_going = False
+
+        # Blocking the thread so that it terminates cleanly by
+        # terminating the pick action and waiting for processing to end
+        feedback.break_out_of_waiting_loop = True
+
+        # Block until action sequence is done executing
+        while self.processing_action_sequence:
+            feedback.print("INFO", "Waiting for previous action sequence to terminate.")
+            time.sleep(1)
 
     def process_action_sequence(self, sequence, feedback):
-        feedback.print("INFO", "Would like to execute: ")
-        for command in sequence.actions:
-            feedback.print("INFO", command)
+        self.processing_action_sequence = True
+        self.keep_going = True
+        try:
+            feedback.print("INFO", "Would like to execute: ")
+            for command in sequence.actions:
+                feedback.print("INFO", command)
 
-        self.spot_interface.robot.time_sync.wait_for_sync()
-        self.spot_interface.take_lease()
+            self.spot_interface.robot.time_sync.wait_for_sync()
+            self.spot_interface.take_lease()
 
-        for ix, command in enumerate(sequence.actions):
-            pick_next = False
-            if ix < len(sequence.actions) - 1:
-                pick_next = type(sequence.actions[ix + 1]) is Pick
-            feedback.print("INFO", "Spot executor executing command: ")
-            feedback.print("INFO", command)
-            if type(command) is Follow:
-                self.execute_follow(command, feedback)
+            for ix, command in enumerate(sequence.actions):
+                if not self.keep_going:
+                    feedback.print("INFO", "Action sequence was pre-empted.")
+                    break
+                pick_next = False
+                if ix < len(sequence.actions) - 1:
+                    pick_next = type(sequence.actions[ix + 1]) is Pick
+                feedback.print("INFO", "Spot executor executing command: ")
+                feedback.print("INFO", command)
+                if type(command) is Follow:
+                    self.execute_follow(command, feedback)
 
-            elif type(command) is Gaze:
-                self.execute_gaze(command, feedback, pick_next=pick_next)
+                elif type(command) is Gaze:
+                    self.execute_gaze(command, feedback, pick_next=pick_next)
 
-            elif type(command) is Pick:
-                self.execute_pick(command, feedback)
+                elif type(command) is Pick:
+                    self.execute_pick(command, feedback)
 
-            elif type(command) is Place:
-                self.execute_place(command, feedback)
+                elif type(command) is Place:
+                    self.execute_place(command, feedback)
 
-            else:
-                raise Exception(
-                    f"SpotExecutor received unknown command type {type(command)}"
-                )
+                else:
+                    raise Exception(
+                        f"SpotExecutor received unknown command type {type(command)}"
+                    )
+        except Exception as ex:
+            self.processing_action_sequence = False
+            raise ex
+
+        self.processing_action_sequence = False
 
     def execute_gaze(self, command, feedback, pick_next=False):
         # TODO: need to transform command to robot odom frame
@@ -103,7 +130,7 @@ class SpotExecutor:
             image_source="hand_color_image",
             user_input=False,
             semantic_class=command.object_class,
-            feedback=FeedbackCollector(),
+            feedback=feedback,
         )
 
         if self.debug:

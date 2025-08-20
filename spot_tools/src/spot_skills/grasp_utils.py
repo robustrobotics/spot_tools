@@ -5,6 +5,7 @@ Grasping an object with the arm (likely a backpack)
 import argparse
 import sys
 import time
+from copy import copy
 
 import bosdyn.client
 import bosdyn.client.estop
@@ -185,8 +186,8 @@ def object_grasp(
 
         if not user_input:
             # Try to get the centroid using the detector passed into the function.
-            xy, image = detector.return_centroid(
-                image_source, semantic_class, debug=debug, feedback=feedback
+            xy, image, img = detector.return_centroid(
+                image_source, semantic_class, debug=debug
             )
 
             # If the detector fails to return the centroid, then try again until max_attempts
@@ -207,6 +208,23 @@ def object_grasp(
         raise Exception(
             "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input."
         )
+
+    # If xy is not None, then display the annotated image
+    else:
+        if feedback is not None:
+            annotated_img = copy(img)
+
+            response = feedback.bounding_box_detection_feedback(
+                annotated_img,
+                xy[0],
+                xy[1],
+                semantic_class,
+            )
+
+            if response is not None and not response:
+                raise Exception(
+                    "The user determined that the detection was invalid. Aborting."
+                )
 
     pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
     stow_arm(spot)
@@ -232,8 +250,15 @@ def object_grasp(
         manipulation_api_request=grasp_request
     )
 
+    loop_timer = time.time()
     # Get feedback from the robot
     while True:
+        current_time = time.time()
+        if current_time - loop_timer > 20:
+            if feedback is not None:
+                feedback.print("INFO", "The pick skill timed out!")
+            print("The pick skill timed out!")
+            break
         feedback_request = manipulation_api_pb2.ManipulationApiFeedbackRequest(
             manipulation_cmd_id=cmd_response.manipulation_cmd_id
         )

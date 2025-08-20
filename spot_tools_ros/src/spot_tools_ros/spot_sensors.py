@@ -369,7 +369,11 @@ class SpotClientNode(Node):
 
         while True:
             try:
-                bosdyn.client.util.authenticate(robot, _get_login_info)
+                self.get_logger().info(
+                    f"IP: {robot_ip}, Username: {username}, Password: {password}"
+                )
+                # bosdyn.client.util.authenticate(robot, _get_login_info)
+                robot.authenticate(username, password)
                 break
             except Exception as e:
                 self.get_logger().error(e)
