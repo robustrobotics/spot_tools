@@ -266,7 +266,7 @@ class FakeSpot:
         return self.get_image(view=view, show=show)
 
     def get_image(self, view="hand_color_image", show=False):
-        img = cv2.imread("/home/swarm/data/images/bag_image.jpg")
+        img = cv2.imread("/home/rrg/data/images/bag_image.jpg")
 
         return FakeImageResponse(name=view), img
 

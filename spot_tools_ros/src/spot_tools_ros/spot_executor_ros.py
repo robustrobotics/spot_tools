@@ -100,7 +100,9 @@ def build_progress_markers(current_point, target_point):
 class RosFeedbackCollector:
     def __init__(self):
         self.pick_confirmation_event = threading.Event()
-        self.pick_confirmation_response = None
+        self.pick_confirmation_response = False
+
+        self.break_out_of_waiting_loop = False
 
     def bounding_box_detection_feedback(
         self, annotated_img, centroid_x, centroid_y, semantic_class
@@ -133,10 +135,18 @@ class RosFeedbackCollector:
         self.annotated_img_pub.publish(annotated_img_msg)
 
         self.pick_confirmation_event.clear()
-        self.logger.info("Waiting for user to confirm pick action...")
 
         # Wait until input is received and self.pick_confirmation_response is set
-        self.pick_confirmation_event.wait()
+        while (
+            not self.break_out_of_waiting_loop
+            and not self.pick_confirmation_event.is_set()
+        ):
+            self.logger.info("Waiting for user to confirm pick action...")
+            self.pick_confirmation_event.wait(timeout=5)
+
+        if self.break_out_of_waiting_loop:
+            self.logger.info("ROBOT WAS PREEMPTED")
+            self.pick_confirmation_response = False
 
         # This boolean determines whether the executor keeps going
         return self.pick_confirmation_response
@@ -232,6 +242,7 @@ class SpotExecutorRos(Node):
     def __init__(self):
         super().__init__("spot_executor_ros")
         self.debug = False
+        self.background_thread = None
 
         self.feedback_collector = RosFeedbackCollector()
         self.feedback_collector.register_publishers(self)
@@ -402,7 +413,12 @@ class SpotExecutorRos(Node):
             self.get_logger().info("Finished execution action sequence.")
             self.status_str = "Idle"
 
-        threading.Thread(target=process_sequence, daemon=True).start()
+        if self.background_thread is not None and self.background_thread.is_alive():
+            self.spot_executor.terminate_sequence(self.feedback_collector)
+
+        self.feedback_collector.break_out_of_waiting_loop = False
+        self.background_thread = threading.Thread(target=process_sequence, daemon=False)
+        self.background_thread.start()
 
 
 def main(args=None):
