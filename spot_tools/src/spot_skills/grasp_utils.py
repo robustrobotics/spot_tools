@@ -288,6 +288,12 @@ def object_grasp(
             success = True
             break
 
+    if feedback is not None:
+        current_state = manipulation_api_pb2.ManipulationFeedbackState.Name(
+            response.current_state
+        )
+        feedback.print("INFO", f"POST-LOOP STATE: {current_state}")
+
     close_cmd = RobotCommandBuilder.claw_gripper_close_command(
         build_on_command=None,
         max_acc=None,
