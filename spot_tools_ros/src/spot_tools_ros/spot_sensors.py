@@ -204,9 +204,12 @@ class CameraPublisher:
         self._depth_info_pub = node.create_publisher(CameraInfo, depth_info_topic, 10)
         self._last_time = None
 
-    @property
-    def requests(self):
-        rgb_kwargs = {"pixel_format": SpotPixelFormat.PIXEL_FORMAT_RGB_U8}
+    def requests(self, use_grayscale):
+        rgb_kwargs = {
+            "pixel_format": SpotPixelFormat.PIXEL_FORMAT_RGB_U8
+            if not use_grayscale
+            else SpotPixelFormat.PIXEL_FORMAT_GREYSCALE_U8
+        }
         rgb_kwargs["image_format"] = (
             SpotImage.FORMAT_JPEG if self.use_compressed else SpotImage.FORMAT_RAW
         )
@@ -286,6 +289,7 @@ class SpotClientNode(Node):
             RobotStateClient.default_service_name
         )
 
+        self._use_grayscale = self._get_param("use_grayscale", False).bool_value
         self._tf_prefix = self._get_param("tf_prefix", "<ns>").string_value
         if self._tf_prefix == "<ns>":
             robot_ns = self.get_namespace()
@@ -455,10 +459,19 @@ class SpotClientNode(Node):
         names = []
         requests = []
         for name, camera in self._cameras.items():
-            requests += camera.requests
+            requests += camera.requests(self._use_grayscale)
             names.append(name)
 
-        responses = self._image_client.get_image(requests)
+        try:
+            responses = self._image_client.get_image(requests)
+        except bosdyn.client.image.UnsupportedPixelFormatRequestedError as e:
+            if self._use_grayscale:
+                raise e
+
+            self.get_logger().warn("Failed to request image! Reverting to grayscale")
+            self._use_grayscale = True
+            return
+
         for resp in responses:
             stamp = _get_local_time(self._robot, resp.shot.acquisition_time)
             try:
