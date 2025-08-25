@@ -1,3 +1,4 @@
+import logging
 import math
 import time
 
@@ -51,13 +52,18 @@ class Spot:
         self.id_client = self.robot.ensure_client("robot-id")
         self.id = self.id_client.get_id()
         self.robot.authenticate(username, password)
-        assert self.robot.has_arm(), "Our robot has an arm ..."
 
         self.state_client = self.robot.ensure_client("robot-state")
         self.image_client = self.robot.ensure_client(ImageClient.default_service_name)
-        self.manipulation_api_client = self.robot.ensure_client(
-            ManipulationApiClient.default_service_name
-        )
+
+        if self.robot.has_arm():
+            self.manipulation_api_client = self.robot.ensure_client(
+                ManipulationApiClient.default_service_name
+            )
+        else:
+            logging.warning("Spot does not have an arm, manipulation disabled!")
+            self.manipulation_api_client = None
+
         self.estop_client = self.robot.ensure_client("estop")
         self.estop_keep_alive = None
         self.lease_client = self.robot.ensure_client("lease")
