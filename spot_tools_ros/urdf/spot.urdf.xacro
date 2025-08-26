@@ -14,10 +14,10 @@
   <xacro:arg name="gripperless" default="false" />
 
   <!-- Set to true to enable joints -->
-  <xacro:arg name="include_transmissions" default="true" />^M
+  <xacro:arg name="include_transmissions" default="true"/>
 
   <!-- Set to the accent color you want for spot -->
-  <xacro:arg name="spot_color" default="yellow" />
+  <xacro:arg name="spot_color" default="yellow"/>
 
   <!-- Load Spot -->
   <xacro:load_spot
@@ -25,6 +25,11 @@
     tf_prefix="$(arg tf_prefix)"
     spot_color="$(arg spot_color)"
     gripperless="$(arg gripperless)"
-    include_transmissions="$(arg include_transmissions)" />
+    include_transmissions="$(arg include_transmissions)"/>
+
+  <!-- Optional custom includes. -->
+  <xacro:arg name="extras_urdf" default="$(find spot_tools_ros)/urdf/empty.urdf.xacro"/>
+  <xacro:include filename="$(arg extras_urdf)"/>
+  <xacro:load_extras tf_prefix="$(arg tf_prefix)"/>
 
 </robot>

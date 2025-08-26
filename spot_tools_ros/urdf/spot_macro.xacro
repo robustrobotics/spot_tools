@@ -552,10 +552,6 @@
                     </transmission>
         </xacro:if>
 
-        <!-- Optional custom includes. -->
-        <xacro:property name="default_empty_urdf" value="$(find spot_tools_ros)/urdf/empty.urdf" />
-        <xacro:include filename="$(optenv SPOT_URDF_EXTRAS ${default_empty_urdf})" />
-
         <!-- Include Arm if necessary-->
         <xacro:if value="${arm}">
             <xacro:include filename="$(find spot_tools_ros)/urdf/spot_arm_macro.urdf" />
