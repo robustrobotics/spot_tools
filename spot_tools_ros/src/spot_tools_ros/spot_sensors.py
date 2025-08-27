@@ -376,7 +376,6 @@ class SpotClientNode(Node):
                 self.get_logger().info(
                     f"IP: {robot_ip}, Username: {username}, Password: {password}"
                 )
-                # bosdyn.client.util.authenticate(robot, _get_login_info)
                 robot.authenticate(username, password)
                 break
             except Exception as e:
@@ -471,6 +470,9 @@ class SpotClientNode(Node):
             self.get_logger().warn("Failed to request image! Reverting to grayscale")
             self._use_grayscale = True
             return
+        except Exception:
+            self.get_logger().error("Image request failed: {e}")
+            return
 
         for resp in responses:
             stamp = _get_local_time(self._robot, resp.shot.acquisition_time)
@@ -489,7 +491,12 @@ class SpotClientNode(Node):
 
     def _state_callback(self):
         """Poll Spot for new image messages and publish."""
-        state = self._state_client.get_robot_state()
+        try:
+            state = self._state_client.get_robot_state()
+        except Exception as e:
+            self.get_logger().error(f"State request failed: {e}")
+            return
+
         pos_state = state.kinematic_state
         stamp = _get_local_time(self._robot, pos_state.acquisition_timestamp)
 
