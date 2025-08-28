@@ -52,6 +52,10 @@ class SpotExecutor:
         self.keep_going = True
         self.processing_action_sequence = False
 
+        # For determining if we should continue a previously executed sequence
+        self.current_action_sequence = None
+        self.current_action_sequence_idx = None
+
     def terminate_sequence(self, feedback):
         # Tell the actions sequence to break
         self.keep_going = False

@@ -1,6 +1,7 @@
 import threading
 import time
 
+import bosdyn
 import cv2
 import numpy as np
 import rclpy
@@ -408,9 +409,13 @@ class SpotExecutorRos(Node):
             self.status_str = "Processing action sequence"
             self.get_logger().info("Starting action sequence")
             sequence = from_msg(msg)
-            self.spot_executor.process_action_sequence(
-                sequence, self.feedback_collector
-            )
+            try:
+                self.spot_executor.process_action_sequence(
+                    sequence, self.feedback_collector
+                )
+            except bosdyn.client.exceptions.LeaseUseError as e:
+                self.get_logger().info(f"Lease Taken: {e.error_message}")
+
             self.get_logger().info("Finished execution action sequence.")
             self.status_str = "Idle"
 

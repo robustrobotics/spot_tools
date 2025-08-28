@@ -8,8 +8,6 @@ from visualization_msgs.msg import MarkerArray
 from robot_executor_interface.action_descriptions import (
     ActionSequence,
     Follow,
-    Gaze,
-    Pick,
 )
 
 
@@ -31,26 +29,26 @@ class Tester(Node):
         path = np.array(
             [
                 [0.0, 0],
-                [1.0, 0],
-                [3.0, 5],
-                [5.0, 5],
+                [10.8, 0],
+                # [3.0, 5],
+                # [5.0, 5],
             ]
         )
 
         follow_cmd = Follow("hamilton/odom", path)
 
-        gaze_cmd = Gaze(
-            "hamilton/odom",
-            np.array([5.0, 5, 0]),
-            np.array([7.0, 7, 0]),
-            stow_after=True,
-        )
+        # gaze_cmd = Gaze(
+        #    "hamilton/odom",
+        #    np.array([5.0, 5, 0]),
+        #    np.array([7.0, 7, 0]),
+        #    stow_after=True,
+        # )
 
-        pick_cmd = Pick(
-            "hamilton/odom", "bag", np.array([5.0, 5, 0]), np.array([7.0, 7, 0])
-        )
+        # pick_cmd = Pick(
+        #    "hamilton/odom", "bag", np.array([5.0, 5, 0]), np.array([7.0, 7, 0])
+        # )
 
-        seq = ActionSequence("id0", "spot", [follow_cmd, gaze_cmd, pick_cmd])
+        seq = ActionSequence("id0", "spot", [follow_cmd])
 
         publisher.publish(to_msg(seq))
         viz_publisher.publish(to_viz_msg(seq, "planner_ns"))
