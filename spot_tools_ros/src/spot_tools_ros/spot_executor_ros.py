@@ -266,6 +266,7 @@ class SpotExecutorRos(Node):
         self.declare_parameter("goal_tolerance", 0.0)
         goal_tolerance = self.get_parameter("goal_tolerance").value
         assert goal_tolerance > 0
+        self.get_logger().info(f"{goal_tolerance=}")
 
         # Pick/Inspect Skill
         self.declare_parameter("semantic_model_path", "")
