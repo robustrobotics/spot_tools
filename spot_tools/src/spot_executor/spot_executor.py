@@ -2,6 +2,7 @@ import time
 
 import numpy as np
 import skimage as ski
+from bosdyn.client.exceptions import LeaseUseError
 from robot_executor_interface.action_descriptions import (
     Follow,
     Gaze,
@@ -52,10 +53,6 @@ class SpotExecutor:
         self.keep_going = True
         self.processing_action_sequence = False
 
-        # For determining if we should continue a previously executed sequence
-        self.current_action_sequence = None
-        self.current_action_sequence_idx = None
-
     def terminate_sequence(self, feedback):
         # Tell the actions sequence to break
         self.keep_going = False
@@ -72,6 +69,7 @@ class SpotExecutor:
     def process_action_sequence(self, sequence, feedback):
         self.processing_action_sequence = True
         self.keep_going = True
+
         try:
             feedback.print("INFO", "Would like to execute: ")
             for command in sequence.actions:
@@ -89,22 +87,28 @@ class SpotExecutor:
                     pick_next = type(sequence.actions[ix + 1]) is Pick
                 feedback.print("INFO", "Spot executor executing command: ")
                 feedback.print("INFO", command)
-                if type(command) is Follow:
-                    self.execute_follow(command, feedback)
 
-                elif type(command) is Gaze:
-                    self.execute_gaze(command, feedback, pick_next=pick_next)
+                try:
+                    if type(command) is Follow:
+                        self.execute_follow(command, feedback)
 
-                elif type(command) is Pick:
-                    self.execute_pick(command, feedback)
+                    elif type(command) is Gaze:
+                        self.execute_gaze(command, feedback, pick_next=pick_next)
 
-                elif type(command) is Place:
-                    self.execute_place(command, feedback)
+                    elif type(command) is Pick:
+                        self.execute_pick(command, feedback)
 
-                else:
-                    raise Exception(
-                        f"SpotExecutor received unknown command type {type(command)}"
-                    )
+                    elif type(command) is Place:
+                        self.execute_place(command, feedback)
+
+                    else:
+                        raise Exception(
+                            f"SpotExecutor received unknown command type {type(command)}"
+                        )
+                except LeaseUseError as lease_ex:
+                    feedback.print("INFO", "Lost lease, stopping action sequence.")
+                    raise lease_ex
+
         except Exception as ex:
             self.processing_action_sequence = False
             raise ex

@@ -1,7 +1,6 @@
 import threading
 import time
 
-import bosdyn
 import cv2
 import numpy as np
 import rclpy
@@ -10,6 +9,7 @@ import spot_executor as se
 import tf2_ros
 import tf_transformations
 import yaml
+from bosdyn.client.exceptions import LeaseUseError
 from cv_bridge import CvBridge
 from nav_msgs.msg import Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -413,7 +413,7 @@ class SpotExecutorRos(Node):
                 self.spot_executor.process_action_sequence(
                     sequence, self.feedback_collector
                 )
-            except bosdyn.client.exceptions.LeaseUseError as e:
+            except LeaseUseError as e:
                 self.get_logger().info(f"Lease Taken: {e.error_message}")
 
             self.get_logger().info("Finished execution action sequence.")
