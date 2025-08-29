@@ -380,6 +380,7 @@ class SpotExecutorRos(Node):
             tf_lookup_fn,
             follower_lookahead,
             goal_tolerance,
+            feedback=self.feedback_collector,
         )
 
         self.action_sequence_sub = self.create_subscription(

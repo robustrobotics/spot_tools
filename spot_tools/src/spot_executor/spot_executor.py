@@ -1,3 +1,4 @@
+import threading
 import time
 
 import numpy as np
@@ -35,6 +36,34 @@ def transform_command_frame(tf_trans, tf_q, command, feedback=None):
     return command
 
 
+# The lease manager should run in a separate thread to handle the exchange
+# of the lease e.g., when the tablet takes control of the robot.
+class LeaseManager:
+    def __init__(self, spot_interface, feedback=None):
+        self.spot_interface = spot_interface
+        self.monitoring_thread = None
+        self.feedback = feedback
+
+        self.initialize_thread()
+
+    def initialize_thread(self):
+        def monitor_lease(self):
+            while True:
+                leases = self.spot_interface.lease_client.list_leases()
+                owner = leases[0].lease_owner
+
+                print("Current lease owner: ", owner)
+                if self.feedback is not None:
+                    self.feedback.print(
+                        "INFO", f"LEASE MANAGER THREAD: Current lease owner: {owner}"
+                    )
+
+                time.sleep(2)
+
+        self.monitoring_thread = threading.Thread(target=monitor_lease, daemon=False)
+        self.monitoring_thread.start()
+
+
 class SpotExecutor:
     def __init__(
         self,
@@ -52,6 +81,11 @@ class SpotExecutor:
         self.detector = detector
         self.keep_going = True
         self.processing_action_sequence = False
+
+        self.lease_manager = None
+
+    def initialize_lease_manager(self, feedback):
+        self.lease_manager = LeaseManager(self.spot_interface, feedback)
 
     def terminate_sequence(self, feedback):
         # Tell the actions sequence to break
