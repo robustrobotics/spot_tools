@@ -3,7 +3,9 @@ import time
 
 import numpy as np
 import skimage as ski
+from bosdyn.api.robot_state_pb2 import BehaviorFault
 from bosdyn.client.exceptions import LeaseUseError
+from bosdyn.client.robot_command import BehaviorFaultError
 from robot_executor_interface.action_descriptions import (
     Follow,
     Gaze,
@@ -47,18 +49,60 @@ class LeaseManager:
         self.initialize_thread()
 
     def initialize_thread(self):
-        def monitor_lease(self):
+        def monitor_lease():
             while True:
                 leases = self.spot_interface.lease_client.list_leases()
                 owner = leases[0].lease_owner
 
-                print("Current lease owner: ", owner)
-                if self.feedback is not None:
-                    self.feedback.print(
-                        "INFO", f"LEASE MANAGER THREAD: Current lease owner: {owner}"
-                    )
+                # print("Current lease owner: ", owner)
+                # if self.feedback is not None:
+                #     self.feedback.print(
+                #         "INFO",
+                #         f"LEASE MANAGER THREAD: Current lease owner: {owner.client_name}",
+                #     )
 
-                time.sleep(2)
+                # If nobody owns the lease, then the owner string is empty.
+                # We should try to take the lease back in that case.
+                if owner.client_name == "":
+                    if self.feedback is not None:
+                        self.feedback.print(
+                            "INFO",
+                            "LEASE MANAGER THREAD: Taking lease back, since nobody owns it.",
+                        )
+                    self.spot_interface.take_lease()
+                    try:
+                        self.spot_interface.stand()
+                    except BehaviorFaultError:
+                        fault_ids = []
+                        for fault in (
+                            self.spot_interface.get_state().behavior_fault_state.faults
+                        ):
+                            if fault.cause == BehaviorFault.CAUSE_LEASE_TIMEOUT:
+                                fault_ids.append(fault.behavior_fault_id)
+                        for fault_id in fault_ids:
+                            if self.feedback is not None:
+                                self.feedback.print(
+                                    "INFO", f"Clearing behavior fault {fault_id}"
+                                )
+                            self.spot_interface.command_client.clear_behavior_fault(
+                                fault_id
+                            )
+
+                        if (
+                            len(
+                                self.spot_interface.get_state().behavior_fault_state.faults
+                            )
+                            == 0
+                        ):
+                            self.spot_interface.stand()
+                        else:
+                            if self.feedback is not None:
+                                self.feedback.print(
+                                    "WARN",
+                                    "Could not clear all behavior faults, cannot stand.",
+                                )
+
+                time.sleep(0.5)
 
         self.monitoring_thread = threading.Thread(target=monitor_lease, daemon=False)
         self.monitoring_thread.start()
