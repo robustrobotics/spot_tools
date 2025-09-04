@@ -9,7 +9,6 @@ import spot_executor as se
 import tf2_ros
 import tf_transformations
 import yaml
-from bosdyn.client.exceptions import LeaseUseError
 from cv_bridge import CvBridge
 from nav_msgs.msg import Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -410,12 +409,10 @@ class SpotExecutorRos(Node):
             self.status_str = "Processing action sequence"
             self.get_logger().info("Starting action sequence")
             sequence = from_msg(msg)
-            try:
-                self.spot_executor.process_action_sequence(
-                    sequence, self.feedback_collector
-                )
-            except LeaseUseError as e:
-                self.get_logger().info(f"Lease Taken: {e.error_message}")
+
+            self.spot_executor.process_action_sequence(
+                sequence, self.feedback_collector
+            )
 
             self.get_logger().info("Finished execution action sequence.")
             self.status_str = "Idle"

@@ -52,6 +52,8 @@ class LeaseManager:
         def monitor_lease():
             while True:
                 leases = self.spot_interface.lease_client.list_leases()
+
+                # owner of the full lease
                 owner = leases[0].lease_owner
 
                 # print("Current lease owner: ", owner)
@@ -82,7 +84,8 @@ class LeaseManager:
                         for fault_id in fault_ids:
                             if self.feedback is not None:
                                 self.feedback.print(
-                                    "INFO", f"Clearing behavior fault {fault_id}"
+                                    "INFO",
+                                    f"LEASE MANAGER THREAD: Clearing behavior fault {fault_id}",
                                 )
                             self.spot_interface.command_client.clear_behavior_fault(
                                 fault_id
@@ -99,7 +102,7 @@ class LeaseManager:
                             if self.feedback is not None:
                                 self.feedback.print(
                                     "WARN",
-                                    "Could not clear all behavior faults, cannot stand.",
+                                    "LEASE MANAGER THREAD: Could not clear all behavior faults, cannot stand.",
                                 )
 
                 time.sleep(0.5)
@@ -156,7 +159,10 @@ class SpotExecutor:
             self.spot_interface.robot.time_sync.wait_for_sync()
             self.spot_interface.take_lease()
 
-            for ix, command in enumerate(sequence.actions):
+            ix = 0
+            while ix < len(sequence.actions):
+                command = sequence.actions[ix]
+
                 if not self.keep_going:
                     feedback.print("INFO", "Action sequence was pre-empted.")
                     break
@@ -183,9 +189,12 @@ class SpotExecutor:
                         raise Exception(
                             f"SpotExecutor received unknown command type {type(command)}"
                         )
-                except LeaseUseError as lease_ex:
+                    ix += 1
+
+                except LeaseUseError:
                     feedback.print("INFO", "Lost lease, stopping action sequence.")
-                    raise lease_ex
+                    # Wait until the lease manager has taken the lease back
+                    time.sleep(1)
 
         except Exception as ex:
             self.processing_action_sequence = False
