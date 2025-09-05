@@ -5,10 +5,7 @@ from robot_executor_interface_ros.action_descriptions_ros import to_msg, to_viz_
 from robot_executor_msgs.msg import ActionSequenceMsg
 from visualization_msgs.msg import MarkerArray
 
-from robot_executor_interface.action_descriptions import (
-    ActionSequence,
-    Follow,
-)
+from robot_executor_interface.action_descriptions import ActionSequence, Follow, Pick
 
 
 class Tester(Node):
@@ -29,7 +26,7 @@ class Tester(Node):
         path = np.array(
             [
                 [0.0, 0],
-                [10.8, 0],
+                [3.8, 0],
                 # [3.0, 5],
                 # [5.0, 5],
             ]
@@ -44,11 +41,11 @@ class Tester(Node):
         #    stow_after=True,
         # )
 
-        # pick_cmd = Pick(
-        #    "hamilton/odom", "bag", np.array([5.0, 5, 0]), np.array([7.0, 7, 0])
-        # )
+        pick_cmd = Pick(
+            "hamilton/odom", "bag", np.array([5.0, 5, 0]), np.array([7.0, 7, 0])
+        )
 
-        seq = ActionSequence("id0", "spot", [follow_cmd])
+        seq = ActionSequence("id0", "spot", [follow_cmd, pick_cmd])
 
         publisher.publish(to_msg(seq))
         viz_publisher.publish(to_viz_msg(seq, "planner_ns"))

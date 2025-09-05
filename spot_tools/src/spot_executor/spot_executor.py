@@ -47,6 +47,7 @@ class LeaseManager:
         self.feedback = feedback
 
         self.initialize_thread()
+        self.taking_back_lease = False
 
     def initialize_thread(self):
         def monitor_lease():
@@ -66,10 +67,11 @@ class LeaseManager:
                 # If nobody owns the lease, then the owner string is empty.
                 # We should try to take the lease back in that case.
                 if owner.client_name == "":
+                    self.taking_back_lease = True
                     if self.feedback is not None:
                         self.feedback.print(
                             "INFO",
-                            "LEASE MANAGER THREAD: Taking lease back, since nobody owns it.",
+                            "LEASE MANAGER THREAD: Trying to take lease back, since nobody owns it.",
                         )
                     self.spot_interface.take_lease()
                     try:
@@ -104,7 +106,7 @@ class LeaseManager:
                                     "WARN",
                                     "LEASE MANAGER THREAD: Could not clear all behavior faults, cannot stand.",
                                 )
-
+                    self.taking_back_lease = False
                 time.sleep(0.5)
 
         self.monitoring_thread = threading.Thread(target=monitor_lease, daemon=False)
@@ -161,6 +163,19 @@ class SpotExecutor:
 
             ix = 0
             while ix < len(sequence.actions):
+                # If the lease manager is actively taking back the lease and getting the
+                # robot to stand back up, we don't want to send it any commands. It will break.
+                if (
+                    self.lease_manager is not None
+                    and self.lease_manager.taking_back_lease
+                ):
+                    feedback.print(
+                        "INFO",
+                        "Waiting for lease manager to finish taking back lease...",
+                    )
+                    time.sleep(0.5)
+                    continue
+
                 command = sequence.actions[ix]
 
                 if not self.keep_going:
@@ -192,7 +207,7 @@ class SpotExecutor:
                     ix += 1
 
                 except LeaseUseError:
-                    feedback.print("INFO", "Lost lease, stopping action sequence.")
+                    # feedback.print("INFO", "Lost lease, stopping action sequence.")
                     # Wait until the lease manager has taken the lease back
                     time.sleep(1)
 
