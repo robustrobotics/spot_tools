@@ -64,6 +64,7 @@ class Spot:
             logging.warning("Spot does not have an arm, manipulation disabled!")
             self.manipulation_api_client = None
 
+        self.power_client = self.robot.ensure_client("power")
         self.estop_client = self.robot.ensure_client("estop")
         self.estop_keep_alive = None
         self.lease_client = self.robot.ensure_client("lease")
