@@ -1,7 +1,11 @@
+import threading
 import time
 
 import numpy as np
 import skimage as ski
+from bosdyn.api.robot_state_pb2 import BehaviorFault
+from bosdyn.client.exceptions import LeaseUseError
+from bosdyn.client.robot_command import BehaviorFaultError
 from robot_executor_interface.action_descriptions import (
     Follow,
     Gaze,
@@ -34,6 +38,86 @@ def transform_command_frame(tf_trans, tf_q, command, feedback=None):
     return command
 
 
+# The lease manager should run in a separate thread to handle the exchange
+# of the lease e.g., when the tablet takes control of the robot.
+class LeaseManager:
+    def __init__(self, spot_interface, feedback=None):
+        self.spot_interface = spot_interface
+        self.monitoring_thread = None
+        self.feedback = feedback
+
+        self.initialize_thread()
+        self.taking_back_lease = False
+
+    def initialize_thread(self):
+        def monitor_lease():
+            while True:
+                leases = self.spot_interface.lease_client.list_leases()
+
+                # owner of the full lease
+                owner = leases[0].lease_owner
+
+                # print("Current lease owner: ", owner)
+                # if self.feedback is not None:
+                #     self.feedback.print(
+                #         "INFO",
+                #         f"LEASE MANAGER THREAD: Current lease owner: {owner.client_name}",
+                #     )
+
+                # If nobody owns the lease, then the owner string is empty.
+                # We should try to take the lease back in that case.
+                if owner.client_name == "":
+                    # We should set the feedback's break_out_of_waiting_loop to True
+                    # so that the pick skill gets immediately cancelled if it is running.
+                    if self.feedback is not None:
+                        self.feedback.break_out_of_waiting_loop = True
+
+                    self.taking_back_lease = True
+                    if self.feedback is not None:
+                        self.feedback.print(
+                            "INFO",
+                            "LEASE MANAGER THREAD: Trying to take lease back, since nobody owns it.",
+                        )
+                    self.spot_interface.take_lease()
+                    try:
+                        self.spot_interface.stand()
+                    except BehaviorFaultError:
+                        fault_ids = []
+                        for fault in (
+                            self.spot_interface.get_state().behavior_fault_state.faults
+                        ):
+                            if fault.cause == BehaviorFault.CAUSE_LEASE_TIMEOUT:
+                                fault_ids.append(fault.behavior_fault_id)
+                        for fault_id in fault_ids:
+                            if self.feedback is not None:
+                                self.feedback.print(
+                                    "INFO",
+                                    f"LEASE MANAGER THREAD: Clearing behavior fault {fault_id}",
+                                )
+                            self.spot_interface.command_client.clear_behavior_fault(
+                                fault_id
+                            )
+
+                        if (
+                            len(
+                                self.spot_interface.get_state().behavior_fault_state.faults
+                            )
+                            == 0
+                        ):
+                            self.spot_interface.stand()
+                        else:
+                            if self.feedback is not None:
+                                self.feedback.print(
+                                    "WARN",
+                                    "LEASE MANAGER THREAD: Could not clear all behavior faults, cannot stand.",
+                                )
+                    self.taking_back_lease = False
+                time.sleep(0.5)
+
+        self.monitoring_thread = threading.Thread(target=monitor_lease, daemon=False)
+        self.monitoring_thread.start()
+
+
 class SpotExecutor:
     def __init__(
         self,
@@ -52,6 +136,11 @@ class SpotExecutor:
         self.keep_going = True
         self.processing_action_sequence = False
 
+        self.lease_manager = None
+
+    def initialize_lease_manager(self, feedback):
+        self.lease_manager = LeaseManager(self.spot_interface, feedback)
+
     def terminate_sequence(self, feedback):
         # Tell the actions sequence to break
         self.keep_going = False
@@ -68,6 +157,7 @@ class SpotExecutor:
     def process_action_sequence(self, sequence, feedback):
         self.processing_action_sequence = True
         self.keep_going = True
+
         try:
             feedback.print("INFO", "Would like to execute: ")
             for command in sequence.actions:
@@ -76,7 +166,23 @@ class SpotExecutor:
             self.spot_interface.robot.time_sync.wait_for_sync()
             self.spot_interface.take_lease()
 
-            for ix, command in enumerate(sequence.actions):
+            ix = 0
+            while ix < len(sequence.actions):
+                # If the lease manager is actively taking back the lease and getting the
+                # robot to stand back up, we don't want to send it any commands. It will break.
+                if (
+                    self.lease_manager is not None
+                    and self.lease_manager.taking_back_lease
+                ):
+                    feedback.print(
+                        "INFO",
+                        "Waiting for lease manager to finish taking back lease...",
+                    )
+                    time.sleep(0.5)
+                    continue
+
+                command = sequence.actions[ix]
+
                 if not self.keep_going:
                     feedback.print("INFO", "Action sequence was pre-empted.")
                     break
@@ -85,22 +191,31 @@ class SpotExecutor:
                     pick_next = type(sequence.actions[ix + 1]) is Pick
                 feedback.print("INFO", "Spot executor executing command: ")
                 feedback.print("INFO", command)
-                if type(command) is Follow:
-                    self.execute_follow(command, feedback)
 
-                elif type(command) is Gaze:
-                    self.execute_gaze(command, feedback, pick_next=pick_next)
+                try:
+                    if type(command) is Follow:
+                        self.execute_follow(command, feedback)
 
-                elif type(command) is Pick:
-                    self.execute_pick(command, feedback)
+                    elif type(command) is Gaze:
+                        self.execute_gaze(command, feedback, pick_next=pick_next)
 
-                elif type(command) is Place:
-                    self.execute_place(command, feedback)
+                    elif type(command) is Pick:
+                        self.execute_pick(command, feedback)
 
-                else:
-                    raise Exception(
-                        f"SpotExecutor received unknown command type {type(command)}"
-                    )
+                    elif type(command) is Place:
+                        self.execute_place(command, feedback)
+
+                    else:
+                        raise Exception(
+                            f"SpotExecutor received unknown command type {type(command)}"
+                        )
+                    ix += 1
+
+                except LeaseUseError:
+                    # feedback.print("INFO", "Lost lease, stopping action sequence.")
+                    # Wait until the lease manager has taken the lease back
+                    time.sleep(1)
+
         except Exception as ex:
             self.processing_action_sequence = False
             raise ex

@@ -38,7 +38,6 @@ from spot_skills.arm_utils import (
     stow_arm,
 )
 from spot_skills.detection_utils import Detector
-from spot_skills.primitives import execute_recovery_action
 
 g_image_click = None
 g_image_display = None
@@ -203,11 +202,17 @@ def object_grasp(
             print("Found object centroid:", xy)
 
     if xy is None:
-        execute_recovery_action(spot, recover_arm=True)
-        spot.sit()
-        raise Exception(
-            "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input."
-        )
+        if feedback is not None:
+            feedback.print(
+                "INFO",
+                "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input.",
+            )
+        return False
+        # execute_recovery_action(spot, recover_arm=True)
+        # spot.sit()
+        # raise Exception(
+        #     "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input."
+        # )
 
     # If xy is not None, then display the annotated image
     else:
@@ -222,9 +227,8 @@ def object_grasp(
             )
 
             if response is not None and not response:
-                raise Exception(
-                    "The user determined that the detection was invalid. Aborting."
-                )
+                feedback.print("INFO", "User requested abort.")
+                return False
 
     pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
     stow_arm(spot)
