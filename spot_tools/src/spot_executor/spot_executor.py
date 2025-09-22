@@ -67,6 +67,11 @@ class LeaseManager:
                 # If nobody owns the lease, then the owner string is empty.
                 # We should try to take the lease back in that case.
                 if owner.client_name == "":
+                    # We should set the feedback's break_out_of_waiting_loop to True
+                    # so that the pick skill gets immediately cancelled if it is running.
+                    if self.feedback is not None:
+                        self.feedback.break_out_of_waiting_loop = True
+
                     self.taking_back_lease = True
                     if self.feedback is not None:
                         self.feedback.print(
