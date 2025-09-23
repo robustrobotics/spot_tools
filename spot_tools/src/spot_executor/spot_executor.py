@@ -167,7 +167,8 @@ class SpotExecutor:
         command_to_send = transform_command_frame(
             t, r, command.path2d, feedback=feedback
         )
-
+        # TODO: Have a class that keep track of the occupancy grid
+        # /home/multyxu/dcist_ws/src/awesome_dcist_t4/spot_tools/robot_executor_interface/robot_executor_interface/src/robot_executor_interface 
         path_distance = np.sum(
             np.linalg.norm(np.diff(command_to_send[:, :2], axis=0), axis=1)
         )
@@ -178,6 +179,11 @@ class SpotExecutor:
         )
 
         feedback.follow_path_feedback(command_to_send)
+        
+        # MLP
+        # blabala 
+        
+        # fall back
         ret = follow_trajectory_continuous(
             self.spot_interface,
             command_to_send,

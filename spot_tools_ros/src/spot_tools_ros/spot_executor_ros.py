@@ -410,6 +410,7 @@ class SpotExecutorRos(Node):
             self.spot_executor.process_action_sequence(
                 sequence, self.feedback_collector
             )
+            # TODO: pointer to the occupancy grid inside spot_executor
             self.get_logger().info("Finished execution action sequence.")
             self.status_str = "Idle"
 
@@ -419,7 +420,6 @@ class SpotExecutorRos(Node):
         self.feedback_collector.break_out_of_waiting_loop = False
         self.background_thread = threading.Thread(target=process_sequence, daemon=False)
         self.background_thread.start()
-
 
 def main(args=None):
     rclpy.init(args=args)
