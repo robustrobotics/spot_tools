@@ -10,7 +10,7 @@ import tf2_ros
 import tf_transformations
 import yaml
 from cv_bridge import CvBridge
-from nav_msgs.msg import Path
+from nav_msgs.msg import Path, OccupancyGrid
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -393,6 +393,18 @@ class SpotExecutorRos(Node):
         self.timer = self.create_timer(
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
+
+        self.occupancy_grid_subscriber = self.create_subscription(
+            OccupancyGrid,
+            "~/occupancy_grid",
+            self.occupancy_grid_callback,
+            10,
+        )
+
+    def occupancy_grid_callback(self, msg):
+        self.get_logger().info("Received occupancy grid")
+        # TODO: maybe preprocess the occupancy grid here
+        self.spot_executor.mid_level_planner.set_grid(msg)
 
     def hb_callback(self):
         msg = NodeInfoMsg()

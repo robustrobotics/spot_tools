@@ -16,6 +16,7 @@ from spot_skills.navigation_utils import (
     follow_trajectory_continuous,
     turn_to_point,
 )
+from robot_executor_interface.mid_level_planner import MidLevelPlanner
 
 
 def transform_command_frame(tf_trans, tf_q, command, feedback=None):
@@ -51,6 +52,7 @@ class SpotExecutor:
         self.detector = detector
         self.keep_going = True
         self.processing_action_sequence = False
+        self.mid_level_planner = MidLevelPlanner()
 
     def terminate_sequence(self, feedback):
         # Tell the actions sequence to break
