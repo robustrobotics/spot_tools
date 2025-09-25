@@ -22,7 +22,7 @@ from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
@@ -402,9 +402,12 @@ class SpotExecutorRos(Node):
         )
 
     def occupancy_grid_callback(self, msg):
-        self.get_logger().info("Received occupancy grid")
         # TODO: maybe preprocess the occupancy grid here
-        self.spot_executor.mid_level_planner.set_grid(msg)
+        w, h = msg.info.width, msg.info.height        
+        occ_map = np.array(msg.data, dtype=np.int8).reshape((w, h))
+        self.spot_executor.mid_level_planner.set_grid(occ_map, msg.info.resolution, msg.info.origin)
+        
+        self.get_logger().info(f"Received occupancy grid of shape (w, h) = {(w,h)}")
 
     def hb_callback(self):
         msg = NodeInfoMsg()
