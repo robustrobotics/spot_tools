@@ -151,11 +151,17 @@ def follow_trajectory_continuous(
 
     spot.robot.ensure_client(RobotCommandClient.default_service_name)
 
-    path = shapely.LineString(waypoints_list[:, :2])
+    # TODO: could fall back to the original path
+    # if robot is outside the threshold distance -> fail
+    # if path is close -> keep following -> try to get to the goal
+    # TODO: return False if fail, but do nothing
+    path = shapely.LineString(waypoints_list[:, :2]) # TODO: replace by MLP path
     end_pt = waypoints_list[-1, :2]
     t0 = time.time()
     rate = 10
+    # TODO: reactive loop, yeild out the loop to get info
     while 1:
+        # TODO: update path every (couple?) loop
         if time.time() - t0 > timeout:
             # TODO: I think we need to tell Spot to stop?
             # TODO: Also, we should probably have a finer-grained
@@ -188,6 +194,8 @@ def follow_trajectory_continuous(
         )
 
         if feedback is not None:
+            # get data back out
+            # TODO: new function for MLP
             feedback.path_following_progress_feedback(progress_point, target_point)
 
         # 3. send command

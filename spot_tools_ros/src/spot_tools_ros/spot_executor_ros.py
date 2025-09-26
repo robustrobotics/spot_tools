@@ -166,6 +166,9 @@ class RosFeedbackCollector:
         self.progress_point_pub.publish(
             build_progress_markers(progress_point, target_point)
         )
+    
+    def path_follow_MLP_feedback(self, path):
+        pass
 
     def gaze_feedback(self, pose, gaze_point):
         pass

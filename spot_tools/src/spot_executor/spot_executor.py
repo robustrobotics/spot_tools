@@ -168,7 +168,7 @@ class SpotExecutor:
         t, r = self.transform_lookup("<spot_vision_frame>", command.frame)
         command_to_send = transform_command_frame(
             t, r, command.path2d, feedback=feedback
-        )
+        ) # the path2d in is our odom frame
         # TODO: Have a class that keep track of the occupancy grid
         # /home/multyxu/dcist_ws/src/awesome_dcist_t4/spot_tools/robot_executor_interface/robot_executor_interface/src/robot_executor_interface 
         path_distance = np.sum(
@@ -183,7 +183,7 @@ class SpotExecutor:
         feedback.follow_path_feedback(command_to_send)
         
         # MLP
-        # blabala 
+        # blabala  -> fail
         
         # fall back
         ret = follow_trajectory_continuous(
@@ -193,5 +193,5 @@ class SpotExecutor:
             self.goal_tolerance,
             timeout,
             feedback=feedback,
-        )
+        ) # TODO: pass in the self.mid_level_planner
         return ret
