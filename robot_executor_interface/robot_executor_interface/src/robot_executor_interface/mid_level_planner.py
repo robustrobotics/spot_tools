@@ -1,6 +1,7 @@
 import heapq
 import numpy as np
 
+
 class MidLevelPlanner:
     def __init__(self):
         self.occupancy_grid = None
