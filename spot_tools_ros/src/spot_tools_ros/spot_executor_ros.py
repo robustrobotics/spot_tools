@@ -3,6 +3,7 @@ import time
 
 import cv2
 import numpy as np
+from scipy.spatial.transform import Rotation
 import rclpy
 import rclpy.time
 import spot_executor as se
@@ -369,7 +370,8 @@ class SpotExecutorRos(Node):
                 return get_robot_pose(self.tf_buffer, parent, child)
             except tf2_ros.TransformException as e:
                 self.get_logger.warn(f"Failed to get transform: {e}")
-
+        self.tf_lookup_fn = tf_lookup_fn # TODO: use this to test transformation
+        
         detector = YOLODetector(
             self.spot_interface,
             yolo_world_path=detector_model_path,
@@ -407,10 +409,53 @@ class SpotExecutorRos(Node):
     def occupancy_grid_callback(self, msg):
         # TODO: maybe preprocess the occupancy grid here
         w, h = msg.info.width, msg.info.height        
-        occ_map = np.array(msg.data, dtype=np.int8).reshape((w, h))
+        occ_map = np.array(msg.data, dtype=np.int8).reshape((h, w))
         self.spot_executor.mid_level_planner.set_grid(occ_map, msg.info.resolution, msg.info.origin)
+
+        # save occupancy grid for debug
+        np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
+
+        # put test code here to see status
+        # robot_pose = self.spot_interface.get_pose() # not working in sim ??
+        robot_pose = self.tf_lookup_fn("map", "hamilton/body")
+        map_to_robot_map = self.tf_lookup_fn("map", "hamilton/map")
+        map_origin = msg.info.origin # map origin is the lower right corner relative to the robot heading in topdown map
+        map_frame_id = msg.header.frame_id
+
+        def pose_to_homo(pose, quat):
+            '''
+            Input:
+                - pose: list [x, y, z]
+                - quat: ros2 geometry_msgs.msg.Quaternion
+            '''
+            # Convert pose and quaternion to a 4x4 homogeneous transformation matrix
+            trans = np.array(pose)
+            rot_mat = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
+            homo_mat = np.eye(4)
+            homo_mat[:3, :3] = rot_mat
+            homo_mat[:3, 3] = trans
+            return homo_mat
+        
+        map_to_robot_map_homo = pose_to_homo(map_to_robot_map[0], map_to_robot_map[1])
+        map_origin_homo = pose_to_homo([map_origin.position.x, map_origin.position.y, map_origin.position.z], map_origin.orientation)
+
+        map_origin_map_frame = map_to_robot_map_homo @ map_origin_homo
+
+        robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
+        # robot_pose_in_occupancy = np.linalg.inv(map_origin_map_frame) @ robot_pose_homo
+        robot_pose_in_occupancy = np.linalg.inv(map_origin_map_frame) @ robot_pose_homo[:4, 3].reshape(4,1)
+
+        # TODO: the map origin is in map frame
+        # TODO: robot pose is the hamilton/body frame (?), pose to relative transform to map frame?
+        # TODO: planned omni path in in map (?) frame
         
         self.get_logger().info(f"Received occupancy grid of shape (w, h) = {(w,h)}")
+        self.get_logger().info(f"Map to robot/map transform: {map_to_robot_map}")
+        self.get_logger().info(f"Robot pose in map frame: {robot_pose}")
+        self.get_logger().info(f"Map origin in {map_frame_id} frame: {map_origin}")
+        self.get_logger().info(f"Map origin in map frame: {map_origin_map_frame}")
+        # self.get_logger().info(f"Robot pose in occupancy frame: pose = {robot_pose_in_occupancy[:3, 3]}, rot ={Rotation.from_matrix(robot_pose_in_occupancy[:3, :3]).as_euler('xyz')}")
+        self.get_logger().info(f"Robot pose in occupancy frame: {robot_pose_in_occupancy}")
 
     def hb_callback(self):
         msg = NodeInfoMsg()
@@ -419,6 +464,9 @@ class SpotExecutorRos(Node):
         msg.status = NodeInfoMsg.NOMINAL
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
+        
+        # robot_pose = self.spot_interface.get_pose()
+        # self.get_logger().info(f"Robot pose in odom frame: {robot_pose}")
 
     def process_action_sequence(self, msg):
         def process_sequence():

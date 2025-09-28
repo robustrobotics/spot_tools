@@ -20,7 +20,14 @@ class MidLevelPlanner:
     def project_goal_to_grid(self, goal):
         pass
     
-    def plan_path(self, start, goal):
+    def plan_path(self, high_level_path):
+        '''
+        Input: high level path in global frame, Nx2 numpy array
+        Output: (bool, path) -> (success, path in odom frame)
+        '''
+        return False, None
+    
+    def a_star(self, start, goal):
         '''
         Generated A* path planning algorithm.
         Programed by Gemini 2.5 Pro
