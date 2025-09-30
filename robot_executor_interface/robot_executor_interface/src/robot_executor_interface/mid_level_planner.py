@@ -3,11 +3,12 @@ import numpy as np
 
 
 class MidLevelPlanner:
-    def __init__(self):
+    def __init__(self, transform_lookup):
         self.occupancy_grid = None
-        self.map_resolution = None 
-        self.map_origin = None # odom frame?
-        self.robot_pose = None # odom 
+        self.map_resolution = None
+        self.map_origin = None  # odom frame?
+        self.robot_pose = None  # odom
+        self.transform_lookup = transform_lookup
         # planed path should be in odom frame
         # high level plan is in (probably) in map frame, but trasnformed to odom
 
@@ -85,7 +86,9 @@ class MidLevelPlanner:
     def get_grid(self):
         return self.occupancy_grid
 
-    def set_grid(self, grid, resolution, origin):
+    def set_grid(self, grid, resolution, origin, frame = None):
         self.occupancy_grid = grid
         self.map_resolution = resolution
         self.map_origin = origin
+        t, r = self.transform_lookup("<spot_vision_frame>", frame)
+        self.robot_grid_cell = self.global_pose_to_grid_cell([t.x, t.y, t.z, r])
