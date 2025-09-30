@@ -261,6 +261,10 @@ class SpotExecutorRos(Node):
         assert bdai_username != ""
         bdai_password = self.get_parameter("bosdyn_client_password").value
         assert bdai_password != ""
+        
+        self.declare_parameter("occupancy_frame", "")
+        self.occupancy_frame = self.get_parameter("occupancy_frame").value
+        self.get_logger().info(f"{self.occupancy_frame=}")
 
         # Follow Skill
         self.declare_parameter("follower_lookahead", 0.0)
@@ -407,21 +411,11 @@ class SpotExecutorRos(Node):
         )
 
     def occupancy_grid_callback(self, msg):
-        # TODO: maybe preprocess the occupancy grid here
-        w, h = msg.info.width, msg.info.height        
-        occ_map = np.array(msg.data, dtype=np.int8).reshape((h, w))
-        self.spot_executor.mid_level_planner.set_grid(occ_map, msg.info.resolution, msg.info.origin)
-
-        # save occupancy grid for debug
-        np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
-
-        # put test code here to see status
-        # robot_pose = self.spot_interface.get_pose() # not working in sim ??
-        robot_pose = self.tf_lookup_fn("map", "hamilton/body")
-        map_to_robot_map = self.tf_lookup_fn("map", "hamilton/map")
-        map_origin = msg.info.origin # map origin is the lower right corner relative to the robot heading in topdown map
+        w, h = msg.info.width, msg.info.height   
         map_frame_id = msg.header.frame_id
-
+        map_origin = msg.info.origin # map origin is the lower right corner of the grid in <robot_name>/map frame, with z pinting up
+        occ_map = np.array(msg.data, dtype=np.int8).reshape((h, w))
+        
         def pose_to_homo(pose, quat):
             '''
             Input:
@@ -435,27 +429,45 @@ class SpotExecutorRos(Node):
             homo_mat[:3, :3] = rot_mat
             homo_mat[:3, 3] = trans
             return homo_mat
-        
+
+        # put test code here to see status
+        # robot_pose = self.spot_interface.get_pose() # not working in sim ??
+        robot_pose = self.tf_lookup_fn("map", self.occupancy_frame)
+        map_to_robot_map = self.tf_lookup_fn("map", map_frame_id)
+
+        # convert to homogeneous transformation matrices
+        robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
         map_to_robot_map_homo = pose_to_homo(map_to_robot_map[0], map_to_robot_map[1])
         map_origin_homo = pose_to_homo([map_origin.position.x, map_origin.position.y, map_origin.position.z], map_origin.orientation)
 
+        # transform map origin to map frame
         map_origin_map_frame = map_to_robot_map_homo @ map_origin_homo
 
-        robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
-        # robot_pose_in_occupancy = np.linalg.inv(map_origin_map_frame) @ robot_pose_homo
-        robot_pose_in_occupancy = np.linalg.inv(map_origin_map_frame) @ robot_pose_homo[:4, 3].reshape(4,1)
-
-        # TODO: the map origin is in map frame
-        # TODO: robot pose is the hamilton/body frame (?), pose to relative transform to map frame?
-        # TODO: planned omni path in in map (?) frame
+        # set occupancy grid and robot pose in the mid-level planner
+        self.spot_executor.mid_level_planner.set_grid(occ_map, msg.info.resolution, map_origin_map_frame)
+        self.spot_executor.mid_level_planner.set_robot_pose(robot_pose_homo)
         
-        self.get_logger().info(f"Received occupancy grid of shape (w, h) = {(w,h)}")
-        self.get_logger().info(f"Map to robot/map transform: {map_to_robot_map}")
-        self.get_logger().info(f"Robot pose in map frame: {robot_pose}")
-        self.get_logger().info(f"Map origin in {map_frame_id} frame: {map_origin}")
-        self.get_logger().info(f"Map origin in map frame: {map_origin_map_frame}")
-        # self.get_logger().info(f"Robot pose in occupancy frame: pose = {robot_pose_in_occupancy[:3, 3]}, rot ={Rotation.from_matrix(robot_pose_in_occupancy[:3, :3]).as_euler('xyz')}")
-        self.get_logger().info(f"Robot pose in occupancy frame: {robot_pose_in_occupancy}")
+        ##### ----- debug code ----- #####
+        # # save occupancy grid for debug
+        # np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
+
+        # robot_grid_pose = self.spot_executor.mid_level_planner.global_pose_to_grid_cell(robot_pose_homo[:4, 3].reshape(4,1))
+        # recovered_robot_pose = self.spot_executor.mid_level_planner.grid_cell_to_global_pose(robot_grid_pose)
+
+        # self.get_logger().info("---------------------")
+        # self.get_logger().info(f"Map resolution: {msg.info.resolution}")
+        # self.get_logger().info(f"Robot grid pose: {robot_grid_pose}")
+        # self.get_logger().info(f"Recovered robot pose from grid: {recovered_robot_pose}")
+        
+        # robot_pose_in_occupancy = np.linalg.inv(map_origin_map_frame) @ robot_pose_homo[:4, 3].reshape(4,1)
+        
+        # self.get_logger().info(f"Received occupancy grid of shape (w, h) = {(w,h)}")
+        # self.get_logger().info(f"Map to robot/map transform: {map_to_robot_map}")
+        # self.get_logger().info(f"Robot pose in map frame: {robot_pose}")
+        # self.get_logger().info(f"Map origin in {map_frame_id} frame: {map_origin}")
+        # self.get_logger().info(f"Map origin in map frame: {map_origin_map_frame}")
+        # self.get_logger().info(f"Robot pose in occupancy frame: {robot_pose_in_occupancy}")
+        ##### ----- debug code ----- #####
 
     def hb_callback(self):
         msg = NodeInfoMsg()

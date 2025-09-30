@@ -5,17 +5,49 @@ class MidLevelPlanner:
     def __init__(self):
         self.occupancy_grid = None
         self.map_resolution = None 
-        self.map_origin = None # odom frame?
-        self.robot_pose = None # odom 
-        # planed path should be in odom frame
-        # high level plan is in (probably) in map frame, but trasnformed to odom
+        # poses are 4x4 homogeneous transformation matrix
+        self.map_origin = None  # map frame
+        self.robot_pose = None  # map frame
+        # planed path should be in map frame
+        # high level plan is in (probably) in map frame 
 
     # have a script to send the ActionSequenceMsg, check omniplanner
     def global_pose_to_grid_cell(self, pose):
-        pass
+        '''
+        Input:
+            - pose: (4,1) numpy array in map (global) frame
+        Output:
+            - (x, y): tuple in grid frame
+        
+        indexing: (i, j) = (row, col) = (y, x)
+        '''
+        pose_in_grid_frame = np.linalg.inv(self.map_origin) @ pose # (4,1)
+        
+        # Convert the pose to grid coordinates
+        grid_j = int(pose_in_grid_frame[0, 0] / self.map_resolution)
+        grid_i = int(pose_in_grid_frame[1, 0] / self.map_resolution)
+        
+        ##### ----- debug code ----- #####
+        # with open("/home/multyxu/adt4_output/debug_info.txt", "w") as debug_file:
+        #     debug_file.write(f"map origin: {self.map_origin}\n")
+        #     debug_file.write(f"pose in grid frame: {pose_in_grid_frame}\n")
+        # np.save("/home/multyxu/adt4_output/grid_pose.npy", np.array([grid_i, grid_j]))
+        ##### ----- debug code ----- #####
+        
+        return (grid_i, grid_j)
 
-    def grid_cell_to_global_pose(self, cell):
-        pass
+    def grid_cell_to_global_pose(self, cell_indx):
+        '''
+        Input:
+            - cell: (x, y) tuple in grid frame
+        Output:
+            - pose: (4,1) numpy array in map (global) frame
+        indexing: (i, j) = (row, col) = (y, x)
+        '''
+        i, j = cell_indx
+        pose_in_grid_frame = np.array([j * self.map_resolution, i * self.map_resolution, 0, 1]).reshape(4,1)
+        pose_in_global_frame = self.map_origin @ pose_in_grid_frame
+        return pose_in_global_frame
     
     def project_goal_to_grid(self, goal):
         pass
@@ -95,3 +127,6 @@ class MidLevelPlanner:
         self.occupancy_grid = grid
         self.map_resolution = resolution
         self.map_origin = origin
+    
+    def set_robot_pose(self, pose):
+        self.robot_pose = pose
