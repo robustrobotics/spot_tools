@@ -19,9 +19,26 @@ class MidLevelPlanner:
     def grid_cell_to_global_pose(self, cell):
         pass
     
-    def project_goal_to_grid(self, goal):
+    def get_occupancy_range(self):
+        # returns [xmin, xmax], [ymin, ymax] in grid cell coordinates
         pass
-    
+
+    def project_goal_to_grid(self, goal):
+        ## assumes that goal is in same coordinate frame as the occupancy grid
+        goal_cell = self.global_pose_to_grid_cell(goal)
+        # heurestic for right now will be clamping it to the occupancy grid.
+        bx, by = self.get_occupancy_range()
+        goal_cell[0] = max(bx[0], min(goal_cell[0], bx[1]))
+        goal_cell[1] = max(by[0], min(goal_cell[1], by[1]))
+        if self.occupancy_grid[goal_cell[0], goal_cell[1]] != 0:
+            # if the goal is in an obstacle, find the nearest free cell
+            free_cells = np.argwhere(self.occupancy_grid == 0)
+            if free_cells.size == 0:
+                return None
+            dists = np.linalg.norm(free_cells - np.array(goal_cell), axis=1)
+            goal_cell = tuple(free_cells[np.argmin(dists)])
+        return goal_cell
+
     def plan_path(self, start, goal):
         '''
         Generated A* path planning algorithm.
