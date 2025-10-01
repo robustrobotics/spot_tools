@@ -44,6 +44,7 @@ class SpotExecutor:
         follower_lookahead=2,
         goal_tolerance=2.8,
         use_mid_level_planner=False,
+        feedback=None,
     ):
         self.debug = False
         self.spot_interface = spot_interface
@@ -53,7 +54,7 @@ class SpotExecutor:
         self.detector = detector
         self.keep_going = True
         self.processing_action_sequence = False
-        self.mid_level_planner = MidLevelPlanner() if use_mid_level_planner else None
+        self.mid_level_planner = MidLevelPlanner(feedback) if use_mid_level_planner else None
 
     def terminate_sequence(self, feedback):
         # Tell the actions sequence to break
@@ -163,7 +164,6 @@ class SpotExecutor:
         feedback.print(
             "INFO", f"transforming path from {command.frame} to <spot_vision_frame>"
         )
-
         # <spot_vision_frame> gets remapped to the actual robot odom frame name
         # by the transform_lookup function.
         t, r = self.transform_lookup("<spot_vision_frame>", command.frame)

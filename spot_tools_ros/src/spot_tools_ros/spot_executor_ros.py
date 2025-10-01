@@ -305,12 +305,18 @@ class SpotExecutorRos(Node):
         self.declare_parameter("odom_frame", "")
         odom_frame = self.get_parameter("odom_frame").value
         assert odom_frame != ""
+        
+        self.declare_parameter("body_frame", "")
+        body_frame = self.get_parameter("body_frame").value
+        assert body_frame != ""
+        self.body_frame = body_frame
 
         # Robot Initialization
         self.declare_parameter("use_fake_spot_interface", False)
         use_fake_spot_interface = self.get_parameter("use_fake_spot_interface").value
         self.declare_parameter("use_mid_level_planner", False)
         use_mid_level_planner = self.get_parameter("use_mid_level_planner").value
+        use_mid_level_planner = True
         self.get_logger().info(f"{use_mid_level_planner=}")
 
         if use_fake_spot_interface:
@@ -399,6 +405,7 @@ class SpotExecutorRos(Node):
             follower_lookahead,
             goal_tolerance,
             use_mid_level_planner,
+            self.feedback_collector
         )
 
         self.action_sequence_sub = self.create_subscription(
@@ -415,12 +422,13 @@ class SpotExecutorRos(Node):
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
 
-        self.occupancy_grid_subscriber = self.create_subscription(
-            OccupancyGrid,
-            "~/occupancy_grid",
-            self.occupancy_grid_callback,
-            10,
-        )
+        if use_mid_level_planner:
+            self.occupancy_grid_subscriber = self.create_subscription(
+                OccupancyGrid,
+                "~/occupancy_grid",
+                self.occupancy_grid_callback,
+                10,
+            )
 
     def occupancy_grid_callback(self, msg):
         w, h = msg.info.width, msg.info.height   

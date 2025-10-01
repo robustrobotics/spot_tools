@@ -4,7 +4,8 @@ import shapely
 
 
 class MidLevelPlanner:
-    def __init__(self, transform_lookup):
+    def __init__(self, feedback):
+        self.feedback = feedback
         self.occupancy_grid = None
         self.map_resolution = None 
         # poses are 4x4 homogeneous transformation matrix
@@ -12,6 +13,7 @@ class MidLevelPlanner:
         self.robot_pose = None  # map frame
         # planed path should be in map frame
         # high level plan is in (probably) in map frame 
+        self.feedback.print("INFO", "MidLevelPlanner initialized")
         
         ##### aryan #####
         # self.map_resolution = None
@@ -73,7 +75,8 @@ class MidLevelPlanner:
         ## First get target point along the path
         # 1. project to current path distance
         # Assume self.robot_pose is in vision coordinate frame
-        current_point = shapely.Point(self.robot_pose[0], self.robot_pose[1])
+        self.feedback.print("INFO", f"Robot pose: {self.robot_pose}")
+        current_point = shapely.Point(self.robot_pose[0, 3], self.robot_pose[1, 3])
         progress_distance = shapely.line_locate_point(high_level_path, current_point)
         progress_point = shapely.line_interpolate_point(high_level_path, progress_distance)
         # 2. get line point at lookahead
@@ -81,6 +84,9 @@ class MidLevelPlanner:
         target_point = shapely.line_interpolate_point(high_level_path, target_distance)
         target_cell = self.project_goal_to_grid(target_point)
         current_cell = self.global_pose_to_grid_cell(self.robot_pose)
+        
+        self.feedback.print("INFO", f"Current cell: {current_cell}, Target cell: {target_cell}")
+        
         local_path_cells = self.a_star(current_cell, target_cell)
         if local_path_cells is None:
             return False, None

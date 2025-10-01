@@ -190,7 +190,7 @@ def follow_trajectory_continuous(
                 y=tform_body_in_vision[1],
                 angle=tform_body_in_vision[2],
             )
-            navigate_to_absolute_pose(spot, endpoint, frame_name, stairs=stairs)
+            # navigate_to_absolute_pose(spot, endpoint, frame_name, stairs=stairs)
             break
 
         # 1. project to current path distance
@@ -217,7 +217,7 @@ def follow_trajectory_continuous(
             x=target_point.x, y=target_point.y, angle=yaw_angle
         )
 
-        navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
+        # navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
         time.sleep(1 / rate)
 
     return True
