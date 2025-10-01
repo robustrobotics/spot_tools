@@ -168,8 +168,9 @@ class RosFeedbackCollector:
             build_progress_markers(progress_point, target_point)
         )
     
-    def path_follow_MLP_feedback(self, path):
-        pass
+    def path_follow_MLP_feedback(self, path):        
+        self.mlp_path_publisher.publish(waypoints_to_path("vision", path))
+
 
     def gaze_feedback(self, pose, gaze_point):
         pass
@@ -219,6 +220,12 @@ class RosFeedbackCollector:
         self.progress_point_pub = node.create_publisher(
             MarkerArray, "~/progress_point_visualizer", qos_profile=latching_qos
         )
+
+        # Keeping the "~/" prefix notation for private topics in ROS 2
+        self.mlp_path_publisher = node.create_publisher(
+            Path, "~/mlp_path_publisher", qos_profile=latching_qos
+        )
+
 
         self.annotated_img_pub = node.create_publisher(
             Image, "~/annotated_image", qos_profile=latching_qos

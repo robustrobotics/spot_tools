@@ -1,8 +1,10 @@
 import heapq
 import numpy as np
+import shapely
+
 
 class MidLevelPlanner:
-    def __init__(self):
+    def __init__(self, transform_lookup):
         self.occupancy_grid = None
         self.map_resolution = None 
         # poses are 4x4 homogeneous transformation matrix
@@ -10,6 +12,14 @@ class MidLevelPlanner:
         self.robot_pose = None  # map frame
         # planed path should be in map frame
         # high level plan is in (probably) in map frame 
+        
+        ##### aryan #####
+        # self.map_resolution = None
+        # self.map_origin = None  # odom frame?
+        # self.robot_pose = None  # odom
+        # self.transform_lookup = transform_lookup
+        # # planed path should be in odom frame
+        # # high level plan is in (probably) in map frame, but trasnformed to odom
 
     # have a script to send the ActionSequenceMsg, check omniplanner
     def global_pose_to_grid_cell(self, pose):
@@ -49,16 +59,50 @@ class MidLevelPlanner:
         pose_in_global_frame = self.map_origin @ pose_in_grid_frame
         return pose_in_global_frame
     
-    def project_goal_to_grid(self, goal):
-        pass
+    def get_occupancy_range(self):
+        # returns [xmin, xmax], [ymin, ymax] in grid cell coordinates
+        minpt = self.grid_cell_to_global_pose((0, 0))
+        maxpt = self.grid_cell_to_global_pose((-1, -1))
+        return [minpt[0], maxpt[0]], [minpt[1], maxpt[1]]
     
-    def plan_path(self, high_level_path):
+    def plan_path(self, high_level_path, lookahead_distance = 1):
         '''
         Input: high level path in global frame, Nx2 numpy array
         Output: (bool, path) -> (success, path in odom frame)
         '''
-        return False, None
+        ## First get target point along the path
+        # 1. project to current path distance
+        # Assume self.robot_pose is in vision coordinate frame
+        current_point = shapely.Point(self.robot_pose[0], self.robot_pose[1])
+        progress_distance = shapely.line_locate_point(high_level_path, current_point)
+        progress_point = shapely.line_interpolate_point(high_level_path, progress_distance)
+        # 2. get line point at lookahead
+        target_distance = progress_distance + lookahead_distance
+        target_point = shapely.line_interpolate_point(high_level_path, target_distance)
+        target_cell = self.project_goal_to_grid(target_point)
+        current_cell = self.global_pose_to_grid_cell(self.robot_pose)
+        local_path_cells = self.a_star(current_cell, target_cell)
+        if local_path_cells is None:
+            return False, None
+        local_path_wp = shapely.LineString([self.grid_cell_to_global_pose(pt) for pt in local_path_cells])
+        return True, local_path_wp
     
+    def project_goal_to_grid(self, goal):
+        ## assumes that goal is in same coordinate frame as the occupancy grid
+        goal_cell = self.global_pose_to_grid_cell(goal)
+        # heurestic for right now will be clamping it to the occupancy grid.
+        bx, by = self.get_occupancy_range()
+        goal_cell[0] = max(bx[0], min(goal_cell[0], bx[1]))
+        goal_cell[1] = max(by[0], min(goal_cell[1], by[1]))
+        if self.occupancy_grid[goal_cell[0], goal_cell[1]] != 0:
+            # if the goal is in an obstacle, find the nearest free cell
+            free_cells = np.argwhere(self.occupancy_grid == 0)
+            if free_cells.size == 0:
+                return None
+            dists = np.linalg.norm(free_cells - np.array(goal_cell), axis=1)
+            goal_cell = tuple(free_cells[np.argmin(dists)])
+        return goal_cell
+
     def a_star(self, start, goal):
         '''
         Generated A* path planning algorithm.
@@ -123,10 +167,14 @@ class MidLevelPlanner:
     def get_grid(self):
         return self.occupancy_grid
 
-    def set_grid(self, grid, resolution, origin):
+    def set_grid(self, grid, resolution, origin, frame = None):
         self.occupancy_grid = grid
         self.map_resolution = resolution
         self.map_origin = origin
     
     def set_robot_pose(self, pose):
         self.robot_pose = pose
+        
+        ##### aryan #####
+        # t, r = self.transform_lookup("<spot_vision_frame>", frame)
+        # self.robot_grid_cell = self.global_pose_to_grid_cell([t.x, t.y, t.z, r])

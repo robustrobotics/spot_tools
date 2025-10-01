@@ -164,10 +164,14 @@ def follow_trajectory_continuous(
     t0 = time.time()
     rate = 10
     # TODO: reactive loop, yeild out the loop to get info
+    replan_freq = 10
+    ct = 0
     while 1:
-        if mid_level_planner is not None:
+        ct += 1
+        if mid_level_planner is not None and ct > replan_freq:
             # update path every (couple?) loop
             mlp_success, path = mid_level_planner.plan_path(waypoints_list[:, :2])
+            ct = 0
             if not mlp_success:
                 return False
         if time.time() - t0 > timeout:
@@ -205,6 +209,8 @@ def follow_trajectory_continuous(
             # get data back out
             # TODO: new function for MLP
             feedback.path_following_progress_feedback(progress_point, target_point)
+            if mid_level_planner:
+                feedback.path_follow_MLP_feedback(path)
 
         # 3. send command
         current_waypoint = math_helpers.SE2Pose(
