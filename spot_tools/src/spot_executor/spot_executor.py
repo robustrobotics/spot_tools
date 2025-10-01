@@ -43,6 +43,7 @@ class SpotExecutor:
         transform_lookup,
         follower_lookahead=2,
         goal_tolerance=2.8,
+        use_mid_level_planner=False,
     ):
         self.debug = False
         self.spot_interface = spot_interface
@@ -52,7 +53,7 @@ class SpotExecutor:
         self.detector = detector
         self.keep_going = True
         self.processing_action_sequence = False
-        self.mid_level_planner = MidLevelPlanner()
+        self.mid_level_planner = MidLevelPlanner() if use_mid_level_planner else None
 
     def terminate_sequence(self, feedback):
         # Tell the actions sequence to break
@@ -193,5 +194,6 @@ class SpotExecutor:
             self.goal_tolerance,
             timeout,
             feedback=feedback,
+            mid_level_planner=self.mid_level_planner,
         ) # TODO: pass in the self.mid_level_planner
         return ret

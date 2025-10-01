@@ -302,6 +302,9 @@ class SpotExecutorRos(Node):
         # Robot Initialization
         self.declare_parameter("use_fake_spot_interface", False)
         use_fake_spot_interface = self.get_parameter("use_fake_spot_interface").value
+        self.declare_parameter("use_mid_level_planner", False)
+        use_mid_level_planner = self.get_parameter("use_mid_level_planner").value
+        self.get_logger().info(f"{use_mid_level_planner=}")
 
         if use_fake_spot_interface:
             self.declare_parameter("fake_spot_external_pose", False)
@@ -345,6 +348,7 @@ class SpotExecutorRos(Node):
                 body_frame,
                 external_pose=external_pose,
             )
+            self.body_frame = body_frame
 
         else:
             self.get_logger().info("About to initialize Spot")
@@ -387,6 +391,7 @@ class SpotExecutorRos(Node):
             tf_lookup_fn,
             follower_lookahead,
             goal_tolerance,
+            use_mid_level_planner,
         )
 
         self.action_sequence_sub = self.create_subscription(
@@ -412,7 +417,7 @@ class SpotExecutorRos(Node):
 
     def occupancy_grid_callback(self, msg):
         w, h = msg.info.width, msg.info.height   
-        map_frame_id = msg.header.frame_id
+        occupancy_frame_id = msg.header.frame_id
         map_origin = msg.info.origin # map origin is the lower right corner of the grid in <robot_name>/map frame, with z pinting up
         occ_map = np.array(msg.data, dtype=np.int8).reshape((h, w))
         
@@ -432,8 +437,8 @@ class SpotExecutorRos(Node):
 
         # put test code here to see status
         # robot_pose = self.spot_interface.get_pose() # not working in sim ??
-        robot_pose = self.tf_lookup_fn("map", self.occupancy_frame)
-        map_to_robot_map = self.tf_lookup_fn("map", map_frame_id)
+        robot_pose = self.tf_lookup_fn("map", self.body_frame)
+        map_to_robot_map = self.tf_lookup_fn("map", occupancy_frame_id)
 
         # convert to homogeneous transformation matrices
         robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
@@ -448,7 +453,7 @@ class SpotExecutorRos(Node):
         self.spot_executor.mid_level_planner.set_robot_pose(robot_pose_homo)
         
         ##### ----- debug code ----- #####
-        # # save occupancy grid for debug
+        # save occupancy grid for debug
         # np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
 
         # robot_grid_pose = self.spot_executor.mid_level_planner.global_pose_to_grid_cell(robot_pose_homo[:4, 3].reshape(4,1))
@@ -464,7 +469,7 @@ class SpotExecutorRos(Node):
         # self.get_logger().info(f"Received occupancy grid of shape (w, h) = {(w,h)}")
         # self.get_logger().info(f"Map to robot/map transform: {map_to_robot_map}")
         # self.get_logger().info(f"Robot pose in map frame: {robot_pose}")
-        # self.get_logger().info(f"Map origin in {map_frame_id} frame: {map_origin}")
+        # self.get_logger().info(f"Map origin in {occupancy_frame_id} frame: {map_origin}")
         # self.get_logger().info(f"Map origin in map frame: {map_origin_map_frame}")
         # self.get_logger().info(f"Robot pose in occupancy frame: {robot_pose_in_occupancy}")
         ##### ----- debug code ----- #####

@@ -135,6 +135,7 @@ def follow_trajectory_continuous(
     frame_name=VISION_FRAME_NAME,
     stairs=False,
     feedback=None,
+    mid_level_planner=None,
 ) -> bool:
     """
     Follows a trajectory by commanding the robot to move to each waypoint in the specified frame.
@@ -151,17 +152,24 @@ def follow_trajectory_continuous(
 
     spot.robot.ensure_client(RobotCommandClient.default_service_name)
 
-    # TODO: could fall back to the original path
     # if robot is outside the threshold distance -> fail
     # if path is close -> keep following -> try to get to the goal
-    # TODO: return False if fail, but do nothing
-    path = shapely.LineString(waypoints_list[:, :2]) # TODO: replace by MLP path
+    if mid_level_planner is not None:
+        mlp_success, path = mid_level_planner.plan_path(waypoints_list[:, :2])
+    else:
+        path = shapely.LineString(waypoints_list[:, :2]) # TODO: replace by MLP path
+    feedback.print("INFO", f"Waypoints: {waypoints_list}")
+    feedback.print("INFO", f"Path: {path}")
     end_pt = waypoints_list[-1, :2]
     t0 = time.time()
     rate = 10
     # TODO: reactive loop, yeild out the loop to get info
     while 1:
-        # TODO: update path every (couple?) loop
+        if mid_level_planner is not None:
+            # update path every (couple?) loop
+            mlp_success, path = mid_level_planner.plan_path(waypoints_list[:, :2])
+            if not mlp_success:
+                return False
         if time.time() - t0 > timeout:
             # TODO: I think we need to tell Spot to stop?
             # TODO: Also, we should probably have a finer-grained
