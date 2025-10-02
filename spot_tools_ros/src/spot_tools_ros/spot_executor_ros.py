@@ -25,6 +25,8 @@ from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
 from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
+from nav_msgs.msg import OccupancyGrid
+import pickle
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.utils import waypoints_to_path
@@ -350,9 +352,9 @@ class SpotExecutorRos(Node):
                 semantic_model_path=None,
             )
 
-            self.declare_parameter("body_frame", "")
-            body_frame = self.get_parameter("body_frame").value
-            assert body_frame != ""
+            # self.declare_parameter("body_frame", "")
+            # body_frame = self.get_parameter("body_frame").value
+            # assert body_frame != ""
 
             self.spot_ros_interface = FakeSpotRos(
                 self,
@@ -429,6 +431,12 @@ class SpotExecutorRos(Node):
                 self.occupancy_grid_callback,
                 10,
             )
+            #### publish fake occupancy grid for testing ####
+            if True:
+                # create fake occupancy grid publisher
+                self.fake_occupancy_grid_publisher = self.create_publisher(
+                    OccupancyGrid, "~/occupancy_grid", 10
+                )
 
     def occupancy_grid_callback(self, msg):
         w, h = msg.info.width, msg.info.height   
@@ -469,7 +477,11 @@ class SpotExecutorRos(Node):
         
         ##### ----- debug code ----- #####
         # save occupancy grid for debug
-        # np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
+        if not hasattr(self, "fake_occupancy_grid_publisher"):
+            np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
+            # save msg as pickle
+            with open("/home/multyxu/adt4_output/occupancy_grid_msg.pkl", "wb") as f:
+                pickle.dump(msg, f)
 
         # robot_grid_pose = self.spot_executor.mid_level_planner.global_pose_to_grid_cell(robot_pose_homo[:4, 3].reshape(4,1))
         # recovered_robot_pose = self.spot_executor.mid_level_planner.grid_cell_to_global_pose(robot_grid_pose)
@@ -481,6 +493,7 @@ class SpotExecutorRos(Node):
         
         # robot_pose_in_occupancy = np.linalg.inv(map_origin_map_frame) @ robot_pose_homo[:4, 3].reshape(4,1)
         
+        # is map all -1?    
         # self.get_logger().info(f"Received occupancy grid of shape (w, h) = {(w,h)}")
         # self.get_logger().info(f"Map to robot/map transform: {map_to_robot_map}")
         # self.get_logger().info(f"Robot pose in map frame: {robot_pose}")
@@ -496,7 +509,18 @@ class SpotExecutorRos(Node):
         msg.status = NodeInfoMsg.NOMINAL
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
+
         
+        if hasattr(self, "fake_occupancy_grid_publisher"):
+            occ_msg = pickle.loads(open("/home/multyxu/adt4_output/occupancy_grid_msg.pkl", "rb").read())
+            occ_msg.header.stamp = self.get_clock().now().to_msg()
+            # shift the map so that robot is inside the grid
+            robot_pose_in_hamilton_map = self.tf_lookup_fn(self.occupancy_frame, self.body_frame)
+            occ_msg.info.origin.position.x = robot_pose_in_hamilton_map[0][0] - occ_msg.info.width * occ_msg.info.resolution / 2
+            occ_msg.info.origin.position.y = robot_pose_in_hamilton_map[0][1] - occ_msg.info.height * occ_msg.info.resolution / 2
+            self.fake_occupancy_grid_publisher.publish(occ_msg)
+            
+            # self.get_logger().info("Published fake occupancy grid")
         # robot_pose = self.spot_interface.get_pose()
         # self.get_logger().info(f"Robot pose in odom frame: {robot_pose}")
 

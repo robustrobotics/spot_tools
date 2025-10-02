@@ -75,39 +75,48 @@ class MidLevelPlanner:
         ## First get target point along the path
         # 1. project to current path distance
         # Assume self.robot_pose is in vision coordinate frame
-        self.feedback.print("INFO", f"Robot pose: {self.robot_pose}")
+        high_level_path = shapely.LineString(high_level_path[:, :2])
         current_point = shapely.Point(self.robot_pose[0, 3], self.robot_pose[1, 3])
         progress_distance = shapely.line_locate_point(high_level_path, current_point)
         progress_point = shapely.line_interpolate_point(high_level_path, progress_distance)
         # 2. get line point at lookahead
         target_distance = progress_distance + lookahead_distance
         target_point = shapely.line_interpolate_point(high_level_path, target_distance)
-        target_cell = self.project_goal_to_grid(target_point)
-        current_cell = self.global_pose_to_grid_cell(self.robot_pose)
+        target_4 = np.array([target_point.x, target_point.y, self.robot_pose[2, 3], 1]).reshape(4,1)
+        target_cell = self.project_goal_to_grid(target_4)
+        current_cell = self.global_pose_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
         
-        self.feedback.print("INFO", f"Current cell: {current_cell}, Target cell: {target_cell}")
         
         local_path_cells = self.a_star(current_cell, target_cell)
         if local_path_cells is None:
             return False, None
-        local_path_wp = shapely.LineString([self.grid_cell_to_global_pose(pt) for pt in local_path_cells])
-        return True, local_path_wp
-    
+        # self.feedback.print("INFO", f"Local path cells: {local_path_cells}")
+        global_path = [tuple(self.grid_cell_to_global_pose(pt)[:2].flatten().tolist()) for pt in local_path_cells]
+        local_path_wp = shapely.LineString(global_path)
+        
+        global_path_np = np.array([list(pt) for pt in global_path]).reshape(2,-1)
+        self.feedback.print("INFO", f"Global path: {global_path_np}")
+        return True, local_path_wp, global_path_np
+
     def project_goal_to_grid(self, goal):
         ## assumes that goal is in same coordinate frame as the occupancy grid
         goal_cell = self.global_pose_to_grid_cell(goal)
         # heurestic for right now will be clamping it to the occupancy grid.
         bx, by = self.get_occupancy_range()
-        goal_cell[0] = max(bx[0], min(goal_cell[0], bx[1]))
-        goal_cell[1] = max(by[0], min(goal_cell[1], by[1]))
-        if self.occupancy_grid[goal_cell[0], goal_cell[1]] != 0:
+        
+        projected_cell = (
+            max(bx[0], min(goal_cell[0], bx[1])).astype(int),
+            max(by[0], min(goal_cell[1], by[1])).astype(int)
+        )
+        if self.occupancy_grid[projected_cell[0], projected_cell[1]] != 0:
             # if the goal is in an obstacle, find the nearest free cell
             free_cells = np.argwhere(self.occupancy_grid == 0)
             if free_cells.size == 0:
                 return None
-            dists = np.linalg.norm(free_cells - np.array(goal_cell), axis=1)
-            goal_cell = tuple(free_cells[np.argmin(dists)])
-        return goal_cell
+            dists = np.linalg.norm(free_cells - np.array(projected_cell).T, axis=1)
+            projected_cell = tuple(free_cells[np.argmin(dists)])
+        self.feedback.print("INFO", f"Projected cell: {projected_cell}")
+        return projected_cell
 
     def a_star(self, start, goal):
         '''

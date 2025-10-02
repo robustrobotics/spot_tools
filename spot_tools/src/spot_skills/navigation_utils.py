@@ -155,11 +155,9 @@ def follow_trajectory_continuous(
     # if robot is outside the threshold distance -> fail
     # if path is close -> keep following -> try to get to the goal
     if mid_level_planner is not None:
-        mlp_success, path = mid_level_planner.plan_path(waypoints_list[:, :2])
+        mlp_success, path, path_wp = mid_level_planner.plan_path(waypoints_list[:, :2])
     else:
         path = shapely.LineString(waypoints_list[:, :2]) # TODO: replace by MLP path
-    feedback.print("INFO", f"Waypoints: {waypoints_list}")
-    feedback.print("INFO", f"Path: {path}")
     end_pt = waypoints_list[-1, :2]
     t0 = time.time()
     rate = 10
@@ -170,7 +168,7 @@ def follow_trajectory_continuous(
         ct += 1
         if mid_level_planner is not None and ct > replan_freq:
             # update path every (couple?) loop
-            mlp_success, path = mid_level_planner.plan_path(waypoints_list[:, :2])
+            mlp_success, path, path_wp = mid_level_planner.plan_path(waypoints_list[:, :2])
             ct = 0
             if not mlp_success:
                 return False
@@ -190,7 +188,7 @@ def follow_trajectory_continuous(
                 y=tform_body_in_vision[1],
                 angle=tform_body_in_vision[2],
             )
-            # navigate_to_absolute_pose(spot, endpoint, frame_name, stairs=stairs)
+            navigate_to_absolute_pose(spot, endpoint, frame_name, stairs=stairs)
             break
 
         # 1. project to current path distance
@@ -209,15 +207,16 @@ def follow_trajectory_continuous(
             # get data back out
             # TODO: new function for MLP
             feedback.path_following_progress_feedback(progress_point, target_point)
+            feedback.print("INFO", f"Coordinates {path.coords}")
             if mid_level_planner:
-                feedback.path_follow_MLP_feedback(path)
+                feedback.path_follow_MLP_feedback(path_wp)
 
         # 3. send command
         current_waypoint = math_helpers.SE2Pose(
             x=target_point.x, y=target_point.y, angle=yaw_angle
         )
 
-        # navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
+        navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
         time.sleep(1 / rate)
 
     return True
