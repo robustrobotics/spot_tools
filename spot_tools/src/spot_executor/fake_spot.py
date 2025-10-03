@@ -1,5 +1,6 @@
 import threading
 import time
+from dataclasses import dataclass
 from importlib.resources import as_file, files
 
 import cv2
@@ -161,6 +162,26 @@ class FakeCommandClient:
         return FakeFeedbackWrapper()
 
 
+@dataclass
+class LeaseOwner:
+    client_name: str
+
+
+@dataclass
+class Lease:
+    lease_owner: LeaseOwner
+
+
+class FakeLeaseClient:
+    def __init__(self, fake_spot):
+        self.fake_spot = fake_spot
+
+    def list_leases(self):
+        lease_owner = LeaseOwner("fake_spot_lease_owner")
+        lease = [Lease(lease_owner)]
+        return lease
+
+
 class FakeTimeSync:
     def wait_for_sync(self):
         return True
@@ -205,6 +226,7 @@ class FakeSpot:
         self.manipulation_api_client = FakeManipulationAPIClient(self)
         self.image_client = FakeImageClient(self)
         self.command_client = FakeCommandClient(self)
+        self.lease_client = FakeLeaseClient(self)
 
         self.moving = False
         self.last_move_command = time.time()
