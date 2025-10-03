@@ -179,7 +179,7 @@ class FakeLeaseClient:
     def list_leases(self):
         lease_owner = LeaseOwner("fake_spot_lease_owner")
         lease = [Lease(lease_owner)]
-        return [lease]
+        return lease
 
 
 class FakeTimeSync:
