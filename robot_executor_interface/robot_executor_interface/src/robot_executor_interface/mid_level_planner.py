@@ -9,19 +9,10 @@ class MidLevelPlanner:
         self.occupancy_grid = None
         self.map_resolution = None 
         # poses are 4x4 homogeneous transformation matrix
-        self.map_origin = None  # map frame
-        self.robot_pose = None  # map frame
-        # planed path should be in map frame
-        # high level plan is in (probably) in map frame 
+        self.map_origin = None  # <robot>/odom frame
+        self.robot_pose = None  # <robot>/odom frame
+        # high level plan is in <robot>/odom frame 
         self.feedback.print("INFO", "MidLevelPlanner initialized")
-        
-        ##### aryan #####
-        # self.map_resolution = None
-        # self.map_origin = None  # odom frame?
-        # self.robot_pose = None  # odom
-        # self.transform_lookup = transform_lookup
-        # # planed path should be in odom frame
-        # # high level plan is in (probably) in map frame, but trasnformed to odom
 
     # have a script to send the ActionSequenceMsg, check omniplanner
     def global_pose_to_grid_cell(self, pose):
@@ -72,6 +63,13 @@ class MidLevelPlanner:
         Input: high level path in global frame, Nx2 numpy array
         Output: (bool, path) -> (success, path in odom frame)
         '''
+        
+        ##### debug code #####
+        # just publish the same path
+        # path = shapely.LineString(high_level_path[:, :2])
+        # return True, path, high_level_path[:, :2]
+        ##### debug code #####
+        
         ## First get target point along the path
         # 1. project to current path distance
         # Assume self.robot_pose is in vision coordinate frame

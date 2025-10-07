@@ -101,11 +101,12 @@ def build_progress_markers(current_point, target_point):
 
 
 class RosFeedbackCollector:
-    def __init__(self):
+    def __init__(self, odom_frame):
         self.pick_confirmation_event = threading.Event()
         self.pick_confirmation_response = False
 
         self.break_out_of_waiting_loop = False
+        self.odom_frame = odom_frame
 
     def bounding_box_detection_feedback(
         self, annotated_img, centroid_x, centroid_y, semantic_class
@@ -171,7 +172,7 @@ class RosFeedbackCollector:
         )
     
     def path_follow_MLP_feedback(self, path):        
-        self.mlp_path_publisher.publish(waypoints_to_path("vision", path))
+        self.mlp_path_publisher.publish(waypoints_to_path(self.odom_frame, path)) # TODO: parameterize frame name
 
 
     def gaze_feedback(self, pose, gaze_point):
@@ -257,9 +258,6 @@ class SpotExecutorRos(Node):
         self.debug = False
         self.background_thread = None
 
-        self.feedback_collector = RosFeedbackCollector()
-        self.feedback_collector.register_publishers(self)
-
         # Connectivity parameters
         self.declare_parameter("spot_ip", "")
         self.declare_parameter("bosdyn_client_username", "")
@@ -307,11 +305,15 @@ class SpotExecutorRos(Node):
         self.declare_parameter("odom_frame", "")
         odom_frame = self.get_parameter("odom_frame").value
         assert odom_frame != ""
+        self.odom_frame = odom_frame
         
         self.declare_parameter("body_frame", "")
         body_frame = self.get_parameter("body_frame").value
         assert body_frame != ""
         self.body_frame = body_frame
+
+        self.feedback_collector = RosFeedbackCollector(self.odom_frame)
+        self.feedback_collector.register_publishers(self)
 
         # Robot Initialization
         self.declare_parameter("use_fake_spot_interface", False)
@@ -460,8 +462,8 @@ class SpotExecutorRos(Node):
 
         # put test code here to see status
         # robot_pose = self.spot_interface.get_pose() # not working in sim ??
-        robot_pose = self.tf_lookup_fn("map", self.body_frame)
-        map_to_robot_map = self.tf_lookup_fn("map", occupancy_frame_id)
+        robot_pose = self.tf_lookup_fn(self.odom_frame, self.body_frame)
+        map_to_robot_map = self.tf_lookup_fn(self.odom_frame, occupancy_frame_id)
 
         # convert to homogeneous transformation matrices
         robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
