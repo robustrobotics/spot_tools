@@ -64,11 +64,7 @@ class MidLevelPlanner:
         Output: (bool, path) -> (success, path in odom frame)
         '''
         
-        ##### debug code #####
-        # just publish the same path
-        # path = shapely.LineString(high_level_path[:, :2])
-        # return True, path, high_level_path[:, :2]
-        ##### debug code #####
+        high_level_path_debug = high_level_path.copy()
         
         ## First get target point along the path
         # 1. project to current path distance
@@ -84,6 +80,30 @@ class MidLevelPlanner:
         target_cell = self.project_goal_to_grid(target_4)
         current_cell = self.global_pose_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
         
+        ##### debug code #####
+        # just publish the same path
+        path = shapely.LineString(high_level_path_debug[:, :2])
+        # project global point to local index
+        local_path = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_debug[:, :2]]
+        local_path = np.array(local_path)
+        self.feedback.print("INFO", f"High level path: {high_level_path_debug.shape}, {high_level_path_debug}") 
+        self.feedback.print("INFO", f"Local path cells: {local_path.shape}, {local_path}")
+        np.save("/home/multyxu/adt4_output/high_level_path.npy", np.array(high_level_path_debug))
+        np.save("/home/multyxu/adt4_output/local_path.npy", local_path)
+        recovered_path = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in local_path]
+        recovered_path = np.array(recovered_path).reshape(-1,4)
+        np.save("/home/multyxu/adt4_output/recovered_path.npy", recovered_path)
+        
+        # test astar path
+        a_star_path = self.a_star(tuple(local_path[0]), (20,30))
+        if a_star_path is not None:
+            self.feedback.print("INFO", f"A* path cells: {a_star_path}")
+            np.save("/home/multyxu/adt4_output/a_star_path.npy", np.array(a_star_path))
+        
+        # goal point
+        np.save("/home/multyxu/adt4_output/target_cell.npy", np.array(target_cell))
+        return True, path, high_level_path_debug[:, :2]
+        ##### debug code #####
         
         local_path_cells = self.a_star(current_cell, target_cell)
         if local_path_cells is None:
@@ -149,6 +169,7 @@ class MidLevelPlanner:
         open_set_hash = {start}
 
         while open_set:
+            self.feedback.print("INFO", f"Open set size: {len(open_set)}")
             _, current = heapq.heappop(open_set)
             open_set_hash.remove(current)
 

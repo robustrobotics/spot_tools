@@ -206,8 +206,8 @@ def follow_trajectory_continuous(
         if feedback is not None:
             # get data back out
             # TODO: new function for MLP
-            feedback.path_following_progress_feedback(progress_point, target_point)
-            feedback.print("INFO", f"Coordinates {path.coords}")
+            # feedback.path_following_progress_feedback(progress_point, target_point)
+            # feedback.print("INFO", f"Coordinates {path.coords}")
             if mid_level_planner:
                 feedback.path_follow_MLP_feedback(path_wp)
 

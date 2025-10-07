@@ -463,44 +463,46 @@ class SpotExecutorRos(Node):
         # put test code here to see status
         # robot_pose = self.spot_interface.get_pose() # not working in sim ??
         robot_pose = self.tf_lookup_fn(self.odom_frame, self.body_frame)
-        map_to_robot_map = self.tf_lookup_fn(self.odom_frame, occupancy_frame_id)
+        odom_to_robot_map = self.tf_lookup_fn(self.odom_frame, occupancy_frame_id)
+        # robot_pose = self.tf_lookup_fn('map', self.body_frame)
+        # odom_to_robot_map = self.tf_lookup_fn('map', occupancy_frame_id)
 
         # convert to homogeneous transformation matrices
         robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
-        map_to_robot_map_homo = pose_to_homo(map_to_robot_map[0], map_to_robot_map[1])
+        odom_to_robot_map_homo = pose_to_homo(odom_to_robot_map[0], odom_to_robot_map[1])
         map_origin_homo = pose_to_homo([map_origin.position.x, map_origin.position.y, map_origin.position.z], map_origin.orientation)
 
         # transform map origin to map frame
-        map_origin_map_frame = map_to_robot_map_homo @ map_origin_homo
-
+        map_origin_odom_frame = odom_to_robot_map_homo @ map_origin_homo
         # set occupancy grid and robot pose in the mid-level planner
-        self.spot_executor.mid_level_planner.set_grid(occ_map, msg.info.resolution, map_origin_map_frame)
+        self.spot_executor.mid_level_planner.set_grid(occ_map, msg.info.resolution, map_origin_odom_frame)
         self.spot_executor.mid_level_planner.set_robot_pose(robot_pose_homo)
         
         ##### ----- debug code ----- #####
         # save occupancy grid for debug
-        if not hasattr(self, "fake_occupancy_grid_publisher"):
-            np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
+        # if not hasattr(self, "fake_occupancy_grid_publisher"):
+            # np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
             # save msg as pickle
-            with open("/home/multyxu/adt4_output/occupancy_grid_msg.pkl", "wb") as f:
-                pickle.dump(msg, f)
+            # with open("/home/multyxu/adt4_output/occupancy_grid_msg.pkl", "wb") as f:
+            #     pickle.dump(msg, f)
 
-        # robot_grid_pose = self.spot_executor.mid_level_planner.global_pose_to_grid_cell(robot_pose_homo[:4, 3].reshape(4,1))
-        # recovered_robot_pose = self.spot_executor.mid_level_planner.grid_cell_to_global_pose(robot_grid_pose)
+        robot_grid_pose = self.spot_executor.mid_level_planner.global_pose_to_grid_cell(robot_pose_homo[:4, 3].reshape(4,1))
+        np.save("/home/multyxu/adt4_output/robot_grid_pose.npy", np.array(robot_grid_pose))
+        recovered_robot_pose = self.spot_executor.mid_level_planner.grid_cell_to_global_pose(robot_grid_pose)
 
         # self.get_logger().info("---------------------")
         # self.get_logger().info(f"Map resolution: {msg.info.resolution}")
         # self.get_logger().info(f"Robot grid pose: {robot_grid_pose}")
         # self.get_logger().info(f"Recovered robot pose from grid: {recovered_robot_pose}")
         
-        # robot_pose_in_occupancy = np.linalg.inv(map_origin_map_frame) @ robot_pose_homo[:4, 3].reshape(4,1)
+        # robot_pose_in_occupancy = np.linalg.inv(map_origin_odom_frame) @ robot_pose_homo[:4, 3].reshape(4,1)
         
-        # is map all -1?    
+        # # is map all -1?    
         # self.get_logger().info(f"Received occupancy grid of shape (w, h) = {(w,h)}")
-        # self.get_logger().info(f"Map to robot/map transform: {map_to_robot_map}")
+        # self.get_logger().info(f"{self.odom_frame} to robot/map transform: {odom_to_robot_map}")
         # self.get_logger().info(f"Robot pose in map frame: {robot_pose}")
         # self.get_logger().info(f"Map origin in {occupancy_frame_id} frame: {map_origin}")
-        # self.get_logger().info(f"Map origin in map frame: {map_origin_map_frame}")
+        # self.get_logger().info(f"Map origin in map frame: {map_origin_odom_frame}")
         # self.get_logger().info(f"Robot pose in occupancy frame: {robot_pose_in_occupancy}")
         ##### ----- debug code ----- #####
 
