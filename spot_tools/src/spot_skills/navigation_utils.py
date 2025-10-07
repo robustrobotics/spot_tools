@@ -162,14 +162,11 @@ def follow_trajectory_continuous(
     t0 = time.time()
     rate = 10
     # TODO: reactive loop, yeild out the loop to get info
-    replan_freq = 10
-    ct = 0
     while 1:
-        ct += 1
-        if mid_level_planner is not None and ct > replan_freq:
+        if mid_level_planner is not None:
             # update path every (couple?) loop
             mlp_success, path, path_wp = mid_level_planner.plan_path(waypoints_list[:, :2])
-            ct = 0
+            # feedback.print("INFO", f"Mid-level planner success: {mlp_success}")
             if not mlp_success:
                 return False
         if time.time() - t0 > timeout:
@@ -206,7 +203,7 @@ def follow_trajectory_continuous(
         if feedback is not None:
             # get data back out
             # TODO: new function for MLP
-            # feedback.path_following_progress_feedback(progress_point, target_point)
+            feedback.path_following_progress_feedback(progress_point, target_point)
             # feedback.print("INFO", f"Coordinates {path.coords}")
             if mid_level_planner:
                 feedback.path_follow_MLP_feedback(path_wp)

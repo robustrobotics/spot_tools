@@ -96,15 +96,16 @@ class MidLevelPlanner:
         a_star_path_grid = self.a_star(current_point_grid, target_point_grid_proj)
         
         if a_star_path_grid is None:
-            return False, None, None # or fallback
+            # return False, None, None # or fallback
+            # fall back using the high level path directly, and return empty visualization
+            self.feedback.print("INFO", "A* failed, falling back to high level path")
+            return True, shapely.LineString(high_level_path_metric[:, :2]), []
         
         # convert a_star path to metric coordinates
         a_star_path_metric = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in a_star_path_grid]
         a_star_path_metric = np.array(a_star_path_metric).reshape(-1,4)
         a_star_path_metric = a_star_path_metric[:, :2]
-        
-        # return True, shapely.LineString(a_star_path_metric), a_star_path_metric
-        
+        a_star_path_execute = a_star_path_metric # only take first 30 points for now        
     
         ##### debug code #####
         # just publish the same path
@@ -112,8 +113,8 @@ class MidLevelPlanner:
         # project global point to local index
         grid_path = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_debug[:, :2]]
         grid_path = np.array(grid_path)
-        self.feedback.print("INFO", f"High level path: {high_level_path_debug.shape}, {high_level_path_debug}") 
-        self.feedback.print("INFO", f"Local path cells: {grid_path.shape}, {grid_path}")
+        # self.feedback.print("INFO", f"High level path: {high_level_path_debug.shape}, {high_level_path_debug}") 
+        # self.feedback.print("INFO", f"Local path cells: {grid_path.shape}, {grid_path}")
         np.save("/home/multyxu/adt4_output/high_level_path.npy", np.array(high_level_path_debug))
         np.save("/home/multyxu/adt4_output/local_path.npy", grid_path)
         recovered_path = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in grid_path]
@@ -124,25 +125,16 @@ class MidLevelPlanner:
         # a_star_path = self.a_star(tuple(grid_path[0]), (20,30))
         # a_star_path_grid = self.a_star(current_point_grid, target_point_grid_proj)
         if a_star_path_grid is not None:
-            self.feedback.print("INFO", f"A* path cells: {a_star_path_grid}")
+            # self.feedback.print("INFO", f"A* path cells: {a_star_path_grid}")
             np.save("/home/multyxu/adt4_output/a_star_path.npy", np.array(a_star_path_grid))
         
         # goal point
         np.save("/home/multyxu/adt4_output/target_cell.npy", np.array(target_point_grid))
         # return True, path, high_level_path_debug[:, :2]
-        return True, shapely.LineString(high_level_path_metric[:, :2]), a_star_path_metric
+        # return True, shapely.LineString(high_level_path_metric[:, :2]), a_star_path_metric
         ##### debug code #####
         
-        local_path_cells = self.a_star(current_cell, target_cell)
-        if local_path_cells is None:
-            return False, None, None
-        # self.feedback.print("INFO", f"Local path cells: {local_path_cells}")
-        global_path = [tuple(self.grid_cell_to_global_pose(pt)[:2].flatten().tolist()) for pt in local_path_cells]
-        local_path_wp = shapely.LineString(global_path)
-        
-        global_path_np = np.array([list(pt) for pt in global_path]).reshape(2,-1)
-        self.feedback.print("INFO", f"Global path: {global_path_np}")
-        return True, local_path_wp, global_path_np
+        return True, shapely.LineString(a_star_path_execute), a_star_path_metric
 
     def project_goal_to_grid(self, goal):
         ## assumes that goal is in same coordinate frame as the occupancy grid
@@ -162,7 +154,7 @@ class MidLevelPlanner:
                 return None
             dists = np.linalg.norm(free_cells - np.array(projected_cell).T, axis=1)
             projected_cell = tuple(free_cells[np.argmin(dists)])
-        self.feedback.print("INFO", f"Projected cell: {projected_cell}")
+        # self.feedback.print("INFO", f"Projected cell: {projected_cell}")
         return projected_cell
 
     def a_star(self, start, goal):
@@ -179,8 +171,9 @@ class MidLevelPlanner:
             return 0 <= cell[0] < rows and 0 <= cell[1] < cols
 
         def is_obstacle(cell):
-            self.feedback.print("INFO", f"Checking cell {cell}")
-            return self.occupancy_grid[cell[0], cell[1]] != 0
+            # return self.occupancy_grid[cell[0], cell[1]] != 0
+            # -1 unknown, 100 occupied, 0 free
+            return self.occupancy_grid[cell[0], cell[1]] > 0 # threshold
 
         def heuristic(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
@@ -199,7 +192,6 @@ class MidLevelPlanner:
         open_set_hash = {start}
 
         while open_set:
-            self.feedback.print("INFO", f"Open set size: {len(open_set)}")
             _, current = heapq.heappop(open_set)
             open_set_hash.remove(current)
 
@@ -238,7 +230,3 @@ class MidLevelPlanner:
     
     def set_robot_pose(self, pose):
         self.robot_pose = pose
-        
-        ##### aryan #####
-        # t, r = self.transform_lookup("<spot_vision_frame>", frame)
-        # self.robot_grid_cell = self.global_pose_to_grid_cell([t.x, t.y, t.z, r])
