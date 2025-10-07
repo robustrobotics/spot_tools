@@ -380,7 +380,8 @@ class SpotExecutorRos(Node):
             follower_lookahead,
             goal_tolerance,
         )
-        self.spot_executor.initialize_lease_manager(self.feedback_collector)
+        if not use_fake_spot_interface:
+            self.spot_executor.initialize_lease_manager(self.feedback_collector)
 
         self.action_sequence_sub = self.create_subscription(
             ActionSequenceMsg,
