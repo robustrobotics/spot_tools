@@ -99,6 +99,12 @@ def build_progress_markers(current_point, target_point):
     ma.markers.append(m2)
     return ma
 
+def build_marker(pt):
+    ma = MarkerArray()
+    m = pt_to_marker(pt, "path_progress", 0, [0, 1, 1])
+    ma.markers.append(m)
+    return ma
+
 
 class RosFeedbackCollector:
     def __init__(self, odom_frame):
@@ -171,8 +177,12 @@ class RosFeedbackCollector:
             build_progress_markers(progress_point, target_point)
         )
     
-    def path_follow_MLP_feedback(self, path):        
+    def path_follow_MLP_feedback(self, path, target_point_metric):        
         self.mlp_path_publisher.publish(waypoints_to_path(self.odom_frame, path)) # TODO: parameterize frame name
+        self.mlp_target_publisher.publish(
+            build_marker(target_point_metric)
+        )
+        
 
 
     def gaze_feedback(self, pose, gaze_point):
@@ -227,6 +237,10 @@ class RosFeedbackCollector:
         # Keeping the "~/" prefix notation for private topics in ROS 2
         self.mlp_path_publisher = node.create_publisher(
             Path, "~/mlp_path_publisher", qos_profile=latching_qos
+        )
+
+        self.mlp_target_publisher = node.create_publisher(
+            MarkerArray, "~/mlp_target_publisher", qos_profile=latching_qos
         )
 
 
@@ -489,34 +503,7 @@ class SpotExecutorRos(Node):
         # set occupancy grid and robot pose in the mid-level planner
         self.spot_executor.mid_level_planner.set_grid(occ_map, msg.info.resolution, map_origin_odom_frame)
         self.spot_executor.mid_level_planner.set_robot_pose(robot_pose_homo)
-        
-        ##### ----- debug code ----- #####
-        # save occupancy grid for debug
-        if not hasattr(self, "fake_occupancy_grid_publisher"):
-            np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
-            # save msg as pickle
-            # with open("/home/multyxu/adt4_output/occupancy_grid_msg.pkl", "wb") as f:
-            #     pickle.dump(msg, f)
 
-        robot_grid_pose = self.spot_executor.mid_level_planner.global_pose_to_grid_cell(robot_pose_homo[:4, 3].reshape(4,1))
-        np.save("/home/multyxu/adt4_output/robot_grid_pose.npy", np.array(robot_grid_pose))
-        recovered_robot_pose = self.spot_executor.mid_level_planner.grid_cell_to_global_pose(robot_grid_pose)
-
-        # self.get_logger().info("---------------------")
-        # self.get_logger().info(f"Map resolution: {msg.info.resolution}")
-        # self.get_logger().info(f"Robot grid pose: {robot_grid_pose}")
-        # self.get_logger().info(f"Recovered robot pose from grid: {recovered_robot_pose}")
-        
-        # robot_pose_in_occupancy = np.linalg.inv(map_origin_odom_frame) @ robot_pose_homo[:4, 3].reshape(4,1)
-        
-        # # is map all -1?    
-        # self.get_logger().info(f"Received occupancy grid of shape (w, h) = {(w,h)}")
-        # self.get_logger().info(f"{self.odom_frame} to robot/map transform: {odom_to_robot_map}")
-        # self.get_logger().info(f"Robot pose in map frame: {robot_pose}")
-        # self.get_logger().info(f"Map origin in {occupancy_frame_id} frame: {map_origin}")
-        # self.get_logger().info(f"Map origin in map frame: {map_origin_odom_frame}")
-        # self.get_logger().info(f"Robot pose in occupancy frame: {robot_pose_in_occupancy}")
-        ##### ----- debug code ----- #####
         
         if hasattr(self, "fake_path_plan_publisher"):
             msg = ActionSequenceMsg()

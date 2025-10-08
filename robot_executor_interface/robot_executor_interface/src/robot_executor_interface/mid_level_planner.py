@@ -30,14 +30,7 @@ class MidLevelPlanner:
         # Convert the pose to grid coordinates
         grid_j = int(pose_in_grid_frame[0, 0] / self.map_resolution)
         grid_i = int(pose_in_grid_frame[1, 0] / self.map_resolution)
-        
-        ##### ----- debug code ----- #####
-        # with open("/home/multyxu/adt4_output/debug_info.txt", "w") as debug_file:
-        #     debug_file.write(f"map origin: {self.map_origin}\n")
-        #     debug_file.write(f"pose in grid frame: {pose_in_grid_frame}\n")
-        # np.save("/home/multyxu/adt4_output/grid_pose.npy", np.array([grid_i, grid_j]))
-        ##### ----- debug code ----- #####
-        
+                
         return (grid_i, grid_j)
 
     def grid_cell_to_global_pose(self, cell_indx):
@@ -53,11 +46,6 @@ class MidLevelPlanner:
         pose_in_global_frame = self.map_origin @ pose_in_grid_frame
         return pose_in_global_frame
     
-    # def get_occupancy_range(self):
-    #     # returns [xmin, xmax], [ymin, ymax] in grid cell coordinates
-    #     minpt = self.grid_cell_to_global_pose((0, 0))
-    #     maxpt = self.grid_cell_to_global_pose((-1, -1))
-    #     return [minpt[0], maxpt[0]], [minpt[1], maxpt[1]]
     
     def plan_path(self, high_level_path_metric, lookahead_distance_grid = 50):
         '''
@@ -91,51 +79,39 @@ class MidLevelPlanner:
         # find the target in grid cell coordinates (make it free)
         target_point_grid = (int(target_point_shapely.x), int(target_point_shapely.y))
         target_point_grid_proj = self.project_goal_to_grid(target_point_grid)
+        
 
+        output = {
+                    'target_point_metric': self.grid_cell_to_global_pose(target_point_grid_proj),
+                    'path_shapely': shapely.LineString(high_level_path_metric[:, :2]),
+                    'path_waypoints_metric': []
+                }
 
         # plan using a_star
         a_star_path_grid = self.a_star(current_point_grid, target_point_grid_proj)
         
+
+
         if a_star_path_grid is None:
             # return False, None, None # or fallback
             # fall back using the high level path directly, and return empty visualization
             self.feedback.print("INFO", "A* failed, falling back to high level path")
-            return True, shapely.LineString(high_level_path_metric[:, :2]), []
+            return False, output
         
         # convert a_star path to metric coordinates
         a_star_path_metric = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in a_star_path_grid]
         a_star_path_metric = np.array(a_star_path_metric).reshape(-1,4)
         a_star_path_metric = a_star_path_metric[:, :2]
         a_star_path_execute = a_star_path_metric # only take first 30 points for now        
-    
-        ##### debug code #####
-        # just publish the same path
-        path = shapely.LineString(high_level_path_debug[:, :2])
+
         # project global point to local index
         grid_path = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_debug[:, :2]]
         grid_path = np.array(grid_path)
-        # self.feedback.print("INFO", f"High level path: {high_level_path_debug.shape}, {high_level_path_debug}") 
-        # self.feedback.print("INFO", f"Local path cells: {grid_path.shape}, {grid_path}")
-        np.save("/home/multyxu/adt4_output/high_level_path.npy", np.array(high_level_path_debug))
-        np.save("/home/multyxu/adt4_output/local_path.npy", grid_path)
         recovered_path = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in grid_path]
-        recovered_path = np.array(recovered_path).reshape(-1,4)
-        np.save("/home/multyxu/adt4_output/recovered_path.npy", recovered_path)
-        
-        # test astar path
-        # a_star_path = self.a_star(tuple(grid_path[0]), (20,30))
-        # a_star_path_grid = self.a_star(current_point_grid, target_point_grid_proj)
-        if a_star_path_grid is not None:
-            # self.feedback.print("INFO", f"A* path cells: {a_star_path_grid}")
-            np.save("/home/multyxu/adt4_output/a_star_path.npy", np.array(a_star_path_grid))
-        
-        # goal point
-        np.save("/home/multyxu/adt4_output/target_cell.npy", np.array(target_point_grid))
-        # return True, path, high_level_path_debug[:, :2]
-        # return True, shapely.LineString(high_level_path_metric[:, :2]), a_star_path_metric
-        ##### debug code #####
-        
-        return True, shapely.LineString(a_star_path_execute), a_star_path_metric
+        recovered_path = np.array(recovered_path).reshape(-1,4)    
+        output['path_shapely'] = shapely.LineString(a_star_path_execute)
+        output['path_waypoints_metric'] = a_star_path_metric
+        return True, output
 
     def project_goal_to_grid(self, goal):
         ## assumes that goal is in same coordinate frame as the occupancy grid

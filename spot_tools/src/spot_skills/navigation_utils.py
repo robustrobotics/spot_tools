@@ -165,10 +165,12 @@ def follow_trajectory_continuous(
     while 1:
         if mid_level_planner is not None:
             # update path every (couple?) loop
-            mlp_success, path, path_wp = mid_level_planner.plan_path(waypoints_list[:, :2])
-            # feedback.print("INFO", f"Mid-level planner success: {mlp_success}")
+            mlp_success, planning_output = mid_level_planner.plan_path(waypoints_list[:, :2])
+            path = planning_output['path_shapely']
+            path_wp = planning_output['path_waypoints_metric']
+            target_point_metric = planning_output['target_point_metric']
             if feedback is not None:
-                feedback.path_follow_MLP_feedback(path_wp)
+                feedback.path_follow_MLP_feedback(path_wp, target_point_metric)
             if not mlp_success:
                 return False
         if time.time() - t0 > timeout:
