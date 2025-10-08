@@ -4,7 +4,7 @@ import shapely
 
 
 class MidLevelPlanner:
-    def __init__(self, feedback):
+    def __init__(self, use_fake_path_planner, feedback):
         self.feedback = feedback
         self.occupancy_grid = None
         self.map_resolution = None 
@@ -12,7 +12,8 @@ class MidLevelPlanner:
         self.map_origin = None  # <robot>/odom frame
         self.robot_pose = None  # <robot>/odom frame
         # high level plan is in <robot>/odom frame 
-        self.feedback.print("INFO", "MidLevelPlanner initialized")
+        self.use_fake_path_planner = use_fake_path_planner
+        self.feedback.print("INFO", f"MidLevelPlanner initialized, {self.use_fake_path_planner=}")
 
     # have a script to send the ActionSequenceMsg, check omniplanner
     def global_pose_to_grid_cell(self, pose):
@@ -157,11 +158,17 @@ class MidLevelPlanner:
         # self.feedback.print("INFO", f"Projected cell: {projected_cell}")
         return projected_cell
 
-    def a_star(self, start, goal):
+    def a_star(self, start, goal, diagonal_movement=True):
         '''
         Generated A* path planning algorithm.
         Programed by Gemini 2.5 Pro
         '''
+        if diagonal_movement:
+            connectivity = [(-1, 0), (1, 0), (0, -1), (0, 1),
+                            (-1, -1), (-1, 1), (1, -1), (1, 1)]  # 8-way connectivity
+        else:
+            connectivity = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # 4-way connectivity
+            
         if self.occupancy_grid is None:
             return None
 
@@ -203,7 +210,7 @@ class MidLevelPlanner:
                 path.append(start)
                 return path[::-1]
 
-            for dr, dc in [(0, 1), (0, -1), (1, 0), (-1, 0)]: # 4-way connectivity
+            for dr, dc in connectivity: # 4-way connectivity
                 neighbor = (current[0] + dr, current[1] + dc)
 
                 if not is_valid(neighbor) or is_obstacle(neighbor):

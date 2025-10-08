@@ -44,6 +44,7 @@ class SpotExecutor:
         follower_lookahead=2,
         goal_tolerance=2.8,
         use_mid_level_planner=False,
+        use_fake_path_planner=False,
         feedback=None,
     ):
         self.debug = False
@@ -54,7 +55,8 @@ class SpotExecutor:
         self.detector = detector
         self.keep_going = True
         self.processing_action_sequence = False
-        self.mid_level_planner = MidLevelPlanner(feedback) if use_mid_level_planner else None
+        self.mid_level_planner = MidLevelPlanner(use_fake_path_planner, feedback) if use_mid_level_planner else None
+        self.use_fake_path_planner = use_fake_path_planner
 
     def terminate_sequence(self, feedback):
         # Tell the actions sequence to break
@@ -183,17 +185,20 @@ class SpotExecutor:
 
         feedback.follow_path_feedback(command_to_send)
         
-        # MLP
-        # blabala  -> fail
-        
-        # fall back
-        ret = follow_trajectory_continuous(
-            self.spot_interface,
-            command_to_send,
-            self.follower_lookahead,
-            self.goal_tolerance,
-            timeout,
-            feedback=feedback,
-            mid_level_planner=self.mid_level_planner,
-        ) # TODO: pass in the self.mid_level_planner
+        if self.mid_level_planner is not None and self.use_fake_path_planner:
+            ret = False
+            mlp_success, path, path_wp = self.mid_level_planner.plan_path(command_to_send[:, :2])
+            if not mlp_success:
+                feedback.print("INFO", "Mid-level planner failed to find a path")
+            feedback.path_follow_MLP_feedback(path_wp)
+        else:
+            ret = follow_trajectory_continuous(
+                self.spot_interface,
+                command_to_send,
+                self.follower_lookahead,
+                self.goal_tolerance,
+                timeout,
+                feedback=feedback,
+                mid_level_planner=self.mid_level_planner,
+            ) 
         return ret

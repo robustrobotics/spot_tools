@@ -167,6 +167,8 @@ def follow_trajectory_continuous(
             # update path every (couple?) loop
             mlp_success, path, path_wp = mid_level_planner.plan_path(waypoints_list[:, :2])
             # feedback.print("INFO", f"Mid-level planner success: {mlp_success}")
+            if feedback is not None:
+                feedback.path_follow_MLP_feedback(path_wp)
             if not mlp_success:
                 return False
         if time.time() - t0 > timeout:
@@ -205,8 +207,7 @@ def follow_trajectory_continuous(
             # TODO: new function for MLP
             feedback.path_following_progress_feedback(progress_point, target_point)
             # feedback.print("INFO", f"Coordinates {path.coords}")
-            if mid_level_planner:
-                feedback.path_follow_MLP_feedback(path_wp)
+            
 
         # 3. send command
         current_waypoint = math_helpers.SE2Pose(

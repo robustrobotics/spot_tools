@@ -12,12 +12,13 @@ import tf_transformations
 import yaml
 from cv_bridge import CvBridge
 from nav_msgs.msg import Path, OccupancyGrid
+from geometry_msgs.msg import PoseStamped
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
-from robot_executor_msgs.msg import ActionSequenceMsg
+from robot_executor_msgs.msg import ActionSequenceMsg, ActionMsg
 from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
@@ -25,7 +26,6 @@ from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
 from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
-from nav_msgs.msg import OccupancyGrid
 import pickle
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
@@ -320,8 +320,14 @@ class SpotExecutorRos(Node):
         use_fake_spot_interface = self.get_parameter("use_fake_spot_interface").value
         self.declare_parameter("use_mid_level_planner", False)
         use_mid_level_planner = self.get_parameter("use_mid_level_planner").value
-        use_mid_level_planner = True
         self.get_logger().info(f"{use_mid_level_planner=}")
+        
+        # mid-level planner parameters
+        self.declare_parameter("use_fake_occupancy_map", False)
+        use_fake_occupancy_map = self.get_parameter("use_fake_occupancy_map").value
+        self.declare_parameter("publish_fake_path_plan", False)
+        publish_fake_path_plan = self.get_parameter("publish_fake_path_plan").value
+        self.get_logger().info(f"{use_fake_occupancy_map=}, {publish_fake_path_plan=}")
 
         if use_fake_spot_interface:
             self.declare_parameter("fake_spot_external_pose", False)
@@ -409,6 +415,7 @@ class SpotExecutorRos(Node):
             follower_lookahead,
             goal_tolerance,
             use_mid_level_planner,
+            publish_fake_path_plan,
             self.feedback_collector
         )
 
@@ -434,11 +441,16 @@ class SpotExecutorRos(Node):
                 10,
             )
             #### publish fake occupancy grid for testing ####
-            if True:
+            if use_fake_occupancy_map:
                 # create fake occupancy grid publisher
                 self.fake_occupancy_grid_publisher = self.create_publisher(
                     OccupancyGrid, "~/occupancy_grid", 10
                 )
+            if publish_fake_path_plan:
+                self.fake_path_plan_publisher = self.create_publisher(
+                    ActionSequenceMsg, "~/action_sequence_subscriber", 10
+                )
+            #### publish fake occupancy grid for testing ####
 
     def occupancy_grid_callback(self, msg):
         w, h = msg.info.width, msg.info.height   
@@ -480,8 +492,8 @@ class SpotExecutorRos(Node):
         
         ##### ----- debug code ----- #####
         # save occupancy grid for debug
-        # if not hasattr(self, "fake_occupancy_grid_publisher"):
-            # np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
+        if not hasattr(self, "fake_occupancy_grid_publisher"):
+            np.save("/home/multyxu/adt4_output/occ_map.npy", occ_map)
             # save msg as pickle
             # with open("/home/multyxu/adt4_output/occupancy_grid_msg.pkl", "wb") as f:
             #     pickle.dump(msg, f)
@@ -505,6 +517,49 @@ class SpotExecutorRos(Node):
         # self.get_logger().info(f"Map origin in map frame: {map_origin_odom_frame}")
         # self.get_logger().info(f"Robot pose in occupancy frame: {robot_pose_in_occupancy}")
         ##### ----- debug code ----- #####
+        
+        if hasattr(self, "fake_path_plan_publisher"):
+            msg = ActionSequenceMsg()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = 'map'
+            msg.plan_id = "fake_path_plan"
+            msg.robot_name = self.body_frame.split('/')[0] # assuming body frame is in the format of <robot_name>/body
+            msg.actions = []
+            
+            # create action msg
+            action_msg = ActionMsg()
+            action_msg.action_type = "FOLLOW"
+            path = Path()
+            path.header.frame_id = 'map'
+            path.header.stamp = self.get_clock().now().to_msg()
+            path.poses = []
+            
+            # add poses to path
+            robot_pose_odom_frame = self.tf_lookup_fn('map', self.body_frame)
+            # create a straight line path 20m in front of the robot
+            yaw = tf_transformations.euler_from_quaternion([robot_pose_odom_frame[1].x, robot_pose_odom_frame[1].y, robot_pose_odom_frame[1].z, robot_pose_odom_frame[1].w])[2]
+            constructed_path = np.array([
+                [robot_pose_odom_frame[0][0], robot_pose_odom_frame[0][1], yaw],
+                [robot_pose_odom_frame[0][0] + 20 * np.cos(yaw), robot_pose_odom_frame[0][1] + 20 * np.sin(yaw), yaw]
+            ])  
+            for p in constructed_path:
+                pose_stamped = PoseStamped()
+                pose_stamped.header.frame_id = 'map'
+                pose_stamped.header.stamp = self.get_clock().now().to_msg()
+                pose_stamped.pose.position.x = p[0]
+                pose_stamped.pose.position.y = p[1]
+                pose_stamped.pose.position.z = 0.0
+                quat = tf_transformations.quaternion_from_euler(0, 0, p[2])
+                pose_stamped.pose.orientation.x = quat[0]
+                pose_stamped.pose.orientation.y = quat[1]
+                pose_stamped.pose.orientation.z = quat[2]
+                pose_stamped.pose.orientation.w = quat[3]
+                path.poses.append(pose_stamped)
+                
+            # put everything together
+            action_msg.path = path
+            msg.actions.append(action_msg)
+            self.fake_path_plan_publisher.publish(msg)
 
     def hb_callback(self):
         msg = NodeInfoMsg()
@@ -513,7 +568,6 @@ class SpotExecutorRos(Node):
         msg.status = NodeInfoMsg.NOMINAL
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
-
         
         if hasattr(self, "fake_occupancy_grid_publisher"):
             occ_msg = pickle.loads(open("/home/multyxu/adt4_output/occupancy_grid_msg.pkl", "rb").read())
@@ -523,11 +577,8 @@ class SpotExecutorRos(Node):
             occ_msg.info.origin.position.x = robot_pose_in_hamilton_map[0][0] - occ_msg.info.width * occ_msg.info.resolution / 2
             occ_msg.info.origin.position.y = robot_pose_in_hamilton_map[0][1] - occ_msg.info.height * occ_msg.info.resolution / 2
             self.fake_occupancy_grid_publisher.publish(occ_msg)
+        
             
-            # self.get_logger().info("Published fake occupancy grid")
-        # robot_pose = self.spot_interface.get_pose()
-        # self.get_logger().info(f"Robot pose in odom frame: {robot_pose}")
-
     def process_action_sequence(self, msg):
         def process_sequence():
             self.status_str = "Processing action sequence"
