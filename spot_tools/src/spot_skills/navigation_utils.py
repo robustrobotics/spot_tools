@@ -155,7 +155,10 @@ def follow_trajectory_continuous(
     # if robot is outside the threshold distance -> fail
     # if path is close -> keep following -> try to get to the goal
     if mid_level_planner is not None:
-        mlp_success, path, path_wp = mid_level_planner.plan_path(waypoints_list[:, :2])
+        mlp_success, path_output = mid_level_planner.plan_path(waypoints_list[:, :2])
+        path = path_output['path_shapely']
+        path_wp = path_output['path_waypoints_metric']
+        target_point_metric = path_output['target_point_metric']
     else:
         path = shapely.LineString(waypoints_list[:, :2]) # TODO: replace by MLP path
     end_pt = waypoints_list[-1, :2]
@@ -215,6 +218,7 @@ def follow_trajectory_continuous(
         current_waypoint = math_helpers.SE2Pose(
             x=target_point.x, y=target_point.y, angle=yaw_angle
         )
+        feedback.print("INFO", f"Navigating to waypoint {current_waypoint}")
 
         navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
         time.sleep(1 / rate)
