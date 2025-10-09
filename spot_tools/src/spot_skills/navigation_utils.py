@@ -155,12 +155,13 @@ def follow_trajectory_continuous(
     # if robot is outside the threshold distance -> fail
     # if path is close -> keep following -> try to get to the goal
     if mid_level_planner is not None:
+        feedback.print("INFO", "Using mid-level planner for path following")
         mlp_success, path_output = mid_level_planner.plan_path(waypoints_list[:, :2])
         path = path_output['path_shapely']
         path_wp = path_output['path_waypoints_metric']
         target_point_metric = path_output['target_point_metric']
     else:
-        path = shapely.LineString(waypoints_list[:, :2]) # TODO: replace by MLP path
+        path = shapely.LineString(waypoints_list[:, :2])
     end_pt = waypoints_list[-1, :2]
     t0 = time.time()
     rate = 10
@@ -175,7 +176,9 @@ def follow_trajectory_continuous(
             if feedback is not None:
                 feedback.path_follow_MLP_feedback(path_wp, target_point_metric)
             if not mlp_success:
-                return False
+                feedback.print("INFO", "Mid-level planner failed, following high-level path directly")
+                path = shapely.LineString(waypoints_list[:, :2])
+                # return False
         if time.time() - t0 > timeout:
             # TODO: I think we need to tell Spot to stop?
             # TODO: Also, we should probably have a finer-grained
@@ -211,8 +214,6 @@ def follow_trajectory_continuous(
             # get data back out
             # TODO: new function for MLP
             feedback.path_following_progress_feedback(progress_point, target_point)
-            # feedback.print("INFO", f"Coordinates {path.coords}")
-            
 
         # 3. send command
         current_waypoint = math_helpers.SE2Pose(

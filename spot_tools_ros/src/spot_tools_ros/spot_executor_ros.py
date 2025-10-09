@@ -1,5 +1,6 @@
 import threading
 import time
+import os
 
 import cv2
 import numpy as np
@@ -359,6 +360,11 @@ class SpotExecutorRos(Node):
         self.declare_parameter("publish_fake_path_plan", False)
         publish_fake_path_plan = self.get_parameter("publish_fake_path_plan").value
         self.get_logger().info(f"{use_fake_occupancy_map=}, {publish_fake_path_plan=}")
+        
+        if publish_fake_path_plan:
+            self.get_logger().info("Will publish fake path plan and save occupancy grid msg")
+        if use_fake_occupancy_map:
+            self.get_logger().info("Will publish fake occupancy map, requires occupancy_grid_msg.pkl in ~/adt4_output/occupancy_grid/")
 
         if use_fake_spot_interface:
             self.declare_parameter("fake_spot_external_pose", False)
@@ -507,8 +513,6 @@ class SpotExecutorRos(Node):
         # robot_pose = self.spot_interface.get_pose() # not working in sim ??
         robot_pose = self.tf_lookup_fn(self.odom_frame, self.body_frame)
         odom_to_robot_map = self.tf_lookup_fn(self.odom_frame, occupancy_frame_id)
-        # robot_pose = self.tf_lookup_fn('map', self.body_frame)
-        # odom_to_robot_map = self.tf_lookup_fn('map', occupancy_frame_id)
 
         # convert to homogeneous transformation matrices
         robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
@@ -564,7 +568,16 @@ class SpotExecutorRos(Node):
             action_msg.path = path
             msg.actions.append(action_msg)
             self.fake_path_plan_publisher.publish(msg)
-
+            
+            # also save the occupancy grid msg for visualization
+            home_dir = os.environ.get("HOME") 
+            occ_dir = home_dir + "/adt4_output/occupancy_grid/"
+            if not os.path.exists(occ_dir):
+                os.makedirs(occ_dir)
+            with open(occ_dir + "occupancy_grid_msg.pkl", "wb") as f:
+                pickle.dump(msg, f)
+            np.save(occ_dir + "occupancy_grid.npy", occ_map)
+            
     def hb_callback(self):
         msg = NodeInfoMsg()
         msg.nickname = "spot_executor"
@@ -574,7 +587,7 @@ class SpotExecutorRos(Node):
         self.heartbeat_pub.publish(msg)
         
         if hasattr(self, "fake_occupancy_grid_publisher"):
-            occ_msg = pickle.loads(open("/home/aryannav/mit/data/adt4_output/occupancy_grid/occupancy_grid_msg.pkl", "rb").read())
+            occ_msg = pickle.loads(open(os.environ.get("HOME") + "/adt4_output/occupancy_grid/occupancy_grid_msg.pkl", "rb").read())
             occ_msg.header.stamp = self.get_clock().now().to_msg()
             # shift the map so that robot is inside the grid
             robot_pose_in_hamilton_map = self.tf_lookup_fn(self.occupancy_frame, self.body_frame)

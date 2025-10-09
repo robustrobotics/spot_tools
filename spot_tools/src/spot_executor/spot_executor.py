@@ -92,7 +92,8 @@ class SpotExecutor:
                 feedback.print("INFO", "Spot executor executing command: ")
                 feedback.print("INFO", command)
                 if type(command) is Follow:
-                    self.execute_follow(command, feedback)
+                    ret = self.execute_follow(command, feedback)
+                    feedback.print("INFO", f"Finished `follow` command with return {ret}")
 
                 elif type(command) is Gaze:
                     self.execute_gaze(command, feedback, pick_next=pick_next)
@@ -172,8 +173,7 @@ class SpotExecutor:
         command_to_send = transform_command_frame(
             t, r, command.path2d, feedback=feedback
         ) # the path2d in is our odom frame
-        # TODO: Have a class that keep track of the occupancy grid
-        # /home/multyxu/dcist_ws/src/awesome_dcist_t4/spot_tools/robot_executor_interface/robot_executor_interface/src/robot_executor_interface 
+
         path_distance = np.sum(
             np.linalg.norm(np.diff(command_to_send[:, :2], axis=0), axis=1)
         )

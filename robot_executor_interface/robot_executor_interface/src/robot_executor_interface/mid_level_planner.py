@@ -14,6 +14,8 @@ class MidLevelPlanner:
         # high level plan is in <robot>/odom frame 
         self.use_fake_path_planner = use_fake_path_planner
         self.feedback.print("INFO", f"MidLevelPlanner initialized, {self.use_fake_path_planner=}")
+        if self.use_fake_path_planner:
+            self.feedback.print("INFO", "NOTE: See path in <robot>odom frame")
 
     # have a script to send the ActionSequenceMsg, check omniplanner
     def global_pose_to_grid_cell(self, pose):
@@ -90,8 +92,6 @@ class MidLevelPlanner:
         # plan using a_star
         a_star_path_grid = self.a_star(current_point_grid, target_point_grid_proj)
         
-
-
         if a_star_path_grid is None:
             # return False, None, None # or fallback
             # fall back using the high level path directly, and return empty visualization
