@@ -1,7 +1,7 @@
 import heapq
 import numpy as np
 import shapely
-from scipy.ndimage import binary_dilation
+from scipy.ndimage import binary_dilation, convolve
 
 
 class MidLevelPlanner:
@@ -120,7 +120,7 @@ class MidLevelPlanner:
         output['path_waypoints_metric'] = a_star_path_metric
         return True, output
 
-    def project_goal_to_grid(self, goal):
+    def project_goal_to_grid_naive(self, goal):
         ## assumes that goal is in same coordinate frame as the occupancy grid
         # goal_cell = self.global_pose_to_grid_cell(goal)
         # heurestic for right now will be clamping it to the occupancy grid.
@@ -140,6 +140,59 @@ class MidLevelPlanner:
             projected_cell = tuple(free_cells[np.argmin(dists)])
         # self.feedback.print("INFO", f"Projected cell: {projected_cell}")
         return projected_cell
+
+
+    def project_goal_observed(self, goal):
+        def is_free(cell):
+            return self.occupancy_grid[cell[0], cell[1]] == 0
+
+        if is_free(goal):
+            return goal
+        free_cells = np.argwhere(self.occupancy_grid == 0)
+        if free_cells.size == 0:
+            return None
+        dists = np.linalg.norm(free_cells - np.array(goal).T, axis=1)
+        return tuple(free_cells[np.argmin(dists)])
+
+    def project_goal_unknown_frontier(self, goal):
+        # Define a 4-connected kernel
+        kernel = np.ones((3,3), dtype=np.uint8)
+        kernel[1,1] = 0
+
+        # Unknown neighbor count for each cell
+        unknown_neighbors = convolve((self.occupancy_grid == -1).astype(np.uint8), kernel, mode='constant', cval=1)
+
+        # Edge mask (True for border cells)
+        edge_mask = np.zeros_like(self.occupancy_grid, dtype=bool)
+        edge_mask[0, :] = True
+        edge_mask[-1, :] = True
+        edge_mask[:, 0] = True
+        edge_mask[:, -1] = True
+
+        # Frontier = free and (has unknown neighbor OR on edge)
+        frontier_mask = (self.occupancy_grid == 0) & ((unknown_neighbors > 0) | edge_mask)
+        frontier_cells = np.argwhere(frontier_mask)
+        if frontier_cells.size == 0:
+            return None
+        dists = np.linalg.norm(frontier_cells - np.array(goal).T, axis=1)
+        return tuple(frontier_cells[np.argmin(dists)])
+
+
+
+    def project_goal_to_grid(self, goal):
+        ## assumes that goal is in same coordinate frame as the occupancy grid
+        # goal_cell = self.global_pose_to_grid_cell(goal)
+        # heurestic for right now will be clamping it to the occupancy grid.
+        h, w = self.occupancy_grid.shape
+        bound_i, bound_j = [0, h-1], [0, w-1]
+
+        def within_bounds(cell):
+            return (bound_i[0] <= cell[0] <= bound_i[1]) and (bound_j[0] <= cell[1] <= bound_j[1])
+
+        if within_bounds(goal):
+            return self.project_goal_observed(goal)
+
+        return self.project_goal_unknown_frontier(goal)
 
     def a_star(self, start, goal, diagonal_movement=True):
         '''
