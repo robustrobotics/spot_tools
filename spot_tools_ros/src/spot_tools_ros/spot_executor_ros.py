@@ -477,6 +477,16 @@ class SpotExecutorRos(Node):
                 self.occupancy_grid_callback,
                 10,
             )
+            # Create publisher for inflated occupancy grid
+            latching_qos = QoSProfile(
+                depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL
+            )
+            self.inflated_occupancy_grid_publisher = self.create_publisher(
+                OccupancyGrid, "~/inflated_occupancy_grid", qos_profile=latching_qos
+            )
+            
+            
+            
             #### publish fake occupancy grid for testing ####
             if use_fake_occupancy_map:
                 # create fake occupancy grid publisher
@@ -488,6 +498,34 @@ class SpotExecutorRos(Node):
                     ActionSequenceMsg, "~/action_sequence_subscriber", 10
                 )
             #### publish fake occupancy grid for testing ####
+
+    def publish_inflated_occupancy_grid(self, original_msg):
+        '''
+        Publishes the inflated occupancy grid stored in the mid-level planner.
+
+        Input:
+            - original_msg: OccupancyGrid message with the original grid metadata
+        '''
+        if not hasattr(self.spot_executor.mid_level_planner, 'occupancy_grid'):
+            self.get_logger().warning("No occupancy grid available in mid-level planner")
+            return
+
+        if self.spot_executor.mid_level_planner.occupancy_grid is None:
+            self.get_logger().warning("Mid-level planner occupancy grid is None")
+            return
+
+        # Create new OccupancyGrid message for inflated grid
+        inflated_msg = OccupancyGrid()
+        inflated_msg.header = original_msg.header
+        inflated_msg.header.stamp = self.get_clock().now().to_msg()
+        inflated_msg.info = original_msg.info
+
+        # Get inflated grid from mid-level planner and populate message
+        inflated_grid = self.spot_executor.mid_level_planner.occupancy_grid
+        inflated_msg.data = inflated_grid.flatten().astype(np.int8).tolist()
+
+        # Publish the inflated occupancy grid
+        self.inflated_occupancy_grid_publisher.publish(inflated_msg)
 
     def occupancy_grid_callback(self, msg):
         w, h = msg.info.width, msg.info.height   
@@ -525,8 +563,19 @@ class SpotExecutorRos(Node):
         self.spot_executor.mid_level_planner.set_grid(occ_map, msg.info.resolution, map_origin_odom_frame)
         self.spot_executor.mid_level_planner.set_robot_pose(robot_pose_homo)
 
-        
+        # Publish the inflated occupancy grid
+        self.publish_inflated_occupancy_grid(msg)
+
         if hasattr(self, "fake_path_plan_publisher"):
+            # also save the occupancy grid msg for visualization
+            home_dir = os.environ.get("HOME") 
+            occ_dir = home_dir + "/adt4_output/occupancy_grid/"
+            if not os.path.exists(occ_dir):
+                os.makedirs(occ_dir)
+            with open(occ_dir + "occupancy_grid_msg.pkl", "wb") as f:
+                pickle.dump(msg, f)
+            np.save(occ_dir + "occupancy_grid.npy", occ_map)
+            
             msg = ActionSequenceMsg()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = 'map'
@@ -569,14 +618,6 @@ class SpotExecutorRos(Node):
             msg.actions.append(action_msg)
             self.fake_path_plan_publisher.publish(msg)
             
-            # also save the occupancy grid msg for visualization
-            home_dir = os.environ.get("HOME") 
-            occ_dir = home_dir + "/adt4_output/occupancy_grid/"
-            if not os.path.exists(occ_dir):
-                os.makedirs(occ_dir)
-            with open(occ_dir + "occupancy_grid_msg.pkl", "wb") as f:
-                pickle.dump(msg, f)
-            np.save(occ_dir + "occupancy_grid.npy", occ_map)
             
     def hb_callback(self):
         msg = NodeInfoMsg()
@@ -586,14 +627,14 @@ class SpotExecutorRos(Node):
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
         
-        if hasattr(self, "fake_occupancy_grid_publisher"):
-            occ_msg = pickle.loads(open(os.environ.get("HOME") + "/adt4_output/occupancy_grid/occupancy_grid_msg.pkl", "rb").read())
-            occ_msg.header.stamp = self.get_clock().now().to_msg()
-            # shift the map so that robot is inside the grid
-            robot_pose_in_hamilton_map = self.tf_lookup_fn(self.occupancy_frame, self.body_frame)
-            occ_msg.info.origin.position.x = robot_pose_in_hamilton_map[0][0] - occ_msg.info.width * occ_msg.info.resolution / 2
-            occ_msg.info.origin.position.y = robot_pose_in_hamilton_map[0][1] - occ_msg.info.height * occ_msg.info.resolution / 2
-            self.fake_occupancy_grid_publisher.publish(occ_msg)
+        # if hasattr(self, "fake_occupancy_grid_publisher"):
+            # occ_msg = pickle.loads(open(os.environ.get("HOME") + "/adt4_output/occupancy_grid/occupancy_grid_msg.pkl", "rb").read())
+            # occ_msg.header.stamp = self.get_clock().now().to_msg()
+            # # shift the map so that robot is inside the grid
+            # robot_pose_in_hamilton_map = self.tf_lookup_fn(self.occupancy_frame, self.body_frame)
+            # occ_msg.info.origin.position.x = robot_pose_in_hamilton_map[0][0] - occ_msg.info.width * occ_msg.info.resolution / 2
+            # occ_msg.info.origin.position.y = robot_pose_in_hamilton_map[0][1] - occ_msg.info.height * occ_msg.info.resolution / 2
+            # self.fake_occupancy_grid_publisher.publish(occ_msg)
         
             
     def process_action_sequence(self, msg):

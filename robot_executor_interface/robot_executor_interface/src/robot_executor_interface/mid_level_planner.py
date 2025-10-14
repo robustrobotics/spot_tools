@@ -1,6 +1,7 @@
 import heapq
 import numpy as np
 import shapely
+from scipy.ndimage import binary_dilation
 
 
 class MidLevelPlanner:
@@ -11,7 +12,8 @@ class MidLevelPlanner:
         # poses are 4x4 homogeneous transformation matrix
         self.map_origin = None  # <robot>/odom frame
         self.robot_pose = None  # <robot>/odom frame
-        # high level plan is in <robot>/odom frame 
+        # high level plan is in <robot>/odom frame
+        self.inflate_radius_meters = 0.3  # meters
         self.use_fake_path_planner = use_fake_path_planner
         self.feedback.print("INFO", f"MidLevelPlanner initialized, {self.use_fake_path_planner=}")
         if self.use_fake_path_planner:
@@ -206,10 +208,55 @@ class MidLevelPlanner:
     def get_grid(self):
         return self.occupancy_grid
 
-    def set_grid(self, grid, resolution, origin, frame = None):
-        self.occupancy_grid = grid
+    def set_grid(self, grid, resolution, origin, frame=None):
+        self.occupancy_grid = grid 
         self.map_resolution = resolution
         self.map_origin = origin
-    
+        self.occupancy_grid = self.inflate_obstacles(self.occupancy_grid, self.inflate_radius_meters)
+
     def set_robot_pose(self, pose):
         self.robot_pose = pose
+
+    def inflate_obstacles(self, grid, inflate_radius_meters):
+        '''
+        Inflates obstacles in the occupancy grid by a given radius in meters.
+
+        Input:
+            - inflate_radius_meters: float, the radius to inflate obstacles by (in meters)
+
+        Output:
+            - inflated_grid: numpy array, the occupancy grid with inflated obstacles
+
+        Note: This function creates a copy of the grid and returns it without modifying
+              the original self.occupancy_grid. Call set_grid() to update the grid.
+        '''
+
+        # Convert radius from meters to grid cells
+        inflate_radius_cells = int(np.ceil(inflate_radius_meters / self.map_resolution))
+
+        if inflate_radius_cells <= 0:
+            self.feedback.print("INFO", f"Inflate radius too small ({inflate_radius_meters}m = {inflate_radius_cells} cells), returning original grid")
+            return grid.copy()
+
+        # Create binary mask of obstacles (occupied cells with value > 0)
+        obstacle_mask = grid > 0
+
+        # Create circular structuring element for dilation
+        y, x = np.ogrid[-inflate_radius_cells:inflate_radius_cells+1,
+                        -inflate_radius_cells:inflate_radius_cells+1]
+        structuring_element = x**2 + y**2 <= inflate_radius_cells**2
+
+        # Dilate the obstacle mask
+        inflated_mask = binary_dilation(obstacle_mask, structure=structuring_element)
+
+        # Create inflated grid (copy of original)
+        inflated_grid = grid.copy()
+
+        # Update cells that were free (0) but are now in inflated zone
+        # Preserve unknown (-1) cells and already occupied cells
+        newly_occupied = inflated_mask & (grid == 0)
+        inflated_grid[newly_occupied] = 100
+
+        # self.feedback.print("INFO", f"Inflated obstacles by {inflate_radius_meters}m ({inflate_radius_cells} cells)")
+
+        return inflated_grid
