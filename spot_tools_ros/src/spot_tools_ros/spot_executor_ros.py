@@ -70,9 +70,9 @@ def load_inverse_semantic_id_map_from_label_space(fn):
     return label_to_id
 
 
-def pt_to_marker(pt, ns, mid, color):
+def pt_to_marker(pt, ns, mid, color, fid="vision"):
     m = Marker()
-    m.header.frame_id = "vision"
+    m.header.frame_id = fid
     m.header.stamp = rclpy.time.Time(nanoseconds=time.time() * 1e9).to_msg()
     m.ns = ns
     m.id = mid
@@ -92,11 +92,11 @@ def pt_to_marker(pt, ns, mid, color):
     return m
 
 
-def build_progress_markers(current_point, target_point):
+def build_progress_markers(current_point, target_point, frame):
     ma = MarkerArray()
-    m1 = pt_to_marker(current_point, "path_progress", 0, [0, 1, 1])
+    m1 = pt_to_marker(current_point, "path_progress", 0, [0, 1, 1], fid=frame)
     ma.markers.append(m1)
-    m2 = pt_to_marker(target_point, "path_progress", 1, [1, 0, 1])
+    m2 = pt_to_marker(target_point, "path_progress", 1, [1, 0, 1], fid=frame)
     ma.markers.append(m2)
     return ma
 
@@ -191,7 +191,7 @@ class RosFeedbackCollector:
 
     def path_following_progress_feedback(self, progress_point, target_point):
         self.progress_point_pub.publish(
-            build_progress_markers(progress_point, target_point)
+            build_progress_markers(progress_point, target_point, self.odom_frame)
         )
     
     def path_follow_MLP_feedback(self, path, target_point_metric):        

@@ -179,6 +179,7 @@ def follow_trajectory_continuous(
                 feedback.print("INFO", "Mid-level planner failed, following high-level path directly")
                 path = shapely.LineString(waypoints_list[:, :2])
                 # return False
+            
         if time.time() - t0 > timeout:
             # TODO: I think we need to tell Spot to stop?
             # TODO: Also, we should probably have a finer-grained
@@ -220,6 +221,8 @@ def follow_trajectory_continuous(
             x=target_point.x, y=target_point.y, angle=yaw_angle
         )
         feedback.print("INFO", f"Navigating to waypoint {current_waypoint}")
+        # feedback.print("INFO", f"Navigating to waypoint {target_point}")
+
 
         navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
         time.sleep(1 / rate)
