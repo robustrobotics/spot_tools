@@ -66,14 +66,19 @@ class MidLevelPlanner:
         # convert poses to grid cells
         high_level_path_grid = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
         high_level_path_grid = np.array(high_level_path_grid).reshape(-1,2)
+        self.feedback.print("INFO", f"High level path (grid cells): {high_level_path_grid}")
         current_point_grid = self.global_pose_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
-        
+        self.feedback.print("INFO", f"Current point (grid cell): {current_point_grid}")
+
+
+
         # convert poses to shapely points/lines
         high_level_path_shapely = shapely.LineString(high_level_path_grid)
-        current_point_shapely = shapely.Point(current_point_grid[1], current_point_grid[0]) # (x,y) = (col, row)
+        current_point_shapely = shapely.Point(current_point_grid[0], current_point_grid[1]) # (x,y) = (col, row)
 
         # where are we along the path?
         progress_distance_shapely = shapely.line_locate_point(high_level_path_shapely, current_point_shapely)
+        self.feedback.print("INFO", f"Current point: {current_point_grid}, progress distance along path: {progress_distance_shapely}, lookahead distance: {lookahead_distance_grid}")
         progress_point_shapely = shapely.line_interpolate_point(high_level_path_shapely, progress_distance_shapely)
         
         # get line point at lookahead distance
