@@ -45,7 +45,16 @@ class Tester(Node):
             "hamilton/odom", "bag", np.array([5.0, 5, 0]), np.array([7.0, 7, 0])
         )
 
-        seq = ActionSequence("id0", "spot", [follow_cmd, pick_cmd])
+        path = np.array(
+            [
+                [3.8, 0],
+                [7.8, 0],
+            ]
+        )
+
+        second_follow_cmd = Follow("hamilton/odom", path)
+
+        seq = ActionSequence("id0", "spot", [follow_cmd, pick_cmd, second_follow_cmd])
 
         publisher.publish(to_msg(seq))
         viz_publisher.publish(to_viz_msg(seq, "planner_ns"))

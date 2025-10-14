@@ -249,6 +249,9 @@ def object_grasp(
     )
 
     loop_timer = time.time()
+
+    # Reset success --> agent is successful only if it detects the object and picks it up
+    success = False
     # Get feedback from the robot
     while True:
         current_time = time.time()
@@ -279,7 +282,8 @@ def object_grasp(
         ]
 
         if response.current_state in failed_states:
-            print("Grasp failed.")
+            if feedback is not None:
+                feedback.print("INFO", "GRASP FAILED")
             break
 
         if response.current_state == manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED:
