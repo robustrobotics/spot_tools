@@ -182,6 +182,8 @@ def create_test_map(width=200, height=200):
     return grid
 
 
+
+
 def main():
     parser = argparse.ArgumentParser(description='Fake occupancy publisher')
     parser.add_argument('--robot_name', type=str, default='hamilton', help='Robot name')
