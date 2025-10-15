@@ -12,9 +12,20 @@ from geometry_msgs.msg import Pose
 from functools import partial
 from scipy.spatial.transform import Rotation
 
-
-
-
+def pose_to_homo(pose, quat):
+    '''
+    Input:
+        - pose: list [x, y, z]
+        - quat: ros2 geometry_msgs.msg.Quaternion
+    '''
+    # Convert pose and quaternion to a 4x4 homogeneous transformation matrix
+    trans = np.array(pose)
+    rot_mat = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
+    homo_mat = np.eye(4)
+    homo_mat[:3, :3] = rot_mat
+    homo_mat[:3, 3] = trans
+    return homo_mat
+        
 def get_robot_pose(tf_buffer, parent_frame: str, child_frame: str):
     """Looks up the transform from parent_frame to child_frame"""
     try:
@@ -30,14 +41,9 @@ def get_robot_pose(tf_buffer, parent_frame: str, child_frame: str):
         print(f"Transform error: {e}")
         raise
 
-
-
 class FakeOccupancyPublisher(Node):
-    def __init__(self, occupancy_grid, resolution, robot_name, crop_distance=-1, publish_rate=10.0, use_sim_time=False):
+    def __init__(self, occupancy_grid, resolution, robot_name, crop_distance=-1, publish_rate=10.0):
         super().__init__("fake_occupancy_publisher")
-
-        # Enable simulation time for bag playback
-        # self.declare_parameter('use_sim_time', use_sim_time)
 
         self.occupancy_grid = occupancy_grid.astype(np.int8)
         self.resolution = resolution
@@ -111,20 +117,6 @@ class FakeOccupancyPublisher(Node):
         Output:
             - cropped_grid: flattened numpy array
         '''
-
-        def pose_to_homo(pose, quat):
-            '''
-            Input:
-                - pose: list [x, y, z]
-                - quat: ros2 geometry_msgs.msg.Quaternion
-            '''
-            # Convert pose and quaternion to a 4x4 homogeneous transformation matrix
-            trans = np.array(pose)
-            rot_mat = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
-            homo_mat = np.eye(4)
-            homo_mat[:3, :3] = rot_mat
-            homo_mat[:3, 3] = trans
-            return homo_mat
         
         # Get transformation from odom to map frame
         odom_to_map = self.tf_lookup_fn(self.odom_frame, self.map_frame)
@@ -193,6 +185,9 @@ def create_test_map(width=200, height=200):
 def main():
     parser = argparse.ArgumentParser(description='Fake occupancy publisher')
     parser.add_argument('--robot_name', type=str, default='hamilton', help='Robot name')
+    parser.add_argument('--resolution', type=float, default=0.12, help='Map resolution in meters/cell')
+    parser.add_argument('--crop_distance', type=float, default=5.0, help='Crop distance in meters (set to -1 to disable cropping)')
+    parser.add_argument('--publish_rate', type=float, default=10.0, help='Publish rate in Hz')
     args = parser.parse_args()
     rclpy.init()
 
@@ -202,11 +197,10 @@ def main():
 
     node = FakeOccupancyPublisher(
         occupancy_grid=occupancy_map,
-        resolution=0.12,
+        resolution=args.resolution,
         robot_name=args.robot_name,
-        publish_rate=10.0,
-        crop_distance=5.0,
-        use_sim_time=False  # Set to True when playing from bag
+        publish_rate=args.publish_rate,
+        crop_distance=args.crop_distance
     )
 
     try:

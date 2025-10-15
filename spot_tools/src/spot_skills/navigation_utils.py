@@ -152,16 +152,9 @@ def follow_trajectory_continuous(
 
     spot.robot.ensure_client(RobotCommandClient.default_service_name)
 
-    # if robot is outside the threshold distance -> fail
-    # if path is close -> keep following -> try to get to the goal
-    if mid_level_planner is not None:
-        feedback.print("INFO", "Using mid-level planner for path following")
-        mlp_success, path_output = mid_level_planner.plan_path(waypoints_list[:, :2])
-        path = path_output['path_shapely']
-        path_wp = path_output['path_waypoints_metric']
-        target_point_metric = path_output['target_point_metric']
-    else:
+    if mid_level_planner is None:
         path = shapely.LineString(waypoints_list[:, :2])
+        
     end_pt = waypoints_list[-1, :2]
     t0 = time.time()
     rate = 10

@@ -32,6 +32,20 @@ import pickle
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.utils import waypoints_to_path
 
+def pose_to_homo(pose, quat):
+    '''
+    Input:
+        - pose: list [x, y, z]
+        - quat: ros2 geometry_msgs.msg.Quaternion
+    '''
+    # Convert pose and quaternion to a 4x4 homogeneous transformation matrix
+    trans = np.array(pose)
+    rot_mat = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
+    homo_mat = np.eye(4)
+    homo_mat[:3, :3] = rot_mat
+    homo_mat[:3, 3] = trans
+    return homo_mat
+
 
 def get_robot_pose(tf_buffer, parent_frame: str, child_frame: str):
     """
@@ -200,8 +214,6 @@ class RosFeedbackCollector:
         self.mlp_target_publisher.publish(
             build_marker(target_point_metric_flattened, "projected target point", self.odom_frame)
         )
-        
-
 
     def gaze_feedback(self, pose, gaze_point):
         pass
@@ -360,11 +372,6 @@ class SpotExecutorRos(Node):
         self.declare_parameter("publish_fake_path_plan", False)
         publish_fake_path_plan = self.get_parameter("publish_fake_path_plan").value
         self.get_logger().info(f"{use_fake_occupancy_map=}, {publish_fake_path_plan=}")
-        
-        if publish_fake_path_plan:
-            self.get_logger().info("Will publish fake path plan and save occupancy grid msg")
-        if use_fake_occupancy_map:
-            self.get_logger().info("Will publish fake occupancy map, requires occupancy_grid_msg.pkl in ~/adt4_output/occupancy_grid/")
 
         if use_fake_spot_interface:
             self.declare_parameter("fake_spot_external_pose", False)
@@ -397,10 +404,6 @@ class SpotExecutorRos(Node):
                 semantic_model_path=None,
             )
 
-            # self.declare_parameter("body_frame", "")
-            # body_frame = self.get_parameter("body_frame").value
-            # assert body_frame != ""
-
             self.spot_ros_interface = FakeSpotRos(
                 self,
                 self.spot_interface,
@@ -408,7 +411,6 @@ class SpotExecutorRos(Node):
                 body_frame,
                 external_pose=external_pose,
             )
-            self.body_frame = body_frame
 
         else:
             self.get_logger().info("About to initialize Spot")
@@ -484,20 +486,6 @@ class SpotExecutorRos(Node):
             self.inflated_occupancy_grid_publisher = self.create_publisher(
                 OccupancyGrid, "~/inflated_occupancy_grid", qos_profile=latching_qos
             )
-            
-            
-            
-            #### publish fake occupancy grid for testing ####
-            if use_fake_occupancy_map:
-                # create fake occupancy grid publisher
-                self.fake_occupancy_grid_publisher = self.create_publisher(
-                    OccupancyGrid, "~/occupancy_grid", 10
-                )
-            if publish_fake_path_plan:
-                self.fake_path_plan_publisher = self.create_publisher(
-                    ActionSequenceMsg, "~/action_sequence_subscriber", 10
-                )
-            #### publish fake occupancy grid for testing ####
 
     def publish_inflated_occupancy_grid(self, original_msg):
         '''
@@ -532,20 +520,6 @@ class SpotExecutorRos(Node):
         occupancy_frame_id = msg.header.frame_id
         map_origin = msg.info.origin # map origin is the lower right corner of the grid in <robot_name>/map frame, with z pinting up
         occ_map = np.array(msg.data, dtype=np.int8).reshape((h, w))
-        
-        def pose_to_homo(pose, quat):
-            '''
-            Input:
-                - pose: list [x, y, z]
-                - quat: ros2 geometry_msgs.msg.Quaternion
-            '''
-            # Convert pose and quaternion to a 4x4 homogeneous transformation matrix
-            trans = np.array(pose)
-            rot_mat = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
-            homo_mat = np.eye(4)
-            homo_mat[:3, :3] = rot_mat
-            homo_mat[:3, 3] = trans
-            return homo_mat
 
         # put test code here to see status
         # robot_pose = self.spot_interface.get_pose() # not working in sim ??
@@ -565,59 +539,6 @@ class SpotExecutorRos(Node):
 
         # Publish the inflated occupancy grid
         self.publish_inflated_occupancy_grid(msg)
-
-        if hasattr(self, "fake_path_plan_publisher"):
-            # also save the occupancy grid msg for visualization
-            home_dir = os.environ.get("HOME") 
-            occ_dir = home_dir + "/adt4_output/occupancy_grid/"
-            if not os.path.exists(occ_dir):
-                os.makedirs(occ_dir)
-            with open(occ_dir + "occupancy_grid_msg.pkl", "wb") as f:
-                pickle.dump(msg, f)
-            np.save(occ_dir + "occupancy_grid.npy", occ_map)
-            
-            msg = ActionSequenceMsg()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.header.frame_id = 'map'
-            msg.plan_id = "fake_path_plan"
-            msg.robot_name = self.body_frame.split('/')[0] # assuming body frame is in the format of <robot_name>/body
-            msg.actions = []
-            
-            # create action msg
-            action_msg = ActionMsg()
-            action_msg.action_type = "FOLLOW"
-            path = Path()
-            path.header.frame_id = 'map'
-            path.header.stamp = self.get_clock().now().to_msg()
-            path.poses = []
-            
-            # add poses to path
-            robot_pose_odom_frame = self.tf_lookup_fn('map', self.body_frame)
-            # create a straight line path 20m in front of the robot
-            yaw = tf_transformations.euler_from_quaternion([robot_pose_odom_frame[1].x, robot_pose_odom_frame[1].y, robot_pose_odom_frame[1].z, robot_pose_odom_frame[1].w])[2]
-            constructed_path = np.array([
-                [robot_pose_odom_frame[0][0], robot_pose_odom_frame[0][1], yaw],
-                [robot_pose_odom_frame[0][0] + 20 * np.cos(yaw), robot_pose_odom_frame[0][1] + 20 * np.sin(yaw), yaw]
-            ])  
-            for p in constructed_path:
-                pose_stamped = PoseStamped()
-                pose_stamped.header.frame_id = 'map'
-                pose_stamped.header.stamp = self.get_clock().now().to_msg()
-                pose_stamped.pose.position.x = p[0]
-                pose_stamped.pose.position.y = p[1]
-                pose_stamped.pose.position.z = 0.0
-                quat = tf_transformations.quaternion_from_euler(0, 0, p[2])
-                pose_stamped.pose.orientation.x = quat[0]
-                pose_stamped.pose.orientation.y = quat[1]
-                pose_stamped.pose.orientation.z = quat[2]
-                pose_stamped.pose.orientation.w = quat[3]
-                path.poses.append(pose_stamped)
-                
-            # put everything together
-            action_msg.path = path
-            msg.actions.append(action_msg)
-            self.fake_path_plan_publisher.publish(msg)
-            
             
     def hb_callback(self):
         msg = NodeInfoMsg()
@@ -626,16 +547,6 @@ class SpotExecutorRos(Node):
         msg.status = NodeInfoMsg.NOMINAL
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
-        
-        # if hasattr(self, "fake_occupancy_grid_publisher"):
-            # occ_msg = pickle.loads(open(os.environ.get("HOME") + "/adt4_output/occupancy_grid/occupancy_grid_msg.pkl", "rb").read())
-            # occ_msg.header.stamp = self.get_clock().now().to_msg()
-            # # shift the map so that robot is inside the grid
-            # robot_pose_in_hamilton_map = self.tf_lookup_fn(self.occupancy_frame, self.body_frame)
-            # occ_msg.info.origin.position.x = robot_pose_in_hamilton_map[0][0] - occ_msg.info.width * occ_msg.info.resolution / 2
-            # occ_msg.info.origin.position.y = robot_pose_in_hamilton_map[0][1] - occ_msg.info.height * occ_msg.info.resolution / 2
-            # self.fake_occupancy_grid_publisher.publish(occ_msg)
-        
             
     def process_action_sequence(self, msg):
         def process_sequence():

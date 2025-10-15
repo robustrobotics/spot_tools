@@ -3,23 +3,30 @@ import numpy as np
 import shapely
 from scipy.ndimage import binary_dilation, convolve
 
+def invert_pose(p):
+    p_inv = np.zeros((4, 4))
+    p_inv[:3, :3] = p[:3, :3].T
+    p_inv[:3, 3] = -p[:3, :3].T @ p[:3, 3]
+    p_inv[3, 3] = 1
+    return p_inv
 
-class MidLevelPlanner:
-    def __init__(self, use_fake_path_planner, feedback):
+class OccupancyGrid:
+    def __init__(self, feedback):
         self.feedback = feedback
         self.occupancy_grid = None
         self.map_resolution = None 
-        # poses are 4x4 homogeneous transformation matrix
         self.map_origin = None  # <robot>/odom frame
-        self.robot_pose = None  # <robot>/odom frame
-        # high level plan is in <robot>/odom frame
         self.inflate_radius_meters = 0.3  # meters
-        self.use_fake_path_planner = use_fake_path_planner
-        self.feedback.print("INFO", f"MidLevelPlanner initialized, {self.use_fake_path_planner=}")
-        if self.use_fake_path_planner:
-            self.feedback.print("INFO", "NOTE: See path in <robot>odom frame")
+    
+    def get_grid(self):
+        return self.occupancy_grid
+    
+    def set_grid(self, grid, resolution, origin):
+        self.occupancy_grid = grid 
+        self.map_resolution = resolution
+        self.map_origin = origin
+        self.occupancy_grid = self.inflate_obstacles(self.occupancy_grid, self.inflate_radius_meters)
 
-    # have a script to send the ActionSequenceMsg, check omniplanner
     def global_pose_to_grid_cell(self, pose):
         '''
         Input:
@@ -29,14 +36,14 @@ class MidLevelPlanner:
         
         indexing: (i, j) = (row, col) = (y, x)
         '''
-        pose_in_grid_frame = np.linalg.inv(self.map_origin) @ pose # (4,1)
+        pose_in_grid_frame = invert_pose(self.map_origin) @ pose # (4,1)
         
         # Convert the pose to grid coordinates
         grid_j = int(pose_in_grid_frame[0, 0] / self.map_resolution)
         grid_i = int(pose_in_grid_frame[1, 0] / self.map_resolution)
                 
         return (grid_i, grid_j)
-
+    
     def grid_cell_to_global_pose(self, cell_indx):
         '''
         Input:
@@ -49,15 +56,91 @@ class MidLevelPlanner:
         pose_in_grid_frame = np.array([j * self.map_resolution, i * self.map_resolution, 0, 1]).reshape(4,1)
         pose_in_global_frame = self.map_origin @ pose_in_grid_frame
         return pose_in_global_frame
+
+    def inflate_obstacles(self, grid, inflate_radius_meters):
+        '''
+        Inflates obstacles in the occupancy grid by a given radius in meters.
+
+        Input:
+            - inflate_radius_meters: float, the radius to inflate obstacles by (in meters)
+
+        Output:
+            - inflated_grid: numpy array, the occupancy grid with inflated obstacles
+
+        Note: This function creates a copy of the grid and returns it without modifying
+              the original self.occupancy_grid. Call set_grid() to update the grid.
+        '''
+
+        # Convert radius from meters to grid cells
+        inflate_radius_cells = int(np.ceil(inflate_radius_meters / self.map_resolution))
+
+        if inflate_radius_cells <= 0:
+            self.feedback.print("INFO", f"Inflate radius too small ({inflate_radius_meters}m = {inflate_radius_cells} cells), returning original grid")
+            return grid.copy()
+
+        # Create binary mask of obstacles (occupied cells with value > 0)
+        obstacle_mask = grid > 0
+
+        # Create circular structuring element for dilation
+        y, x = np.ogrid[-inflate_radius_cells:inflate_radius_cells+1,
+                        -inflate_radius_cells:inflate_radius_cells+1]
+        structuring_element = x**2 + y**2 <= inflate_radius_cells**2
+
+        # Dilate the obstacle mask
+        inflated_mask = binary_dilation(obstacle_mask, structure=structuring_element)
+
+        # Create inflated grid (copy of original)
+        inflated_grid = grid.copy()
+
+        # Update cells that were free (0) but are now in inflated zone
+        # Preserve unknown (-1) cells and already occupied cells
+        newly_occupied = inflated_mask & (grid == 0)
+        inflated_grid[newly_occupied] = 100
+
+        return inflated_grid
     
+class MidLevelPlanner:
+    def __init__(self, use_fake_path_planner, feedback):
+        self.feedback = feedback
+        # poses are 4x4 homogeneous transformation matrix
+        self.robot_pose = None  # <robot>/odom frame
+        # high level plan is in <robot>/odom frame
+        self.inflate_radius_meters = 0.3  # meters
+        
+        self.occupancy_grid_obj = OccupancyGrid(feedback)
+        
+        self.use_fake_path_planner = use_fake_path_planner
+        
+        self.feedback.print("INFO", f"MidLevelPlanner initialized, {self.use_fake_path_planner=}")
+        if self.use_fake_path_planner:
+            self.feedback.print("INFO", "NOTE: See path in <robot>odom frame")
+    
+    def get_grid(self):
+        return self.occupancy_grid
+
+    def set_grid(self, grid, resolution, origin, frame=None):
+        self.occupancy_grid_obj.set_grid(grid, resolution, origin)
+
+    def set_robot_pose(self, pose):
+        self.robot_pose = pose
+        
+    def global_pose_to_grid_cell(self, pose):
+        return self.occupancy_grid_obj.global_pose_to_grid_cell(pose)
+    
+    def grid_cell_to_global_pose(self, cell_indx):
+        return self.occupancy_grid_obj.grid_cell_to_global_pose(cell_indx)
+    
+    @property
+    def occupancy_grid(self) -> np.ndarray:
+        return self.occupancy_grid_obj.get_grid()
     
     def plan_path(self, high_level_path_metric, lookahead_distance_grid = 50):
         '''
-        Input: high level path in global frame, Nx2 numpy array
+        Input: high level path in global frame (map frame), Nx2 numpy array
         Output: (bool, path) -> (success, path in odom frame)
         '''
         
-        high_level_path_debug = high_level_path_metric.copy()
+        # high_level_path_debug = high_level_path_metric.copy()
         
         ## First get target point along the path
         # 1. project to current path distance
@@ -69,8 +152,6 @@ class MidLevelPlanner:
         self.feedback.print("INFO", f"High level path (grid cells): {high_level_path_grid}")
         current_point_grid = self.global_pose_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
         self.feedback.print("INFO", f"Current point (grid cell): {current_point_grid}")
-
-
 
         # convert poses to shapely points/lines
         high_level_path_shapely = shapely.LineString(high_level_path_grid)
@@ -109,10 +190,11 @@ class MidLevelPlanner:
         a_star_path_metric = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in a_star_path_grid]
         a_star_path_metric = np.array(a_star_path_metric).reshape(-1,4)
         a_star_path_metric = a_star_path_metric[:, :2]
-        a_star_path_execute = a_star_path_metric # only take first 30 points for now        
+        a_star_path_execute = a_star_path_metric
 
         # project global point to local index
-        grid_path = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_debug[:, :2]]
+        # TODO: add comment to explain code
+        grid_path = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
         grid_path = np.array(grid_path)
         recovered_path = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in grid_path]
         recovered_path = np.array(recovered_path).reshape(-1,4)    
@@ -121,9 +203,6 @@ class MidLevelPlanner:
         return True, output
 
     def project_goal_to_grid_naive(self, goal):
-        ## assumes that goal is in same coordinate frame as the occupancy grid
-        # goal_cell = self.global_pose_to_grid_cell(goal)
-        # heurestic for right now will be clamping it to the occupancy grid.
         h, w = self.occupancy_grid.shape
         bound_i, bound_j = [0, h-1], [0, w-1]
 
@@ -138,7 +217,9 @@ class MidLevelPlanner:
                 return None
             dists = np.linalg.norm(free_cells - np.array(projected_cell).T, axis=1)
             projected_cell = tuple(free_cells[np.argmin(dists)])
-        # self.feedback.print("INFO", f"Projected cell: {projected_cell}")
+        
+        # debug the cell projection is correct
+        self.feedback.print("DEBUG", f"Projected cell: {projected_cell}")
         return projected_cell
 
 
@@ -176,8 +257,6 @@ class MidLevelPlanner:
             return None
         dists = np.linalg.norm(frontier_cells - np.array(goal).T, axis=1)
         return tuple(frontier_cells[np.argmin(dists)])
-
-
 
     def project_goal_to_grid(self, goal):
         ## assumes that goal is in same coordinate frame as the occupancy grid
@@ -246,7 +325,7 @@ class MidLevelPlanner:
                 path.append(start)
                 return path[::-1]
 
-            for dr, dc in connectivity: # 4-way connectivity
+            for dr, dc in connectivity:
                 neighbor = (current[0] + dr, current[1] + dc)
 
                 if not is_valid(neighbor) or is_obstacle(neighbor):
@@ -262,59 +341,3 @@ class MidLevelPlanner:
                         open_set_hash.add(neighbor)
         
         return None # No path found
-
-    def get_grid(self):
-        return self.occupancy_grid
-
-    def set_grid(self, grid, resolution, origin, frame=None):
-        self.occupancy_grid = grid 
-        self.map_resolution = resolution
-        self.map_origin = origin
-        self.occupancy_grid = self.inflate_obstacles(self.occupancy_grid, self.inflate_radius_meters)
-
-    def set_robot_pose(self, pose):
-        self.robot_pose = pose
-
-    def inflate_obstacles(self, grid, inflate_radius_meters):
-        '''
-        Inflates obstacles in the occupancy grid by a given radius in meters.
-
-        Input:
-            - inflate_radius_meters: float, the radius to inflate obstacles by (in meters)
-
-        Output:
-            - inflated_grid: numpy array, the occupancy grid with inflated obstacles
-
-        Note: This function creates a copy of the grid and returns it without modifying
-              the original self.occupancy_grid. Call set_grid() to update the grid.
-        '''
-
-        # Convert radius from meters to grid cells
-        inflate_radius_cells = int(np.ceil(inflate_radius_meters / self.map_resolution))
-
-        if inflate_radius_cells <= 0:
-            self.feedback.print("INFO", f"Inflate radius too small ({inflate_radius_meters}m = {inflate_radius_cells} cells), returning original grid")
-            return grid.copy()
-
-        # Create binary mask of obstacles (occupied cells with value > 0)
-        obstacle_mask = grid > 0
-
-        # Create circular structuring element for dilation
-        y, x = np.ogrid[-inflate_radius_cells:inflate_radius_cells+1,
-                        -inflate_radius_cells:inflate_radius_cells+1]
-        structuring_element = x**2 + y**2 <= inflate_radius_cells**2
-
-        # Dilate the obstacle mask
-        inflated_mask = binary_dilation(obstacle_mask, structure=structuring_element)
-
-        # Create inflated grid (copy of original)
-        inflated_grid = grid.copy()
-
-        # Update cells that were free (0) but are now in inflated zone
-        # Preserve unknown (-1) cells and already occupied cells
-        newly_occupied = inflated_mask & (grid == 0)
-        inflated_grid[newly_occupied] = 100
-
-        # self.feedback.print("INFO", f"Inflated obstacles by {inflate_radius_meters}m ({inflate_radius_cells} cells)")
-
-        return inflated_grid

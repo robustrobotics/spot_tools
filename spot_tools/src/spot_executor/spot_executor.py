@@ -172,7 +172,7 @@ class SpotExecutor:
         t, r = self.transform_lookup("<spot_vision_frame>", command.frame)
         command_to_send = transform_command_frame(
             t, r, command.path2d, feedback=feedback
-        ) # the path2d in is our odom frame
+        )
 
         path_distance = np.sum(
             np.linalg.norm(np.diff(command_to_send[:, :2], axis=0), axis=1)
@@ -186,6 +186,7 @@ class SpotExecutor:
         feedback.follow_path_feedback(command_to_send)
         
         if self.mid_level_planner is not None and self.use_fake_path_planner:
+            # this only publish the path but does not actually command the spot to follow it
             ret = False
             mlp_success, planning_output = self.mid_level_planner.plan_path(command_to_send[:, :2])
             path = planning_output['path_shapely']
