@@ -321,7 +321,7 @@ class SpotExecutor:
             self.spot_interface,
             command_to_send,
             self.follower_lookahead,
-            1.5,
+            self.goal_tolerance,
             timeout,
             feedback=feedback,
         )
