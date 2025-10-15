@@ -49,6 +49,23 @@ ros2 run spot_tools_ros fake_occupancy_publisher
 
 This publishes a test occupancy grid that the mid-level planner uses for obstacle avoidance and path planning.
 
+#### Occupancy Publisher Parameters
+
+You can customize the occupancy grid simulation using the following parameters:
+
+- `--num_obstacles <N>`: Number of simulated obstacles in the occupancy grid (default: 5)
+- `--crop_distance <D>`: How far the robot can "see" in meters - areas beyond this distance are marked as unknown (default: 5.0, set to -1 to disable cropping)
+- `--resolution <R>`: Map resolution in meters per cell (default: 0.12)
+- `--robot_name <NAME>`: Robot name for topic namespacing (default: 'hamilton')
+- `--publish_rate <RATE>`: Publishing frequency in Hz (default: 10.0)
+
+**Example with custom parameters:**
+```bash
+ros2 run spot_tools_ros fake_occupancy_publisher --num_obstacles 10 --crop_distance 8.0
+```
+
+This creates a more challenging environment with 10 obstacles and allows the robot to "see" up to 8 meters away.
+
 ### 3. Send Path Commands
 
 In another terminal, use the fake path publisher to send waypoint commands to the planner:

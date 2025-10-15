@@ -181,20 +181,48 @@ def create_test_map(width=200, height=200):
     grid[:10, 0:20] = 100  # Horizontal wall
     return grid
 
+def create_random_map(width=200, height=200, n_obstacles=10, 
+                      obstacle_min_size=5, obstacle_max_size=25):
+    """
+    Create an occupancy grid with n randomly placed rectangular obstacles.
+    0 = free, 100 = occupied.
 
+    Args:
+        width (int): Width of the map.
+        height (int): Height of the map.
+        n_obstacles (int): Number of obstacles to place.
+        obstacle_min_size (int): Minimum size of obstacle (in pixels).
+        obstacle_max_size (int): Maximum size of obstacle (in pixels).
+    """
+    grid = np.zeros((height, width), dtype=np.int8)
 
+    for _ in range(n_obstacles):
+        # Random obstacle size
+        w = np.random.randint(obstacle_min_size, obstacle_max_size)
+        h = np.random.randint(obstacle_min_size, obstacle_max_size)
+
+        # Random top-left corner (ensure obstacle fits within map bounds)
+        x = np.random.randint(0, width - w)
+        y = np.random.randint(0, height - h)
+
+        # Place the obstacle
+        grid[y:y+h, x:x+w] = 100
+
+    return grid
 
 def main():
     parser = argparse.ArgumentParser(description='Fake occupancy publisher')
     parser.add_argument('--robot_name', type=str, default='hamilton', help='Robot name')
     parser.add_argument('--resolution', type=float, default=0.12, help='Map resolution in meters/cell')
     parser.add_argument('--crop_distance', type=float, default=5.0, help='Crop distance in meters (set to -1 to disable cropping)')
+    parser.add_argument('--num_obstacles', type=int, default=15, help='Number of obstacles to place')
+
     parser.add_argument('--publish_rate', type=float, default=10.0, help='Publish rate in Hz')
     args = parser.parse_args()
     rclpy.init()
 
     # Create or load occupancy map
-    occupancy_map = create_test_map(width=200, height=200)
+    occupancy_map = create_random_map(width=200, height=200, n_obstacles=args.num_obstacles)
     # Or: occupancy_map = np.load("path/to/map.npy")
 
     node = FakeOccupancyPublisher(
