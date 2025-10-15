@@ -243,7 +243,6 @@ class RosFeedbackCollector:
             depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL
         )
 
-        # Keeping the "~/" prefix notation for private topics in ROS 2
         self.smooth_path_publisher = node.create_publisher(
             Path, "~/smooth_path_publisher", qos_profile=latching_qos
         )
@@ -264,7 +263,6 @@ class RosFeedbackCollector:
             MarkerArray, "~/progress_point_visualizer", qos_profile=latching_qos
         )
 
-        # Keeping the "~/" prefix notation for private topics in ROS 2
         self.mlp_path_publisher = node.create_publisher(
             Path, "~/mlp_path_publisher", qos_profile=latching_qos
         )

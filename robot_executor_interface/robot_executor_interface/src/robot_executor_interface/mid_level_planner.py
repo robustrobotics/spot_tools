@@ -136,11 +136,9 @@ class MidLevelPlanner:
     
     def plan_path(self, high_level_path_metric, lookahead_distance_grid = 50):
         '''
-        Input: high level path in global frame (map frame), Nx2 numpy array
+        Input: high level path in <robot>/odom frame, Nx2 numpy array
         Output: (bool, path) -> (success, path in odom frame)
         '''
-        
-        # high_level_path_debug = high_level_path_metric.copy()
         
         ## First get target point along the path
         # 1. project to current path distance
@@ -181,7 +179,6 @@ class MidLevelPlanner:
         a_star_path_grid = self.a_star(current_point_grid, target_point_grid_proj)
         
         if a_star_path_grid is None:
-            # return False, None, None # or fallback
             # fall back using the high level path directly, and return empty visualization
             self.feedback.print("INFO", "A* failed, falling back to high level path")
             return False, output
@@ -260,7 +257,6 @@ class MidLevelPlanner:
 
     def project_goal_to_grid(self, goal):
         ## assumes that goal is in same coordinate frame as the occupancy grid
-        # goal_cell = self.global_pose_to_grid_cell(goal)
         # heurestic for right now will be clamping it to the occupancy grid.
         h, w = self.occupancy_grid.shape
         bound_i, bound_j = [0, h-1], [0, w-1]
