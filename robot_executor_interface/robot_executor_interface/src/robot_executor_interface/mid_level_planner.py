@@ -152,6 +152,12 @@ class MidLevelPlanner:
     def occupancy_map(self) -> np.ndarray:
         return self.occupancy_map_obj.get_grid()
     
+
+    def get_progress_along_path(self, path_shapely, current_point):
+        self.feedback.print("INFO", f"Current point: {current_point}")
+        current_point_shapely = shapely.Point(current_point[0], current_point[1]) # (x,y) = (col, row)
+        return shapely.line_locate_point(path_shapely, current_point_shapely)
+
     def plan_path(self, high_level_path_metric):
         '''
         Input: high level path in <robot>/odom frame, Nx2 numpy array
@@ -175,12 +181,9 @@ class MidLevelPlanner:
 
             # convert poses to shapely points/lines
             high_level_path_shapely = shapely.LineString(high_level_path_grid)
-            current_point_shapely = shapely.Point(current_point_grid[0], current_point_grid[1]) # (x,y) = (col, row)
-
             # where are we along the path?
-            progress_distance_shapely = shapely.line_locate_point(high_level_path_shapely, current_point_shapely)
-            self.feedback.print("DEBUG", f"Current point: {current_point_grid}, progress distance along path: {progress_distance_shapely}, lookahead distance: {self.lookahead_distance_grid}")
-            progress_point_shapely = shapely.line_interpolate_point(high_level_path_shapely, progress_distance_shapely)
+            progress_distance_shapely = self.get_progress_along_path(high_level_path_shapely, current_point_grid)
+            self.feedback.print("INFO", f"Current point: {current_point_grid}, progress distance along path: {progress_distance_shapely}, lookahead distance: {self.lookahead_distance_grid}")
             
             # get line point at lookahead distance
             target_distance_shapely = progress_distance_shapely + self.lookahead_distance_grid
@@ -188,8 +191,8 @@ class MidLevelPlanner:
             
             # find the target in grid cell coordinates (make it free)
             target_point_grid = (int(target_point_shapely.x), int(target_point_shapely.y))
-            target_point_grid_proj = self.project_goal_to_grid(target_point_grid)
-            
+            target_point_grid_proj = self.project_goal_to_grid(target_point_grid, high_level_path_shapely)
+        
 
             output = {
                         'target_point_metric': self.grid_cell_to_global_pose(target_point_grid_proj),
@@ -240,54 +243,72 @@ class MidLevelPlanner:
         # debug the cell projection is correct
         self.feedback.print("DEBUG", f"Projected cell: {projected_cell}")
         return projected_cell
-
-
-    def project_goal_observed(self, goal):
-        def is_free(cell):
-            return self.occupancy_map[cell[0], cell[1]] == 0
-
-        if is_free(goal):
-            return goal
-        free_cells = np.argwhere(self.occupancy_map == 0)
-        if free_cells.size == 0:
-            return None
-        dists = np.linalg.norm(free_cells - np.array(goal).T, axis=1)
-        return tuple(free_cells[np.argmin(dists)])
-
-    def project_goal_unknown_frontier(self, goal):
-        # Define a 4-connected kernel
+    
+    def get_frontier_cells(self):
         kernel = np.ones((3,3), dtype=np.uint8)
         kernel[1,1] = 0
 
         # Unknown neighbor count for each cell
-        unknown_neighbors = convolve((self.occupancy_map == -1).astype(np.uint8), kernel, mode='constant', cval=1)
+        unknown_neighbors = convolve((self.occupancy_grid == -1).astype(np.uint8), kernel, mode='constant', cval=1)
 
         # Edge mask (True for border cells)
-        edge_mask = np.zeros_like(self.occupancy_map, dtype=bool)
+        edge_mask = np.zeros_like(self.occupancy_grid, dtype=bool)
         edge_mask[0, :] = True
         edge_mask[-1, :] = True
         edge_mask[:, 0] = True
         edge_mask[:, -1] = True
 
         # Frontier = free and (has unknown neighbor OR on edge)
-        frontier_mask = (self.occupancy_map == 0) & ((unknown_neighbors > 0) | edge_mask)
+        frontier_mask = (self.occupancy_grid == 0) & ((unknown_neighbors > 0) | edge_mask)
+        
         frontier_cells = np.argwhere(frontier_mask)
-        if frontier_cells.size == 0:
-            return None
-        dists = np.linalg.norm(frontier_cells - np.array(goal).T, axis=1)
-        return tuple(frontier_cells[np.argmin(dists)])
+    
+        return frontier_cells
 
-    def project_goal_to_grid(self, goal):
+    def project_goal_observed(self, goal, path_shapely, epsilon=0):
+        def is_free(cell):
+            return self.occupancy_grid[cell[0], cell[1]] == 0
+
+        if is_free(goal):
+            return goal
+        free_cells = np.argwhere(self.occupancy_grid == 0)
+        frontier_cells = self.get_frontier_cells()
+        if free_cells.size == 0:
+            return None
+        
+        dists_free = np.linalg.norm(free_cells - np.array(goal).T, axis=1)
+
+        free_cell_candidate = tuple(free_cells[np.argmin(dists_free)])
+        free_cell_progress = self.get_progress_along_path(path_shapely, free_cell_candidate)
+
+        if frontier_cells.size == 0:
+            return free_cell_candidate
+
+
+        # dists_frontier = np.linalg.norm(frontier_cells - np.array(goal).T, axis=1)
+        dists_frontier = np.array([
+            self.get_progress_along_path(path_shapely, frontier_cell) + np.linalg.norm(np.array(frontier_cell) - np.array(goal).T)
+            for frontier_cell in frontier_cells
+        ])
+        frontier_cell_candidate = tuple(frontier_cells[np.argmax(dists_frontier)])
+        frontier_cell_progress = self.get_progress_along_path(path_shapely, frontier_cell_candidate)
+
+        if frontier_cell_progress + epsilon < free_cell_progress:
+            return free_cell_candidate
+        
+        return frontier_cell_candidate
+    
+    def project_goal_to_grid(self, goal, path_shapely):
         ## assumes that goal is in same coordinate frame as the occupancy grid
         # heurestic for right now will be clamping it to the occupancy grid.
-        h, w = self.occupancy_map.shape
+        h, w = self.occupancy_grid.shape
         bound_i, bound_j = [0, h-1], [0, w-1]
 
         def within_bounds(cell):
             return (bound_i[0] <= cell[0] <= bound_i[1]) and (bound_j[0] <= cell[1] <= bound_j[1])
 
         if within_bounds(goal):
-            return self.project_goal_observed(goal)
+            return self.project_goal_observed(goal, path_shapely)
 
         return self.project_goal_unknown_frontier(goal)
 
