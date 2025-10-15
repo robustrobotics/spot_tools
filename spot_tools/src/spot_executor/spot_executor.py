@@ -15,7 +15,7 @@ from robot_executor_interface.action_descriptions import (
 from scipy.spatial.transform import Rotation
 
 from spot_skills.arm_utils import gaze_at_vision_pose
-from spot_skills.grasp_utils import object_grasp, object_place
+from spot_skills.grasp_utils import object_grasp, object_place, stow_arm
 from spot_skills.navigation_utils import (
     follow_trajectory_continuous,
     turn_to_point,
@@ -78,6 +78,7 @@ class LeaseManager:
                         )
                     self.spot_interface.take_lease()
                     try:
+                        stow_arm(self.spot_interface)
                         self.spot_interface.stand()
                     except BehaviorFaultError:
                         fault_ids = []
@@ -109,6 +110,9 @@ class LeaseManager:
                                     "WARN",
                                     "LEASE MANAGER THREAD: Could not clear all behavior faults, cannot stand.",
                                 )
+                    time.sleep(1)
+                    if self.feedback is not None:
+                        self.feedback.break_out_of_waiting_loop = False
                     self.taking_back_lease = False
                 time.sleep(0.5)
 
@@ -199,6 +203,7 @@ class SpotExecutor:
                 pick_next = False
                 if ix < len(sequence.actions) - 1:
                     pick_next = type(sequence.actions[ix + 1]) is Pick
+                feedback.print("INFO", "\n")
                 feedback.print("INFO", "Spot executor executing command: ")
                 feedback.print("INFO", command)
 
@@ -316,7 +321,7 @@ class SpotExecutor:
             self.spot_interface,
             command_to_send,
             self.follower_lookahead,
-            self.goal_tolerance,
+            1.5,
             timeout,
             feedback=feedback,
         )
