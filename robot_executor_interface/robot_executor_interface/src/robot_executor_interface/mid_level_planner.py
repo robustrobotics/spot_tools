@@ -249,8 +249,6 @@ class MidLevelPlanner:
         def is_free(cell):
             return self.occupancy_grid[cell[0], cell[1]] == 0
 
-        distances = []
-        target_candidates = []
         if is_free(goal):
             return goal
         free_cells = np.argwhere(self.occupancy_grid == 0)
