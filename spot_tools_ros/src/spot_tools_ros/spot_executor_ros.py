@@ -322,27 +322,21 @@ class SpotExecutorRos(Node):
         # Robot Initialization
         self.declare_parameter("use_fake_spot_interface", False)
         use_fake_spot_interface = self.get_parameter("use_fake_spot_interface").value
-        self.declare_parameter("use_mid_level_planner", False)
-        use_mid_level_planner = self.get_parameter("use_mid_level_planner").value
-        self.get_logger().info(f"{use_mid_level_planner=}")
         
         # mid-level planner parameters
+        self.declare_parameter("mid_level_planner_type", "identity")
         self.declare_parameter("lookahead_distance", 50)
+        self.declare_parameter("occupancy_inflation_radius", 0.5)
+        self.declare_parameter("use_fake_path_plan", False)
+        mid_level_planner_type = self.get_parameter("mid_level_planner_type").value
         lookahead_distance = self.get_parameter("lookahead_distance").value
         assert lookahead_distance > 0
-        self.declare_parameter("occupancy_inflation_radius", 0.5)
         occupancy_inflation_radius = self.get_parameter("occupancy_inflation_radius").value
         assert occupancy_inflation_radius > 0
-        
-        self.declare_parameter("use_fake_occupancy_map", False)
-        use_fake_occupancy_map = self.get_parameter("use_fake_occupancy_map").value
-        self.declare_parameter("use_fake_path_plan", False)
         use_fake_path_plan = self.get_parameter("use_fake_path_plan").value
-        self.get_logger().info(f"{use_fake_occupancy_map=}, {use_fake_path_plan=}")
+        self.get_logger().info(f"{mid_level_planner_type=}, {use_fake_path_plan=}")
 
         # mid-level planner initialization
-        mid_level_planner_type = "astar"
-        # mid_level_planner_type = "identity"
         match mid_level_planner_type:
             case "astar":
                 self.occupancy_map = OccupancyMap(self.feedback_collector, inflate_radius_meters=occupancy_inflation_radius)
