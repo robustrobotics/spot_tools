@@ -1,6 +1,7 @@
 import heapq
 import numpy as np
 import shapely
+import threading
 from scipy.ndimage import binary_dilation, convolve
 
 def invert_pose(p):
@@ -10,22 +11,47 @@ def invert_pose(p):
     p_inv[3, 3] = 1
     return p_inv
 
-class OccupancyGrid:
-    def __init__(self, feedback):
+class OccupancyMap:
+    """
+    OccupancyMap is designed to be asynchronously updated by a ROS callback. To safely access the map, you do
+
+    ```
+        om = OccupancyMap(...)
+        with om:
+            # run the planner
+    ```
+    
+    """
+    def __init__(self, feedback, occupancy_map = None, map_resolution = None, map_origin = None, inflate_radius_meters = 0.5):
         self.feedback = feedback
-        self.occupancy_grid = None
-        self.map_resolution = None 
-        self.map_origin = None  # <robot>/odom frame
-        self.inflate_radius_meters = 0.3  # meters
-    
+        self.occupancy_map = occupancy_map
+        self.map_resolution = map_resolution
+        self.map_origin = map_origin
+        self.robot_pose = None  # <robot>/odom frame
+        self.inflate_radius_meters = inflate_radius_meters
+        self.map_lock = threading.Lock() # used for async updates
+        self.last_update_time = None
+
+    def __enter__(self):
+        self.map_lock.acquire()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.map_lock.release()
+
     def get_grid(self):
-        return self.occupancy_grid
+        return self.occupancy_map
     
-    def set_grid(self, grid, resolution, origin):
-        self.occupancy_grid = grid 
+    def clone_grid(self):
+        return self.occupancy_map.copy() if self.occupancy_map is not None else None
+    
+    def set_grid(self, grid, resolution, origin, robot_pose, update_time):
+        self.last_update_time = update_time
+        self.occupancy_map = grid 
         self.map_resolution = resolution
         self.map_origin = origin
-        self.occupancy_grid = self.inflate_obstacles(self.occupancy_grid, self.inflate_radius_meters)
+        self.robot_pose = robot_pose
+        self.occupancy_map = self.inflate_obstacles(self.occupancy_map, self.inflate_radius_meters)
+        self.feedback.print("DEBUG", f"Occupancy map updated: shape={self.occupancy_map.shape}, resolution={self.map_resolution}, origin=\n{self.map_origin}, robot_pose=\n{self.robot_pose}")
 
     def global_pose_to_grid_cell(self, pose):
         '''
@@ -68,7 +94,7 @@ class OccupancyGrid:
             - inflated_grid: numpy array, the occupancy grid with inflated obstacles
 
         Note: This function creates a copy of the grid and returns it without modifying
-              the original self.occupancy_grid. Call set_grid() to update the grid.
+              the original self.occupancy_map. Call set_grid() to update the grid.
         '''
 
         # Convert radius from meters to grid cells
@@ -100,41 +126,33 @@ class OccupancyGrid:
         return inflated_grid
     
 class MidLevelPlanner:
-    def __init__(self, use_fake_path_planner, feedback):
+    def __init__(self, occupancy_map: OccupancyMap, feedback, use_fake_path_planner = False, lookahead_distance_grid = 50):
         self.feedback = feedback
         # poses are 4x4 homogeneous transformation matrix
         self.robot_pose = None  # <robot>/odom frame
         # high level plan is in <robot>/odom frame
-        self.inflate_radius_meters = 0.3  # meters
-        
-        self.occupancy_grid_obj = OccupancyGrid(feedback)
-        
+        self.lookahead_distance_grid = lookahead_distance_grid  # grid cells
+
+        self.occupancy_map_obj = occupancy_map
+
         self.use_fake_path_planner = use_fake_path_planner
+        
+        self.set_robot_pose()
+        self.global_pose_to_grid_cell = self.occupancy_map_obj.global_pose_to_grid_cell
+        self.grid_cell_to_global_pose = self.occupancy_map_obj.grid_cell_to_global_pose
         
         self.feedback.print("INFO", f"MidLevelPlanner initialized, {self.use_fake_path_planner=}")
         if self.use_fake_path_planner:
             self.feedback.print("INFO", "NOTE: See path in <robot>odom frame")
-    
-    def get_grid(self):
-        return self.occupancy_grid
 
-    def set_grid(self, grid, resolution, origin, frame=None):
-        self.occupancy_grid_obj.set_grid(grid, resolution, origin)
-
-    def set_robot_pose(self, pose):
-        self.robot_pose = pose
-        
-    def global_pose_to_grid_cell(self, pose):
-        return self.occupancy_grid_obj.global_pose_to_grid_cell(pose)
-    
-    def grid_cell_to_global_pose(self, cell_indx):
-        return self.occupancy_grid_obj.grid_cell_to_global_pose(cell_indx)
+    def set_robot_pose(self):
+        self.robot_pose = self.occupancy_map_obj.robot_pose
     
     @property
-    def occupancy_grid(self) -> np.ndarray:
-        return self.occupancy_grid_obj.get_grid()
+    def occupancy_map(self) -> np.ndarray:
+        return self.occupancy_map_obj.get_grid()
     
-    def plan_path(self, high_level_path_metric, lookahead_distance_grid = 50):
+    def plan_path(self, high_level_path_metric):
         '''
         Input: high level path in <robot>/odom frame, Nx2 numpy array
         Output: (bool, path) -> (success, path in odom frame)
@@ -144,72 +162,76 @@ class MidLevelPlanner:
         # 1. project to current path distance
         # Assume self.robot_pose is in vision coordinate frame
         
-        # convert poses to grid cells
-        high_level_path_grid = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
-        high_level_path_grid = np.array(high_level_path_grid).reshape(-1,2)
-        self.feedback.print("INFO", f"High level path (grid cells): {high_level_path_grid}")
-        current_point_grid = self.global_pose_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
-        self.feedback.print("INFO", f"Current point (grid cell): {current_point_grid}")
+        with self.occupancy_map_obj: #TODO: too ugly, any better way?
+            # get robot pose 
+            self.set_robot_pose()
+            
+            # convert poses to grid cells
+            high_level_path_grid = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
+            high_level_path_grid = np.array(high_level_path_grid).reshape(-1,2)
+            self.feedback.print("DEBUG", f"High level path (grid cells): {high_level_path_grid}")
+            current_point_grid = self.global_pose_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
+            self.feedback.print("DEBUG", f"Current point (grid cell): {current_point_grid}")
 
-        # convert poses to shapely points/lines
-        high_level_path_shapely = shapely.LineString(high_level_path_grid)
-        current_point_shapely = shapely.Point(current_point_grid[0], current_point_grid[1]) # (x,y) = (col, row)
+            # convert poses to shapely points/lines
+            high_level_path_shapely = shapely.LineString(high_level_path_grid)
+            current_point_shapely = shapely.Point(current_point_grid[0], current_point_grid[1]) # (x,y) = (col, row)
 
-        # where are we along the path?
-        progress_distance_shapely = shapely.line_locate_point(high_level_path_shapely, current_point_shapely)
-        self.feedback.print("INFO", f"Current point: {current_point_grid}, progress distance along path: {progress_distance_shapely}, lookahead distance: {lookahead_distance_grid}")
-        progress_point_shapely = shapely.line_interpolate_point(high_level_path_shapely, progress_distance_shapely)
-        
-        # get line point at lookahead distance
-        target_distance_shapely = progress_distance_shapely + lookahead_distance_grid
-        target_point_shapely = shapely.line_interpolate_point(high_level_path_shapely, target_distance_shapely)
-        
-        # find the target in grid cell coordinates (make it free)
-        target_point_grid = (int(target_point_shapely.x), int(target_point_shapely.y))
-        target_point_grid_proj = self.project_goal_to_grid(target_point_grid)
-        
+            # where are we along the path?
+            progress_distance_shapely = shapely.line_locate_point(high_level_path_shapely, current_point_shapely)
+            self.feedback.print("DEBUG", f"Current point: {current_point_grid}, progress distance along path: {progress_distance_shapely}, lookahead distance: {self.lookahead_distance_grid}")
+            progress_point_shapely = shapely.line_interpolate_point(high_level_path_shapely, progress_distance_shapely)
+            
+            # get line point at lookahead distance
+            target_distance_shapely = progress_distance_shapely + self.lookahead_distance_grid
+            target_point_shapely = shapely.line_interpolate_point(high_level_path_shapely, target_distance_shapely)
+            
+            # find the target in grid cell coordinates (make it free)
+            target_point_grid = (int(target_point_shapely.x), int(target_point_shapely.y))
+            target_point_grid_proj = self.project_goal_to_grid(target_point_grid)
+            
 
-        output = {
-                    'target_point_metric': self.grid_cell_to_global_pose(target_point_grid_proj),
-                    'path_shapely': shapely.LineString(high_level_path_metric[:, :2]),
-                    'path_waypoints_metric': []
-                }
+            output = {
+                        'target_point_metric': self.grid_cell_to_global_pose(target_point_grid_proj),
+                        'path_shapely': shapely.LineString(high_level_path_metric[:, :2]),
+                        'path_waypoints_metric': []
+                    }
 
-        # plan using a_star
-        a_star_path_grid = self.a_star(current_point_grid, target_point_grid_proj)
-        
-        if a_star_path_grid is None:
-            # fall back using the high level path directly, and return empty visualization
-            self.feedback.print("INFO", "A* failed, falling back to high level path")
-            return False, output
-        
-        # convert a_star path to metric coordinates
-        a_star_path_metric = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in a_star_path_grid]
-        a_star_path_metric = np.array(a_star_path_metric).reshape(-1,4)
-        a_star_path_metric = a_star_path_metric[:, :2]
-        a_star_path_execute = a_star_path_metric
+            # plan using a_star
+            a_star_path_grid = self.a_star(current_point_grid, target_point_grid_proj)
+            
+            if a_star_path_grid is None:
+                # fall back using the high level path directly, and return empty visualization
+                self.feedback.print("WARNING", "A* failed, falling back to high level path")
+                return False, output
+            
+            # convert a_star path to metric coordinates
+            a_star_path_metric = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in a_star_path_grid]
+            a_star_path_metric = np.array(a_star_path_metric).reshape(-1,4)
+            a_star_path_metric = a_star_path_metric[:, :2]
+            a_star_path_execute = a_star_path_metric
 
-        # project global point to local index
-        # TODO: add comment to explain code
-        grid_path = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
-        grid_path = np.array(grid_path)
-        recovered_path = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in grid_path]
-        recovered_path = np.array(recovered_path).reshape(-1,4)    
-        output['path_shapely'] = shapely.LineString(a_star_path_execute)
-        output['path_waypoints_metric'] = a_star_path_metric
-        return True, output
+            # project global point to local index
+            # TODO: add comment to explain code
+            grid_path = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
+            grid_path = np.array(grid_path)
+            recovered_path = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in grid_path]
+            recovered_path = np.array(recovered_path).reshape(-1,4)    
+            output['path_shapely'] = shapely.LineString(a_star_path_execute)
+            output['path_waypoints_metric'] = a_star_path_metric
+            return True, output
 
     def project_goal_to_grid_naive(self, goal):
-        h, w = self.occupancy_grid.shape
+        h, w = self.occupancy_map.shape
         bound_i, bound_j = [0, h-1], [0, w-1]
 
         projected_cell = (
             max(bound_i[0], min(goal[0], bound_i[1])),
             max(bound_j[0], min(goal[1], bound_j[1]))
         )
-        if self.occupancy_grid[projected_cell[0], projected_cell[1]] != 0:
+        if self.occupancy_map[projected_cell[0], projected_cell[1]] != 0:
             # if the goal is in an obstacle, find the nearest free cell
-            free_cells = np.argwhere(self.occupancy_grid == 0)
+            free_cells = np.argwhere(self.occupancy_map == 0)
             if free_cells.size == 0:
                 return None
             dists = np.linalg.norm(free_cells - np.array(projected_cell).T, axis=1)
@@ -222,11 +244,11 @@ class MidLevelPlanner:
 
     def project_goal_observed(self, goal):
         def is_free(cell):
-            return self.occupancy_grid[cell[0], cell[1]] == 0
+            return self.occupancy_map[cell[0], cell[1]] == 0
 
         if is_free(goal):
             return goal
-        free_cells = np.argwhere(self.occupancy_grid == 0)
+        free_cells = np.argwhere(self.occupancy_map == 0)
         if free_cells.size == 0:
             return None
         dists = np.linalg.norm(free_cells - np.array(goal).T, axis=1)
@@ -238,17 +260,17 @@ class MidLevelPlanner:
         kernel[1,1] = 0
 
         # Unknown neighbor count for each cell
-        unknown_neighbors = convolve((self.occupancy_grid == -1).astype(np.uint8), kernel, mode='constant', cval=1)
+        unknown_neighbors = convolve((self.occupancy_map == -1).astype(np.uint8), kernel, mode='constant', cval=1)
 
         # Edge mask (True for border cells)
-        edge_mask = np.zeros_like(self.occupancy_grid, dtype=bool)
+        edge_mask = np.zeros_like(self.occupancy_map, dtype=bool)
         edge_mask[0, :] = True
         edge_mask[-1, :] = True
         edge_mask[:, 0] = True
         edge_mask[:, -1] = True
 
         # Frontier = free and (has unknown neighbor OR on edge)
-        frontier_mask = (self.occupancy_grid == 0) & ((unknown_neighbors > 0) | edge_mask)
+        frontier_mask = (self.occupancy_map == 0) & ((unknown_neighbors > 0) | edge_mask)
         frontier_cells = np.argwhere(frontier_mask)
         if frontier_cells.size == 0:
             return None
@@ -258,7 +280,7 @@ class MidLevelPlanner:
     def project_goal_to_grid(self, goal):
         ## assumes that goal is in same coordinate frame as the occupancy grid
         # heurestic for right now will be clamping it to the occupancy grid.
-        h, w = self.occupancy_grid.shape
+        h, w = self.occupancy_map.shape
         bound_i, bound_j = [0, h-1], [0, w-1]
 
         def within_bounds(cell):
@@ -280,18 +302,19 @@ class MidLevelPlanner:
         else:
             connectivity = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # 4-way connectivity
             
-        if self.occupancy_grid is None:
+        if self.occupancy_map is None:
             return None
 
-        rows, cols = self.occupancy_grid.shape
+        rows, cols = self.occupancy_map.shape
         
         def is_valid(cell):
             return 0 <= cell[0] < rows and 0 <= cell[1] < cols
 
         def is_obstacle(cell):
-            # return self.occupancy_grid[cell[0], cell[1]] != 0
+            # return self.occupancy_map[cell[0], cell[1]] != 0
             # -1 unknown, 100 occupied, 0 free
-            return self.occupancy_grid[cell[0], cell[1]] > 0 # threshold
+            return self.occupancy_map[cell[0], cell[1]] > 0 # threshold
+            # TODO: might be the case
 
         def heuristic(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
@@ -337,3 +360,21 @@ class MidLevelPlanner:
                         open_set_hash.add(neighbor)
         
         return None # No path found
+
+class IdentityPlanner:
+    def __init__(self, feedback):
+        self.feedback = feedback
+        self.feedback.print("INFO", "IdentityPlanner initialized")
+    
+    def plan_path(self, high_level_path_metric):
+        '''
+        Input: high level path in <robot>/odom frame, Nx2 numpy array
+        Output: (bool, path) -> (success, path in odom frame)
+        '''
+        # self.feedback.print("INFO", f"{high_level_path_metric[-1]}")
+        output = {
+                    'target_point_metric': None,
+                    'path_shapely': shapely.LineString(high_level_path_metric[:, :2]),
+                    'path_waypoints_metric': high_level_path_metric
+                }
+        return True, output

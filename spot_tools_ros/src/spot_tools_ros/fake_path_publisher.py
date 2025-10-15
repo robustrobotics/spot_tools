@@ -216,9 +216,9 @@ def main():
     parser = argparse.ArgumentParser(description='Fake path publisher')
     parser.add_argument('goal_x', type=float, help='Goal x position')
     parser.add_argument('goal_y', type=float, help='Goal y position')
-    parser.add_argument('--follow-robot', action='store_true', help='Continuously update path based on robot pose')
-    parser.add_argument('--map-frame', type=str, default='map', help='Map frame')
-    parser.add_argument('--robot-name', type=str, default='hamilton', help='Robot name')
+    parser.add_argument('--follow_robot', action='store_true', help='Continuously update path based on robot pose')
+    parser.add_argument('--map_frame', type=str, default='map', help='Map frame')
+    parser.add_argument('--robot_name', type=str, default='hamilton', help='Robot name')
     parser.add_argument('--rate', type=float, default=1.0, help='Publishing rate (Hz)')
 
     args = parser.parse_args()

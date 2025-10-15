@@ -41,11 +41,11 @@ class SpotExecutor:
         spot_interface,
         detector,
         transform_lookup,
+        planner,
         follower_lookahead=2,
         goal_tolerance=2.8,
-        use_mid_level_planner=False,
-        use_fake_path_planner=False,
         feedback=None,
+        use_fake_path_planner=False,
     ):
         self.debug = False
         self.spot_interface = spot_interface
@@ -55,7 +55,7 @@ class SpotExecutor:
         self.detector = detector
         self.keep_going = True
         self.processing_action_sequence = False
-        self.mid_level_planner = MidLevelPlanner(use_fake_path_planner, feedback) if use_mid_level_planner else None
+        self.mid_level_planner = planner
         self.use_fake_path_planner = use_fake_path_planner
 
     def terminate_sequence(self, feedback):
@@ -187,6 +187,7 @@ class SpotExecutor:
         
         if self.mid_level_planner is not None and self.use_fake_path_planner:
             # this only publish the path but does not actually command the spot to follow it
+            # TODO: need to refactor this part
             ret = False
             mlp_success, planning_output = self.mid_level_planner.plan_path(command_to_send[:, :2])
             path = planning_output['path_shapely']
@@ -202,7 +203,7 @@ class SpotExecutor:
                 self.follower_lookahead,
                 self.goal_tolerance,
                 timeout,
+                self.mid_level_planner,
                 feedback=feedback,
-                mid_level_planner=self.mid_level_planner,
-            ) 
+            )
         return ret

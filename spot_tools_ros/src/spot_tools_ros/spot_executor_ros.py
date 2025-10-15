@@ -4,7 +4,7 @@ import os
 
 import cv2
 import numpy as np
-from scipy.spatial.transform import Rotation
+
 import rclpy
 import rclpy.time
 import spot_executor as se
@@ -18,6 +18,8 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
+from robot_executor_interface.mid_level_planner import MidLevelPlanner, IdentityPlanner, OccupancyMap
+
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
 from robot_executor_msgs.msg import ActionSequenceMsg, ActionMsg
 from ros_system_monitor_msgs.msg import NodeInfoMsg
@@ -27,54 +29,11 @@ from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
 from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
-import pickle
+
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
-from spot_tools_ros.utils import waypoints_to_path
-
-def pose_to_homo(pose, quat):
-    '''
-    Input:
-        - pose: list [x, y, z]
-        - quat: ros2 geometry_msgs.msg.Quaternion
-    '''
-    # Convert pose and quaternion to a 4x4 homogeneous transformation matrix
-    trans = np.array(pose)
-    rot_mat = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
-    homo_mat = np.eye(4)
-    homo_mat[:3, :3] = rot_mat
-    homo_mat[:3, 3] = trans
-    return homo_mat
-
-
-def get_robot_pose(tf_buffer, parent_frame: str, child_frame: str):
-    """
-    Looks up the transform from parent_frame to child_frame and returns [x, y, z, yaw].
-
-    """
-
-    try:
-        now = rclpy.time.Time()
-        tf_buffer.can_transform(
-            parent_frame,
-            child_frame,
-            now,
-            timeout=rclpy.duration.Duration(seconds=1.0),
-        )
-        transform = tf_buffer.lookup_transform(parent_frame, child_frame, now)
-
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
-
-        # Convert quaternion to Euler angles
-        quat = [rotation.x, rotation.y, rotation.z, rotation.w]
-        roll, pitch, yaw = tf_transformations.euler_from_quaternion(quat)
-
-        return np.array([translation.x, translation.y, translation.z]), rotation
-
-    except tf2_ros.TransformException as e:
-        print(f"Transform error: {e}")
-        raise
+from spot_tools_ros.occupancy_grid_ros_updater import OccupancyGridROSUpdater
+from spot_tools_ros.utils import waypoints_to_path, pose_to_homo, get_tf_pose
 
 
 def load_inverse_semantic_id_map_from_label_space(fn):
@@ -357,6 +316,9 @@ class SpotExecutorRos(Node):
         self.feedback_collector = RosFeedbackCollector(self.odom_frame)
         self.feedback_collector.register_publishers(self)
 
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        
         # Robot Initialization
         self.declare_parameter("use_fake_spot_interface", False)
         use_fake_spot_interface = self.get_parameter("use_fake_spot_interface").value
@@ -365,11 +327,32 @@ class SpotExecutorRos(Node):
         self.get_logger().info(f"{use_mid_level_planner=}")
         
         # mid-level planner parameters
+        self.declare_parameter("lookahead_distance", 50)
+        lookahead_distance = self.get_parameter("lookahead_distance").value
+        assert lookahead_distance > 0
+        self.declare_parameter("occupancy_inflation_radius", 0.5)
+        occupancy_inflation_radius = self.get_parameter("occupancy_inflation_radius").value
+        assert occupancy_inflation_radius > 0
+        
         self.declare_parameter("use_fake_occupancy_map", False)
         use_fake_occupancy_map = self.get_parameter("use_fake_occupancy_map").value
         self.declare_parameter("publish_fake_path_plan", False)
         publish_fake_path_plan = self.get_parameter("publish_fake_path_plan").value
         self.get_logger().info(f"{use_fake_occupancy_map=}, {publish_fake_path_plan=}")
+        
+        # mid-level planner initialization
+        mid_level_planner_type = "astar"
+        # mid_level_planner_type = "identity"
+        match mid_level_planner_type:
+            case "astar":
+                self.occupancy_map = OccupancyMap(self.feedback_collector, inflate_radius_meters=occupancy_inflation_radius)
+                self.occupancy_map_updater = OccupancyGridROSUpdater(self, self.body_frame, self.odom_frame, self.occupancy_map, self.feedback_collector, self.tf_buffer)
+                self.mid_level_planner = MidLevelPlanner(self.occupancy_map, self.feedback_collector, lookahead_distance_grid=lookahead_distance)
+                self.get_logger().info("Using A* mid-level planner")
+            case "identity":
+                self.mid_level_planner = IdentityPlanner(self.feedback_collector)
+            case _:
+                raise ValueError(f"Invalid mid-level planner type {mid_level_planner_type}")
 
         if use_fake_spot_interface:
             self.declare_parameter("fake_spot_external_pose", False)
@@ -422,9 +405,6 @@ class SpotExecutorRos(Node):
         self.get_logger().info("Initialized!")
         self.status_str = "Idle"
 
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-
         # <spot_vision_frame> must get mapped to the TF frame corresponding
         # to Spot's vision odom estimate.
         special_tf_remaps = {"<spot_vision_frame>": odom_frame}
@@ -435,7 +415,7 @@ class SpotExecutorRos(Node):
             if child in special_tf_remaps:
                 child = special_tf_remaps[child]
             try:
-                return get_robot_pose(self.tf_buffer, parent, child)
+                return get_tf_pose(self.tf_buffer, parent, child)
             except tf2_ros.TransformException as e:
                 self.get_logger.warn(f"Failed to get transform: {e}")
         self.tf_lookup_fn = tf_lookup_fn # TODO: use this to test transformation
@@ -449,11 +429,11 @@ class SpotExecutorRos(Node):
             self.spot_interface,
             detector,
             tf_lookup_fn,
+            self.mid_level_planner,
             follower_lookahead,
             goal_tolerance,
-            use_mid_level_planner,
-            publish_fake_path_plan,
-            self.feedback_collector
+            self.feedback_collector, 
+            use_fake_occupancy_map,
         )
 
         self.action_sequence_sub = self.create_subscription(
@@ -469,74 +449,6 @@ class SpotExecutorRos(Node):
         self.timer = self.create_timer(
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
-
-        if use_mid_level_planner:
-            self.occupancy_grid_subscriber = self.create_subscription(
-                OccupancyGrid,
-                "~/occupancy_grid",
-                self.occupancy_grid_callback,
-                10,
-            )
-            # Create publisher for inflated occupancy grid
-            latching_qos = QoSProfile(
-                depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL
-            )
-            self.inflated_occupancy_grid_publisher = self.create_publisher(
-                OccupancyGrid, "~/inflated_occupancy_grid", qos_profile=latching_qos
-            )
-
-    def publish_inflated_occupancy_grid(self, original_msg):
-        '''
-        Publishes the inflated occupancy grid stored in the mid-level planner.
-
-        Input:
-            - original_msg: OccupancyGrid message with the original grid metadata
-        '''
-        if not hasattr(self.spot_executor.mid_level_planner, 'occupancy_grid'):
-            self.get_logger().warning("No occupancy grid available in mid-level planner")
-            return
-
-        if self.spot_executor.mid_level_planner.occupancy_grid is None:
-            self.get_logger().warning("Mid-level planner occupancy grid is None")
-            return
-
-        # Create new OccupancyGrid message for inflated grid
-        inflated_msg = OccupancyGrid()
-        inflated_msg.header = original_msg.header
-        inflated_msg.header.stamp = self.get_clock().now().to_msg()
-        inflated_msg.info = original_msg.info
-
-        # Get inflated grid from mid-level planner and populate message
-        inflated_grid = self.spot_executor.mid_level_planner.occupancy_grid
-        inflated_msg.data = inflated_grid.flatten().astype(np.int8).tolist()
-
-        # Publish the inflated occupancy grid
-        self.inflated_occupancy_grid_publisher.publish(inflated_msg)
-
-    def occupancy_grid_callback(self, msg):
-        w, h = msg.info.width, msg.info.height   
-        occupancy_frame_id = msg.header.frame_id
-        map_origin = msg.info.origin # map origin is the lower right corner of the grid in <robot_name>/map frame, with z pinting up
-        occ_map = np.array(msg.data, dtype=np.int8).reshape((h, w))
-
-        # put test code here to see status
-        # robot_pose = self.spot_interface.get_pose() # not working in sim ??
-        robot_pose = self.tf_lookup_fn(self.odom_frame, self.body_frame)
-        odom_to_robot_map = self.tf_lookup_fn(self.odom_frame, occupancy_frame_id)
-
-        # convert to homogeneous transformation matrices
-        robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
-        odom_to_robot_map_homo = pose_to_homo(odom_to_robot_map[0], odom_to_robot_map[1])
-        map_origin_homo = pose_to_homo([map_origin.position.x, map_origin.position.y, map_origin.position.z], map_origin.orientation)
-
-        # transform map origin to map frame
-        map_origin_odom_frame = odom_to_robot_map_homo @ map_origin_homo
-        # set occupancy grid and robot pose in the mid-level planner
-        self.spot_executor.mid_level_planner.set_grid(occ_map, msg.info.resolution, map_origin_odom_frame)
-        self.spot_executor.mid_level_planner.set_robot_pose(robot_pose_homo)
-
-        # Publish the inflated occupancy grid
-        self.publish_inflated_occupancy_grid(msg)
             
     def hb_callback(self):
         msg = NodeInfoMsg()
