@@ -154,7 +154,7 @@ class MidLevelPlanner:
     
 
     def get_progress_along_path(self, path_shapely, current_point):
-        self.feedback.print("INFO", f"Current point: {current_point}")
+        self.feedback.print("DEBUG", f"Current point: {current_point}")
         current_point_shapely = shapely.Point(current_point[0], current_point[1]) # (x,y) = (col, row)
         return shapely.line_locate_point(path_shapely, current_point_shapely)
 
@@ -249,17 +249,17 @@ class MidLevelPlanner:
         kernel[1,1] = 0
 
         # Unknown neighbor count for each cell
-        unknown_neighbors = convolve((self.occupancy_grid == -1).astype(np.uint8), kernel, mode='constant', cval=1)
+        unknown_neighbors = convolve((self.occupancy_map == -1).astype(np.uint8), kernel, mode='constant', cval=1)
 
         # Edge mask (True for border cells)
-        edge_mask = np.zeros_like(self.occupancy_grid, dtype=bool)
+        edge_mask = np.zeros_like(self.occupancy_map, dtype=bool)
         edge_mask[0, :] = True
         edge_mask[-1, :] = True
         edge_mask[:, 0] = True
         edge_mask[:, -1] = True
 
         # Frontier = free and (has unknown neighbor OR on edge)
-        frontier_mask = (self.occupancy_grid == 0) & ((unknown_neighbors > 0) | edge_mask)
+        frontier_mask = (self.occupancy_map == 0) & ((unknown_neighbors > 0) | edge_mask)
         
         frontier_cells = np.argwhere(frontier_mask)
     
@@ -267,11 +267,11 @@ class MidLevelPlanner:
 
     def project_goal_observed(self, goal, path_shapely, epsilon=0):
         def is_free(cell):
-            return self.occupancy_grid[cell[0], cell[1]] == 0
+            return self.occupancy_map[cell[0], cell[1]] == 0
 
         if is_free(goal):
             return goal
-        free_cells = np.argwhere(self.occupancy_grid == 0)
+        free_cells = np.argwhere(self.occupancy_map == 0)
         frontier_cells = self.get_frontier_cells()
         if free_cells.size == 0:
             return None
@@ -301,7 +301,7 @@ class MidLevelPlanner:
     def project_goal_to_grid(self, goal, path_shapely):
         ## assumes that goal is in same coordinate frame as the occupancy grid
         # heurestic for right now will be clamping it to the occupancy grid.
-        h, w = self.occupancy_grid.shape
+        h, w = self.occupancy_map.shape
         bound_i, bound_j = [0, h-1], [0, w-1]
 
         def within_bounds(cell):
@@ -396,6 +396,6 @@ class IdentityPlanner:
         output = {
                     'target_point_metric': None,
                     'path_shapely': shapely.LineString(high_level_path_metric[:, :2]),
-                    'path_waypoints_metric': high_level_path_metric
+                    'path_waypoints_metric': None
                 }
         return True, output

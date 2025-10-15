@@ -195,7 +195,8 @@ class SpotExecutor:
             target_point_metric = planning_output['target_point_metric']
             if not mlp_success:
                 feedback.print("INFO", "Mid-level planner failed to find a path")
-            feedback.path_follow_MLP_feedback(path_wp, target_point_metric)
+            if target_point_metric is not None:
+                feedback.path_follow_MLP_feedback(path_wp, target_point_metric)
         else:
             ret = follow_trajectory_continuous(
                 self.spot_interface,

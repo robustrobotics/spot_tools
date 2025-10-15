@@ -336,10 +336,10 @@ class SpotExecutorRos(Node):
         
         self.declare_parameter("use_fake_occupancy_map", False)
         use_fake_occupancy_map = self.get_parameter("use_fake_occupancy_map").value
-        self.declare_parameter("publish_fake_path_plan", False)
-        publish_fake_path_plan = self.get_parameter("publish_fake_path_plan").value
-        self.get_logger().info(f"{use_fake_occupancy_map=}, {publish_fake_path_plan=}")
-        
+        self.declare_parameter("use_fake_path_plan", False)
+        use_fake_path_plan = self.get_parameter("use_fake_path_plan").value
+        self.get_logger().info(f"{use_fake_occupancy_map=}, {use_fake_path_plan=}")
+
         # mid-level planner initialization
         mid_level_planner_type = "astar"
         # mid_level_planner_type = "identity"
@@ -433,7 +433,7 @@ class SpotExecutorRos(Node):
             follower_lookahead,
             goal_tolerance,
             self.feedback_collector, 
-            use_fake_occupancy_map,
+            use_fake_path_plan,
         )
 
         self.action_sequence_sub = self.create_subscription(
