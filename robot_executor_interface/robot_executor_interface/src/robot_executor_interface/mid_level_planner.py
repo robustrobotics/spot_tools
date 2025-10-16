@@ -152,7 +152,6 @@ class MidLevelPlanner:
     def occupancy_map(self) -> np.ndarray:
         return self.occupancy_map_obj.get_grid()
     
-
     def get_progress_along_path(self, path_shapely, current_point):
         self.feedback.print("DEBUG", f"Current point: {current_point}")
         current_point_shapely = shapely.Point(current_point[0], current_point[1]) # (x,y) = (col, row)
@@ -177,6 +176,7 @@ class MidLevelPlanner:
             high_level_path_grid = np.array(high_level_path_grid).reshape(-1,2)
             self.feedback.print("DEBUG", f"High level path (grid cells): {high_level_path_grid}")
             current_point_grid = self.global_pose_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
+            current_point_grid = self.project_goal_to_grid_naive(current_point_grid)
             self.feedback.print("DEBUG", f"Current point (grid cell): {current_point_grid}")
 
             # convert poses to shapely points/lines
@@ -224,13 +224,13 @@ class MidLevelPlanner:
             output['path_waypoints_metric'] = a_star_path_metric
             return True, output
 
-    def project_goal_to_grid_naive(self, goal):
+    def project_goal_to_grid_naive(self, cell):
         h, w = self.occupancy_map.shape
         bound_i, bound_j = [0, h-1], [0, w-1]
 
         projected_cell = (
-            max(bound_i[0], min(goal[0], bound_i[1])),
-            max(bound_j[0], min(goal[1], bound_j[1]))
+            max(bound_i[0], min(cell[0], bound_i[1])),
+            max(bound_j[0], min(cell[1], bound_j[1]))
         )
         if self.occupancy_map[projected_cell[0], projected_cell[1]] != 0:
             # if the goal is in an obstacle, find the nearest free cell
@@ -281,22 +281,31 @@ class MidLevelPlanner:
         free_cell_candidate = tuple(free_cells[np.argmin(dists_free)])
         free_cell_progress = self.get_progress_along_path(path_shapely, free_cell_candidate)
 
-        if frontier_cells.size == 0:
-            return free_cell_candidate
+        return free_cell_candidate
+        # if frontier_cells.size == 0:
+        #     return free_cell_candidate
 
 
-        # dists_frontier = np.linalg.norm(frontier_cells - np.array(goal).T, axis=1)
-        dists_frontier = np.array([
-            self.get_progress_along_path(path_shapely, frontier_cell) + np.linalg.norm(np.array(frontier_cell) - np.array(goal).T)
-            for frontier_cell in frontier_cells
-        ])
-        frontier_cell_candidate = tuple(frontier_cells[np.argmax(dists_frontier)])
-        frontier_cell_progress = self.get_progress_along_path(path_shapely, frontier_cell_candidate)
+        # # dists_frontier = np.linalg.norm(frontier_cells - np.array(goal).T, axis=1)
+        # dists_frontier = np.array([
+        #     self.get_progress_along_path(path_shapely, frontier_cell) + np.linalg.norm(np.array(frontier_cell) - np.array(goal).T)
+        #     for frontier_cell in frontier_cells
+        # ])
+        # frontier_cell_candidate = tuple(frontier_cells[np.argmax(dists_frontier)])
+        # frontier_cell_progress = self.get_progress_along_path(path_shapely, frontier_cell_candidate)
 
-        if frontier_cell_progress + epsilon < free_cell_progress:
-            return free_cell_candidate
+        # if frontier_cell_progress + epsilon < free_cell_progress:
+        #     return free_cell_candidate
         
-        return frontier_cell_candidate
+        # return frontier_cell_candidate
+    
+    def project_goal_unknown_frontier(self, goal):
+        # Define a 4-connected kernel
+        frontier_cells = self.get_frontier_cells()
+        if frontier_cells.size == 0:
+            return None
+        dists = np.linalg.norm(frontier_cells - np.array(goal).T, axis=1)
+        return tuple(frontier_cells[np.argmin(dists)])
     
     def project_goal_to_grid(self, goal, path_shapely):
         ## assumes that goal is in same coordinate frame as the occupancy grid

@@ -170,6 +170,7 @@ def follow_trajectory_continuous(
         if not mlp_success:
             feedback.print("INFO", "Mid-level planner failed, following high-level path directly")
             path = shapely.LineString(waypoints_list[:, :2])
+            continue
             # return False
             
         if time.time() - t0 > timeout:
