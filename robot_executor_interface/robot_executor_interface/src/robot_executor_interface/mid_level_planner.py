@@ -205,7 +205,7 @@ class MidLevelPlanner:
             
             if a_star_path_grid is None:
                 # fall back using the high level path directly, and return empty visualization
-                self.feedback.print("WARNING", "A* failed, falling back to high level path")
+                self.feedback.print("INFO", "A* failed, falling back to high level path")
                 return False, output
             
             # convert a_star path to metric coordinates
