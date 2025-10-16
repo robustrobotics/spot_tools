@@ -233,12 +233,16 @@ class Spot:
 
     def aquire_lease(self):
         self.lease = self.lease_client.acquire()
-        self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(self.lease_client)
+        self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(
+            self.lease_client, warnings=False
+        )
         self.lease_client.list_leases()
 
     def take_lease(self):
         self.lease_client.take()
-        self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(self.lease_client)
+        self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(
+            self.lease_client, warnings=False
+        )
         self.lease_client.list_leases()
 
     def power_on(self):

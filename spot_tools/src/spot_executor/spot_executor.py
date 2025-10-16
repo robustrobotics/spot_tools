@@ -15,7 +15,7 @@ from robot_executor_interface.action_descriptions import (
 from scipy.spatial.transform import Rotation
 
 from spot_skills.arm_utils import gaze_at_vision_pose
-from spot_skills.grasp_utils import object_grasp, object_place
+from spot_skills.grasp_utils import object_grasp, object_place, stow_arm
 from spot_skills.navigation_utils import (
     follow_trajectory_continuous,
     turn_to_point,
@@ -49,24 +49,22 @@ class LeaseManager:
         self.initialize_thread()
         self.taking_back_lease = False
 
+        leases = self.spot_interface.lease_client.list_leases()
+        self.owner = leases[0].lease_owner
+        self.owner_name = self.owner.client_name
+
     def initialize_thread(self):
         def monitor_lease():
             while True:
                 leases = self.spot_interface.lease_client.list_leases()
 
                 # owner of the full lease
-                owner = leases[0].lease_owner
-
-                # print("Current lease owner: ", owner)
-                # if self.feedback is not None:
-                #     self.feedback.print(
-                #         "INFO",
-                #         f"LEASE MANAGER THREAD: Current lease owner: {owner.client_name}",
-                #     )
+                self.owner = leases[0].lease_owner
+                self.owner_name = self.owner.client_name
 
                 # If nobody owns the lease, then the owner string is empty.
                 # We should try to take the lease back in that case.
-                if owner.client_name == "":
+                if self.owner_name == "":
                     # We should set the feedback's break_out_of_waiting_loop to True
                     # so that the pick skill gets immediately cancelled if it is running.
                     if self.feedback is not None:
@@ -80,6 +78,7 @@ class LeaseManager:
                         )
                     self.spot_interface.take_lease()
                     try:
+                        stow_arm(self.spot_interface)
                         self.spot_interface.stand()
                     except BehaviorFaultError:
                         fault_ids = []
@@ -111,6 +110,9 @@ class LeaseManager:
                                     "WARN",
                                     "LEASE MANAGER THREAD: Could not clear all behavior faults, cannot stand.",
                                 )
+                    time.sleep(1)
+                    if self.feedback is not None:
+                        self.feedback.break_out_of_waiting_loop = False
                     self.taking_back_lease = False
                 time.sleep(0.5)
 
@@ -151,7 +153,10 @@ class SpotExecutor:
 
         # Block until action sequence is done executing
         while self.processing_action_sequence:
-            feedback.print("INFO", "Waiting for previous action sequence to terminate.")
+            feedback.print(
+                "INFO",
+                "Waiting for previous action sequence to terminate. You must release the lease!",
+            )
             time.sleep(1)
 
     def process_action_sequence(self, sequence, feedback):
@@ -167,6 +172,7 @@ class SpotExecutor:
             self.spot_interface.take_lease()
 
             ix = 0
+            inner_loop_attempts = 0
             while ix < len(sequence.actions):
                 # If the lease manager is actively taking back the lease and getting the
                 # robot to stand back up, we don't want to send it any commands. It will break.
@@ -178,6 +184,14 @@ class SpotExecutor:
                         "INFO",
                         "Waiting for lease manager to finish taking back lease...",
                     )
+                    time.sleep(1)
+                    continue
+
+                # If we don't own the lease, we don't try to take any actions
+                if (
+                    self.lease_manager is not None
+                    and not self.lease_manager.owner_name.startswith("understanding")
+                ):
                     time.sleep(0.5)
                     continue
 
@@ -189,32 +203,41 @@ class SpotExecutor:
                 pick_next = False
                 if ix < len(sequence.actions) - 1:
                     pick_next = type(sequence.actions[ix + 1]) is Pick
+                feedback.print("INFO", "\n")
                 feedback.print("INFO", "Spot executor executing command: ")
                 feedback.print("INFO", command)
 
+                success = False
                 try:
                     if type(command) is Follow:
-                        self.execute_follow(command, feedback)
+                        success = self.execute_follow(command, feedback)
 
                     elif type(command) is Gaze:
-                        self.execute_gaze(command, feedback, pick_next=pick_next)
+                        success = self.execute_gaze(
+                            command, feedback, pick_next=pick_next
+                        )
 
                     elif type(command) is Pick:
-                        self.execute_pick(command, feedback)
+                        success = self.execute_pick(command, feedback)
 
                     elif type(command) is Place:
-                        self.execute_place(command, feedback)
+                        success = self.execute_place(command, feedback)
 
                     else:
                         raise Exception(
                             f"SpotExecutor received unknown command type {type(command)}"
                         )
-                    ix += 1
+                    if success or inner_loop_attempts > 1:
+                        ix += 1
+                        inner_loop_attempts = 0
+                    else:
+                        inner_loop_attempts += 1
+                        time.sleep(1)
 
                 except LeaseUseError:
                     # feedback.print("INFO", "Lost lease, stopping action sequence.")
                     # Wait until the lease manager has taken the lease back
-                    time.sleep(1)
+                    time.sleep(2)
 
         except Exception as ex:
             self.processing_action_sequence = False
@@ -262,6 +285,7 @@ class SpotExecutor:
             feedback.pick_image_feedback(sem_img, outline_img)
 
         feedback.print("INFO", "Finished `pick` command")
+        feedback.print("INFO", f"Pick skill success: {success}")
         return success
 
     def execute_place(self, command, feedback):

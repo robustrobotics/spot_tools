@@ -12,6 +12,7 @@ import bosdyn.client.estop
 import bosdyn.client.lease
 import bosdyn.client.util
 import cv2
+import numpy as np
 from bosdyn.api import (
     geometry_pb2,
     manipulation_api_pb2,
@@ -25,13 +26,13 @@ from bosdyn.client.frame_helpers import (
 from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arrives
 
 from spot_skills.arm_utils import (
-    arm_to_carry,
     arm_to_drop,
     close_gripper,
     open_gripper,
     stow_arm,
 )
 from spot_skills.detection_utils import Detector
+from spot_skills.primitives import execute_recovery_action
 
 g_image_click = None
 g_image_display = None
@@ -113,8 +114,8 @@ def object_place(spot, semantic_class="bag", position=None):
         return True
 
     time.sleep(0.25)
-    arm_to_carry(spot)
-    stow_arm(spot)
+    # arm_to_carry(spot)
+    # stow_arm(spot)
     arm_to_drop(spot)
 
     # odom_T_task = get_root_T_ground_body(
@@ -137,7 +138,7 @@ def object_place(spot, semantic_class="bag", position=None):
     # cmd_id = spot.command_client.robot_command(robot_cmd)
     # spot.robot.logger.info("Impedance command issued")
     # block_until_arm_arrives(spot.command_client, cmd_id, 10.0)
-    input("Did impedance work")
+    # input("Did impedance work")
 
     open_gripper(spot)
     # drop_object(spot)
@@ -201,6 +202,14 @@ def object_grasp(
                 "INFO",
                 "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input.",
             )
+        execute_recovery_action(
+            spot,
+            recover_arm=False,
+            relative_pose=math_helpers.SE2Pose(
+                x=0.0, y=0.0, angle=np.random.choice([-0.5, 0.5])
+            ),
+        )
+        time.sleep(1)
         return False
         # execute_recovery_action(spot, recover_arm=True)
         # spot.sit()
@@ -249,10 +258,13 @@ def object_grasp(
     )
 
     loop_timer = time.time()
+
+    # Reset success --> agent is successful only if it detects the object and picks it up
+    success = False
     # Get feedback from the robot
     while True:
         current_time = time.time()
-        if current_time - loop_timer > 20:
+        if current_time - loop_timer > 15:
             if feedback is not None:
                 feedback.print("INFO", "The pick skill timed out!")
             print("The pick skill timed out!")
@@ -279,7 +291,8 @@ def object_grasp(
         ]
 
         if response.current_state in failed_states:
-            print("Grasp failed.")
+            if feedback is not None:
+                feedback.print("INFO", "GRASP FAILED")
             break
 
         if response.current_state == manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED:
@@ -317,6 +330,16 @@ def object_grasp(
     time.sleep(1)
 
     print("Finished grasp.")
+
+    # If the robot was not successful, send it back to the location it started the skill at
+    if not success:
+        execute_recovery_action(
+            spot,
+            recover_arm=False,
+            relative_pose=math_helpers.SE2Pose(
+                x=np.random.uniform(-1, -0.5), y=0.0, angle=0.0
+            ),
+        )
 
     if debug:
         return success, debug_images
