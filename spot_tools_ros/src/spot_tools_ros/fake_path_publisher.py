@@ -13,26 +13,13 @@ from geometry_msgs.msg import Point
 from visualization_msgs.msg import Marker, MarkerArray
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 import time
+from spot_tools_ros.utils import get_tf_pose
+
 
 # get time message
 def gtm():
     return rclpy.time.Time(nanoseconds=time.time() * 1e9).to_msg()
 
-
-def get_robot_pose(tf_buffer, parent_frame: str, child_frame: str):
-    """Looks up the transform from parent_frame to child_frame"""
-    try:
-        now = rclpy.time.Time()
-        tf_buffer.can_transform(parent_frame, child_frame, now, timeout=rclpy.duration.Duration(seconds=1.0))
-        transform = tf_buffer.lookup_transform(parent_frame, child_frame, now)
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
-        quat = [rotation.x, rotation.y, rotation.z, rotation.w]
-        roll, pitch, yaw = tf_transformations.euler_from_quaternion(quat)
-        return np.array([translation.x, translation.y, translation.z]), yaw
-    except tf2_ros.TransformException as e:
-        print(f"Transform error: {e}")
-        raise
 
 
 class FakePathPublisher(Node):
@@ -153,7 +140,7 @@ class FakePathPublisher(Node):
         """Publish path from current robot pose to goal"""
         try:
             # Get current robot pose
-            robot_pose, robot_yaw = get_robot_pose(self.tf_buffer, self.map_frame, self.robot_frame)
+            robot_pose, robot_yaw = get_tf_pose(self.tf_buffer, self.map_frame, self.robot_frame)
 
             # Generate waypoints
             if self.follow_robot:

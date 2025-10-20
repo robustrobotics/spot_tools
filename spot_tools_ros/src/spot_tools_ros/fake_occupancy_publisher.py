@@ -11,35 +11,9 @@ from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Pose
 from functools import partial
 from scipy.spatial.transform import Rotation
+from spot_tools_ros.utils import pose_to_homo, get_tf_pose
 
-def pose_to_homo(pose, quat):
-    '''
-    Input:
-        - pose: list [x, y, z]
-        - quat: ros2 geometry_msgs.msg.Quaternion
-    '''
-    # Convert pose and quaternion to a 4x4 homogeneous transformation matrix
-    trans = np.array(pose)
-    rot_mat = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
-    homo_mat = np.eye(4)
-    homo_mat[:3, :3] = rot_mat
-    homo_mat[:3, 3] = trans
-    return homo_mat
-        
-def get_robot_pose(tf_buffer, parent_frame: str, child_frame: str):
-    """Looks up the transform from parent_frame to child_frame"""
-    try:
-        now = rclpy.time.Time()
-        tf_buffer.can_transform(parent_frame, child_frame, now, timeout=rclpy.duration.Duration(seconds=1.0))
-        transform = tf_buffer.lookup_transform(parent_frame, child_frame, now)
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
-        quat = [rotation.x, rotation.y, rotation.z, rotation.w]
-        roll, pitch, yaw = tf_transformations.euler_from_quaternion(quat)
-        return np.array([translation.x, translation.y, translation.z]), rotation
-    except tf2_ros.TransformException as e:
-        print(f"Transform error: {e}")
-        raise
+
 
 class FakeOccupancyPublisher(Node):
     def __init__(self, occupancy_grid, resolution, robot_name, crop_distance=-1, publish_rate=10.0):
@@ -66,7 +40,7 @@ class FakeOccupancyPublisher(Node):
             if child in special_tf_remaps:
                 child = special_tf_remaps[child]
             try:
-                return get_robot_pose(self.tf_buffer, parent, child)
+                return get_tf_pose(self.tf_buffer, parent, child)
             except tf2_ros.TransformException as e:
                 self.get_logger.warn(f"Failed to get transform: {e}")
         self.tf_lookup_fn = tf_lookup_fn # TODO: use this to test transformation

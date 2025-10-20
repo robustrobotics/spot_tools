@@ -65,36 +65,12 @@ def pt_to_marker(pt, ns, mid, color, fid="vision"):
     return m
 
 
-def build_progress_markers(current_point, target_point, frame):
+def build_markers(pts, namespaces, frames, colors):
     ma = MarkerArray()
-    m1 = pt_to_marker(current_point, "path_progress", 0, [0, 1, 1], fid=frame)
-    ma.markers.append(m1)
-    m2 = pt_to_marker(target_point, "path_progress", 1, [1, 0, 1], fid=frame)
-    ma.markers.append(m2)
+    for i, pt in enumerate(pts):
+        m = pt_to_marker(pt, namespaces[i], i, colors[i], fid=frames[i])
+        ma.markers.append(m)
     return ma
-
-def build_marker(pt, ns, frame, mid=0, color=[1,0,0]):
-    ma = MarkerArray()
-    m = Marker()
-    m.header.frame_id = frame
-    m.header.stamp = rclpy.time.Time(nanoseconds=time.time() * 1e9).to_msg()
-    m.ns = ns
-    m.id = mid
-    m.type = m.SPHERE
-    m.action = m.ADD
-    m.pose.orientation.w = 1.0
-    m.pose.position.x = pt[0]
-    m.pose.position.y = pt[1]
-    m.scale.x = 0.3
-    m.scale.y = 0.3
-    m.scale.z = 0.3
-    m.color.a = 1.0
-    m.color.r = float(color[0])
-    m.color.g = float(color[1])
-    m.color.b = float(color[2])
-    ma.markers.append(m)
-    return ma
-
 
 class RosFeedbackCollector:
     def __init__(self, odom_frame):
@@ -163,15 +139,24 @@ class RosFeedbackCollector:
         self.smooth_path_publisher.publish(path_debug_viz)
 
     def path_following_progress_feedback(self, progress_point, target_point):
+        pts = [progress_point, target_point]
+        namespaces = ["path_progress"] * 2
+        colors = [[0, 1, 1], [1, 0, 1]]
+        frames = [self.odom_frame] * 2
         self.progress_point_pub.publish(
-            build_progress_markers(progress_point, target_point, self.odom_frame)
+            build_markers(pts, namespaces, frames, colors)
         )
     
     def path_follow_MLP_feedback(self, path, target_point_metric):        
         self.mlp_path_publisher.publish(waypoints_to_path(self.odom_frame, path)) # TODO: parameterize frame name
         target_point_metric_flattened = [p[0] for p in target_point_metric]
+
+        pts = [target_point_metric_flattened]
+        namespaces = ["projected target point"]
+        colors = [[1, 0, 1]]
+        frames = [self.odom_frame]
         self.mlp_target_publisher.publish(
-            build_marker(target_point_metric_flattened, "projected target point", self.odom_frame)
+            build_markers(pts, namespaces, frames, colors)
         )
 
     def gaze_feedback(self, pose, gaze_point):
