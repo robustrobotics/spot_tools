@@ -29,7 +29,7 @@ from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
 from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
-
+from shapely.geometry import Point
 
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.occupancy_grid_ros_updater import OccupancyGridROSUpdater
@@ -149,7 +149,7 @@ class RosFeedbackCollector:
     
     def path_follow_MLP_feedback(self, path, target_point_metric):        
         self.mlp_path_publisher.publish(waypoints_to_path(self.odom_frame, path)) # TODO: parameterize frame name
-        target_point_metric_flattened = [p[0] for p in target_point_metric]
+        target_point_metric_flattened = Point([p[0] for p in target_point_metric[:3]])
 
         pts = [target_point_metric_flattened]
         namespaces = ["projected target point"]

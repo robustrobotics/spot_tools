@@ -68,7 +68,7 @@ def pose_to_homo(pose, quat):
     return homo_mat
 
 
-def get_tf_pose(tf_buffer, parent_frame: str, child_frame: str):
+def get_tf_pose(tf_buffer, parent_frame: str, child_frame: str, get_euler=False):
     """
     Looks up the transform from parent_frame to child_frame and returns [x, y, z, yaw].
 
@@ -91,6 +91,8 @@ def get_tf_pose(tf_buffer, parent_frame: str, child_frame: str):
         quat = [rotation.x, rotation.y, rotation.z, rotation.w]
         roll, pitch, yaw = tf_transformations.euler_from_quaternion(quat)
 
+        if get_euler:
+            return np.array([translation.x, translation.y, translation.z]), (roll, pitch, yaw)
         return np.array([translation.x, translation.y, translation.z]), rotation
 
     except tf2_ros.TransformException as e:
