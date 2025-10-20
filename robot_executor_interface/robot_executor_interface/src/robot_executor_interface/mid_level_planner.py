@@ -179,7 +179,7 @@ class MidLevelPlanner:
             self.set_robot_pose()
             
             # convert poses to grid cells
-            high_level_path_grid = [self.global_position_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
+            high_level_path_grid = [self.global_position_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]] # convert high level path position to grid cells indexes
             high_level_path_grid = np.array(high_level_path_grid).reshape(-1,2)
             self.feedback.print("DEBUG", f"High level path (grid cells): {high_level_path_grid}")
             current_point_grid = self.global_position_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
