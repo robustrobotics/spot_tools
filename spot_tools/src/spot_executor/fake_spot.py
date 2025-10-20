@@ -177,7 +177,7 @@ class FakeLeaseClient:
         self.fake_spot = fake_spot
 
     def list_leases(self):
-        lease_owner = LeaseOwner("fake_spot_lease_owner")
+        lease_owner = LeaseOwner("understanding-fake-spot")
         lease = [Lease(lease_owner)]
         return lease
 
