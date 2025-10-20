@@ -329,9 +329,9 @@ class SpotExecutor:
             # TODO: need to refactor this part
             ret = False
             mlp_success, planning_output = self.mid_level_planner.plan_path(command_to_send[:, :2])
-            path = planning_output['path_shapely']
-            path_wp = planning_output['path_waypoints_metric']
-            target_point_metric = planning_output['target_point_metric']
+            path = planning_output.path_shapely
+            path_wp = planning_output.path_waypoints_metric
+            target_point_metric = planning_output.target_point_metric
             if not mlp_success:
                 feedback.print("INFO", "Mid-level planner failed to find a path")
             if target_point_metric is not None:

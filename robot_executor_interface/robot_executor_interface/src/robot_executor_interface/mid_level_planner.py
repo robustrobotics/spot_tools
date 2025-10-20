@@ -3,6 +3,7 @@ import numpy as np
 import shapely
 import threading
 from scipy.ndimage import binary_dilation, convolve
+from attr import dataclass
 
 def invert_pose(p):
     p_inv = np.zeros((4, 4))
@@ -53,7 +54,7 @@ class OccupancyMap:
         self.occupancy_map = self.inflate_obstacles(self.occupancy_map, self.inflate_radius_meters)
         self.feedback.print("DEBUG", f"Occupancy map updated: shape={self.occupancy_map.shape}, resolution={self.map_resolution}, origin=\n{self.map_origin}, robot_pose=\n{self.robot_pose}")
 
-    def global_pose_to_grid_cell(self, pose):
+    def global_position_to_grid_cell(self, pose):
         '''
         Input:
             - pose: (4,1) numpy array in map (global) frame
@@ -125,6 +126,12 @@ class OccupancyMap:
 
         return inflated_grid
     
+@dataclass
+class MidLevelPlannerOutput:
+    target_point_metric: np.ndarray
+    path_shapely: shapely.LineString
+    path_waypoints_metric: list
+
 class MidLevelPlanner:
     def __init__(self, occupancy_map: OccupancyMap, feedback, use_fake_path_planner = False, lookahead_distance_grid = 50):
         self.feedback = feedback
@@ -138,7 +145,7 @@ class MidLevelPlanner:
         self.use_fake_path_planner = use_fake_path_planner
         
         self.set_robot_pose()
-        self.global_pose_to_grid_cell = self.occupancy_map_obj.global_pose_to_grid_cell
+        self.global_position_to_grid_cell = self.occupancy_map_obj.global_position_to_grid_cell
         self.grid_cell_to_global_pose = self.occupancy_map_obj.grid_cell_to_global_pose
         
         self.feedback.print("INFO", f"MidLevelPlanner initialized, {self.use_fake_path_planner=}")
@@ -172,10 +179,10 @@ class MidLevelPlanner:
             self.set_robot_pose()
             
             # convert poses to grid cells
-            high_level_path_grid = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
+            high_level_path_grid = [self.global_position_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
             high_level_path_grid = np.array(high_level_path_grid).reshape(-1,2)
             self.feedback.print("DEBUG", f"High level path (grid cells): {high_level_path_grid}")
-            current_point_grid = self.global_pose_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
+            current_point_grid = self.global_position_to_grid_cell(self.robot_pose[:, 3].reshape(4,1))
             current_point_grid = self.project_goal_to_grid_naive(current_point_grid)
             self.feedback.print("DEBUG", f"Current point (grid cell): {current_point_grid}")
 
@@ -192,13 +199,12 @@ class MidLevelPlanner:
             # find the target in grid cell coordinates (make it free)
             target_point_grid = (int(target_point_shapely.x), int(target_point_shapely.y))
             target_point_grid_proj = self.project_goal_to_grid(target_point_grid, high_level_path_shapely)
-        
-
-            output = {
-                        'target_point_metric': self.grid_cell_to_global_pose(target_point_grid_proj),
-                        'path_shapely': shapely.LineString(high_level_path_metric[:, :2]),
-                        'path_waypoints_metric': []
-                    }
+            
+            output = MidLevelPlannerOutput(
+                target_point_metric = self.grid_cell_to_global_pose(target_point_grid_proj),
+                path_shapely = shapely.LineString(high_level_path_metric[:, :2]),
+                path_waypoints_metric = []
+            )
 
             # plan using a_star
             a_star_path_grid = self.a_star(current_point_grid, target_point_grid_proj)
@@ -216,12 +222,12 @@ class MidLevelPlanner:
 
             # project global point to local index
             # TODO: add comment to explain code
-            grid_path = [self.global_pose_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
+            grid_path = [self.global_position_to_grid_cell(np.array([pt[0], pt[1], 0, 1]).reshape(4,1)) for pt in high_level_path_metric[:, :2]]
             grid_path = np.array(grid_path)
             recovered_path = [self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in grid_path]
             recovered_path = np.array(recovered_path).reshape(-1,4)    
-            output['path_shapely'] = shapely.LineString(a_star_path_execute)
-            output['path_waypoints_metric'] = a_star_path_metric
+            output.path_shapely = shapely.LineString(a_star_path_execute)
+            output.path_waypoints_metric = a_star_path_metric
             return True, output
 
     def project_goal_to_grid_naive(self, cell):
@@ -265,11 +271,11 @@ class MidLevelPlanner:
     
         return frontier_cells
 
+    def is_free(self, cell):
+        return self.occupancy_map[cell[0], cell[1]] == 0
+        
     def project_goal_observed(self, goal, path_shapely, epsilon=0):
-        def is_free(cell):
-            return self.occupancy_map[cell[0], cell[1]] == 0
-
-        if is_free(goal):
+        if self.is_free(goal):
             return goal
         free_cells = np.argwhere(self.occupancy_map == 0)
         frontier_cells = self.get_frontier_cells()
@@ -282,22 +288,35 @@ class MidLevelPlanner:
         free_cell_progress = self.get_progress_along_path(path_shapely, free_cell_candidate)
 
         return free_cell_candidate
-        # if frontier_cells.size == 0:
-        #     return free_cell_candidate
-
-
-        # # dists_frontier = np.linalg.norm(frontier_cells - np.array(goal).T, axis=1)
-        # dists_frontier = np.array([
-        #     self.get_progress_along_path(path_shapely, frontier_cell) + np.linalg.norm(np.array(frontier_cell) - np.array(goal).T)
-        #     for frontier_cell in frontier_cells
-        # ])
-        # frontier_cell_candidate = tuple(frontier_cells[np.argmax(dists_frontier)])
-        # frontier_cell_progress = self.get_progress_along_path(path_shapely, frontier_cell_candidate)
-
-        # if frontier_cell_progress + epsilon < free_cell_progress:
-        #     return free_cell_candidate
+    
+    def project_goal_observed_with_frontier(self, goal, path_shapely, epsilon=0):
+        if self.is_free(goal):
+            return goal
+        free_cells = np.argwhere(self.occupancy_map == 0)
+        frontier_cells = self.get_frontier_cells()
+        if free_cells.size == 0:
+            return None
         
-        # return frontier_cell_candidate
+        dists_free = np.linalg.norm(free_cells - np.array(goal).T, axis=1)
+
+        free_cell_candidate = tuple(free_cells[np.argmin(dists_free)])
+        free_cell_progress = self.get_progress_along_path(path_shapely, free_cell_candidate)
+    
+        if frontier_cells.size == 0:
+            return free_cell_candidate
+
+        # dists_frontier = np.linalg.norm(frontier_cells - np.array(goal).T, axis=1)
+        dists_frontier = np.array([
+            self.get_progress_along_path(path_shapely, frontier_cell) + np.linalg.norm(np.array(frontier_cell) - np.array(goal).T)
+            for frontier_cell in frontier_cells
+        ])
+        frontier_cell_candidate = tuple(frontier_cells[np.argmax(dists_frontier)])
+        frontier_cell_progress = self.get_progress_along_path(path_shapely, frontier_cell_candidate)
+
+        if frontier_cell_progress + epsilon < free_cell_progress:
+            return free_cell_candidate
+        
+        return frontier_cell_candidate
     
     def project_goal_unknown_frontier(self, goal):
         # Define a 4-connected kernel
