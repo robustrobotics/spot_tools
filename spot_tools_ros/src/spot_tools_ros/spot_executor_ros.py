@@ -282,6 +282,7 @@ class SpotExecutorRos(Node):
         self.declare_parameter("goal_tolerance", 0.0)
         goal_tolerance = self.get_parameter("goal_tolerance").value
         assert goal_tolerance > 0
+        self.get_logger().info(f"{goal_tolerance=}")
 
         # Pick/Inspect Skill
         self.declare_parameter("semantic_model_path", "")
@@ -429,6 +430,7 @@ class SpotExecutorRos(Node):
             self.feedback_collector, 
             use_fake_path_plan,
         )
+        self.spot_executor.initialize_lease_manager(self.feedback_collector)
 
         self.action_sequence_sub = self.create_subscription(
             ActionSequenceMsg,
@@ -457,10 +459,10 @@ class SpotExecutorRos(Node):
             self.status_str = "Processing action sequence"
             self.get_logger().info("Starting action sequence")
             sequence = from_msg(msg)
+
             self.spot_executor.process_action_sequence(
                 sequence, self.feedback_collector
             )
-            # TODO: pointer to the occupancy grid inside spot_executor
             self.get_logger().info("Finished execution action sequence.")
             self.status_str = "Idle"
 

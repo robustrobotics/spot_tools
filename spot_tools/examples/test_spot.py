@@ -440,20 +440,20 @@ if __name__ == "__main__":
     spot.stand()
     # stow_arm(spot)
 
-    input("Make sure it's in a good position")
-    pose = math_helpers.SE3Pose(
-        x=0.2,
-        y=0,
-        z=0,
-        rot=math_helpers.Quat.from_pitch(0) * math_helpers.Quat.from_roll(0),
-    )
+    # input("Make sure it's in a good position")
+    # pose = math_helpers.SE3Pose(
+    #     x=0.2,
+    #     y=0,
+    #     z=0,
+    #     rot=math_helpers.Quat.from_pitch(0) * math_helpers.Quat.from_roll(0),
+    # )
 
-    move_hand_to_relative_pose(spot, pose)
+    # move_hand_to_relative_pose(spot, pose)
 
     # _run_open_door_test(spot, yoloworld_model_path)
     # _run_walking_test(spot)
     # _run_gaze_test(spot)
-    # _run_place_test(spot)
+    _run_place_test(spot)
     # _run_traj_test(spot)
     # _run_grasp_test(spot)
     # _run_segment_test(spot)

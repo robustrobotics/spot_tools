@@ -17,11 +17,11 @@ def execute_recovery_action(
         stow_arm(spot)
         close_gripper(spot)
 
-    if absolute_pose:
+    if absolute_pose is not None:
         navigate_to_absolute_pose(spot, absolute_pose)
         return
 
-    elif relative_pose:
+    elif relative_pose is not None:
         navigate_to_relative_pose(spot, relative_pose)
         return
 
