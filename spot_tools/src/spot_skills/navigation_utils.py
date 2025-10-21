@@ -30,7 +30,7 @@ def navigate_to_relative_pose(
     body_tform_goal: math_helpers.SE2Pose,
     max_xytheta_vel: Tuple[float, float, float] = (2.0, 2.0, 1.0),
     min_xytheta_vel: Tuple[float, float, float] = (-2.0, -2.0, -1.0),
-    timeout: float = 20.0,
+    timeout: float = 10.0,
 ) -> None:
     """Execute a relative move.
 
@@ -87,12 +87,29 @@ def navigate_to_relative_pose(
             return
         traj_feedback = mobility_feedback.se2_trajectory_feedback
         if (
-            traj_feedback.status == traj_feedback.STATUS_AT_GOAL
+            traj_feedback.status == traj_feedback.STATUS_STOPPED
             and traj_feedback.body_movement_status == traj_feedback.BODY_STATUS_SETTLED
         ):
             return
     if (time.perf_counter() - start_time) > timeout:
         spot.robot.logger.info("Timed out waiting for movement to execute!")
+
+
+def navigate_to_relative_pose_new(
+    spot,
+    body_tform_goal: math_helpers.SE2Pose,
+    max_xytheta_vel: Tuple[float, float, float] = (2.0, 2.0, 1.0),
+    min_xytheta_vel: Tuple[float, float, float] = (-2.0, -2.0, -1.0),
+    timeout: float = 20.0,
+):
+    current_pose = spot.get_pose()  # Returns a np array
+    waypoint = math_helpers.SE2Pose(
+        x=current_pose[0] + body_tform_goal.x,
+        y=current_pose[1] + body_tform_goal.y,
+        angle=current_pose[2] + body_tform_goal.angle,
+    )
+
+    navigate_to_absolute_pose(spot, waypoint=waypoint)
 
 
 def navigate_to_absolute_pose(

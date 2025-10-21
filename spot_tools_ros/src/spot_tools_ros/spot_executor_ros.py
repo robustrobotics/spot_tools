@@ -396,6 +396,33 @@ class SpotExecutorRos(Node):
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
 
+        self.feedback_collector.print("INFO", self.spot_interface.get_pose())
+        matrix = self.SE2_to_matrix(self.spot_interface.get_pose())
+        self.feedback_collector.print("INFO", matrix)
+        self.feedback_collector.print("INFO", self.matrix_to_SE2(matrix))
+
+    def SE2_to_matrix(self, SE2_pose):
+        x = SE2_pose[0]
+        y = SE2_pose[1]
+        theta = SE2_pose[2]
+
+        A = np.array(
+            [
+                [np.cos(theta), -np.sin(theta), x],
+                [np.sin(theta), np.cos(theta), y],
+                [0, 0, 1],
+            ]
+        )
+
+        return A
+
+    def matrix_to_SE2(self, A):
+        x = A[0, 2]
+        y = A[1, 2]
+
+        theta = np.arctan2(A[1, 0], A[1, 1])
+        return np.array([x, y, theta])
+
     def hb_callback(self):
         msg = NodeInfoMsg()
         msg.nickname = "spot_executor"
