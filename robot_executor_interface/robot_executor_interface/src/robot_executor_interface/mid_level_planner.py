@@ -54,17 +54,19 @@ class OccupancyMap:
         return self.occupancy_map
 
     def clone_grid(self):
-        return self.occupancy_map.copy() if self.occupancy_map is not None else None
+        with self:
+            return self.occupancy_map.copy() if self.occupancy_map is not None else None
 
     def set_grid(self, grid, resolution, origin, robot_pose, update_time):
-        self.last_update_time = update_time
-        self.occupancy_map = grid
-        self.map_resolution = resolution
-        self.map_origin = origin
-        self.robot_pose = robot_pose
-        self.occupancy_map = self.inflate_obstacles(
-            self.occupancy_map, self.inflate_radius_meters
-        )
+        with self:
+            self.last_update_time = update_time
+            self.occupancy_map = grid
+            self.map_resolution = resolution
+            self.map_origin = origin
+            self.robot_pose = robot_pose
+            self.occupancy_map = self.inflate_obstacles(
+                self.occupancy_map, self.inflate_radius_meters
+            )
         self.feedback.print(
             "DEBUG",
             f"Occupancy map updated: shape={self.occupancy_map.shape}, resolution={self.map_resolution}, origin=\n{self.map_origin}, robot_pose=\n{self.robot_pose}",

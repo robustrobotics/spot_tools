@@ -148,7 +148,7 @@ class RosFeedbackCollector:
     def path_follow_MLP_feedback(self, path, target_point_metric):
         self.mlp_path_publisher.publish(
             waypoints_to_path(self.odom_frame, path)
-        )  # TODO: parameterize frame name
+        )
         target_point_metric_flattened = Point([p[0] for p in target_point_metric[:3]])
 
         pts = [target_point_metric_flattened]

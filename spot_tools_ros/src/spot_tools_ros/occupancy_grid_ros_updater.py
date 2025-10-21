@@ -45,40 +45,39 @@ class OccupancyGridROSUpdater:
         )
 
     def occupancy_map_callback(self, msg):
-        with self.occupancy_map:
-            w, h = msg.info.width, msg.info.height
-            occupancy_frame_id = msg.header.frame_id
-            map_origin = msg.info.origin  # map origin is the lower right corner of the grid in <robot_name>/map frame, with z pinting up
-            occ_map = np.array(msg.data, dtype=np.int8).reshape((h, w))
+        w, h = msg.info.width, msg.info.height
+        occupancy_frame_id = msg.header.frame_id
+        map_origin = msg.info.origin  # map origin is the lower right corner of the grid in <robot_name>/map frame, with z pinting up
+        occ_map = np.array(msg.data, dtype=np.int8).reshape((h, w))
 
-            robot_pose = get_tf_pose(self.tf_buffer, self.odom_frame, self.body_frame)
-            odom_to_robot_map = get_tf_pose(
-                self.tf_buffer, self.odom_frame, occupancy_frame_id
-            )
+        robot_pose = get_tf_pose(self.tf_buffer, self.odom_frame, self.body_frame)
+        odom_to_robot_map = get_tf_pose(
+            self.tf_buffer, self.odom_frame, occupancy_frame_id
+        )
 
-            # convert to homogeneous transformation matrices
-            robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
-            odom_to_robot_map_homo = pose_to_homo(
-                odom_to_robot_map[0], odom_to_robot_map[1]
-            )
-            map_origin_homo = pose_to_homo(
-                [map_origin.position.x, map_origin.position.y, map_origin.position.z],
-                map_origin.orientation,
-            )
+        # convert to homogeneous transformation matrices
+        robot_pose_homo = pose_to_homo(robot_pose[0], robot_pose[1])
+        odom_to_robot_map_homo = pose_to_homo(
+            odom_to_robot_map[0], odom_to_robot_map[1]
+        )
+        map_origin_homo = pose_to_homo(
+            [map_origin.position.x, map_origin.position.y, map_origin.position.z],
+            map_origin.orientation,
+        )
 
-            # transform map origin to map frame
-            map_origin_odom_frame = odom_to_robot_map_homo @ map_origin_homo
-            # set occupancy grid and robot pose in the mid-level planner
-            self.occupancy_map.set_grid(
-                occ_map,
-                msg.info.resolution,
-                map_origin_odom_frame,
-                robot_pose_homo,
-                self.node.get_clock().now(),
-            )
+        # transform map origin to map frame
+        map_origin_odom_frame = odom_to_robot_map_homo @ map_origin_homo
+        # set occupancy grid and robot pose in the mid-level planner
+        self.occupancy_map.set_grid(
+            occ_map,
+            msg.info.resolution,
+            map_origin_odom_frame,
+            robot_pose_homo,
+            self.node.get_clock().now(),
+        )
 
-            # Publish the inflated occupancy map
-            self.publish_inflated_occupancy_map(msg)
+        # Publish the inflated occupancy map
+        self.publish_inflated_occupancy_map(msg)
 
         self.feedback.print(
             "DEBUG",
