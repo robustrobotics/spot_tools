@@ -20,7 +20,6 @@ from spot_skills.navigation_utils import (
     follow_trajectory_continuous,
     turn_to_point,
 )
-from robot_executor_interface.mid_level_planner import MidLevelPlanner
 
 
 def transform_command_frame(tf_trans, tf_q, command, feedback=None):
@@ -217,7 +216,9 @@ class SpotExecutor:
                 try:
                     if type(command) is Follow:
                         success = self.execute_follow(command, feedback)
-                        feedback.print("INFO", f"Finished `follow` command with return {success}")
+                        feedback.print(
+                            "INFO", f"Finished `follow` command with return {success}"
+                        )
 
                     elif type(command) is Gaze:
                         success = self.execute_gaze(
@@ -323,13 +324,14 @@ class SpotExecutor:
         )
 
         feedback.follow_path_feedback(command_to_send)
-        
+
         if self.mid_level_planner is not None and self.use_fake_path_planner:
             # this only publish the path but does not actually command the spot to follow it
             # TODO: need to refactor this part
             ret = False
-            mlp_success, planning_output = self.mid_level_planner.plan_path(command_to_send[:, :2])
-            path = planning_output.path_shapely
+            mlp_success, planning_output = self.mid_level_planner.plan_path(
+                command_to_send[:, :2]
+            )
             path_wp = planning_output.path_waypoints_metric
             target_point_metric = planning_output.target_point_metric
             if not mlp_success:

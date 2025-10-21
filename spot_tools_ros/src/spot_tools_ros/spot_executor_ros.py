@@ -1,39 +1,38 @@
 import threading
 import time
-import os
 
 import cv2
 import numpy as np
-
 import rclpy
 import rclpy.time
 import spot_executor as se
 import tf2_ros
-import tf_transformations
 import yaml
 from cv_bridge import CvBridge
-from nav_msgs.msg import Path, OccupancyGrid
-from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
-from robot_executor_interface.mid_level_planner import MidLevelPlanner, IdentityPlanner, OccupancyMap
-
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
-from robot_executor_msgs.msg import ActionSequenceMsg, ActionMsg
+from robot_executor_msgs.msg import ActionSequenceMsg
 from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
+from shapely.geometry import Point
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool
 from visualization_msgs.msg import Marker, MarkerArray
-from shapely.geometry import Point
 
+from robot_executor_interface.mid_level_planner import (
+    IdentityPlanner,
+    MidLevelPlanner,
+    OccupancyMap,
+)
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.occupancy_grid_ros_updater import OccupancyGridROSUpdater
-from spot_tools_ros.utils import waypoints_to_path, pose_to_homo, get_tf_pose
+from spot_tools_ros.utils import get_tf_pose, waypoints_to_path
 
 
 def load_inverse_semantic_id_map_from_label_space(fn):
@@ -71,6 +70,7 @@ def build_markers(pts, namespaces, frames, colors):
         m = pt_to_marker(pt, namespaces[i], i, colors[i], fid=frames[i])
         ma.markers.append(m)
     return ma
+
 
 class RosFeedbackCollector:
     def __init__(self, odom_frame):
@@ -143,12 +143,12 @@ class RosFeedbackCollector:
         namespaces = ["path_progress"] * 2
         colors = [[0, 1, 1], [1, 0, 1]]
         frames = [self.odom_frame] * 2
-        self.progress_point_pub.publish(
-            build_markers(pts, namespaces, frames, colors)
-        )
-    
-    def path_follow_MLP_feedback(self, path, target_point_metric):        
-        self.mlp_path_publisher.publish(waypoints_to_path(self.odom_frame, path)) # TODO: parameterize frame name
+        self.progress_point_pub.publish(build_markers(pts, namespaces, frames, colors))
+
+    def path_follow_MLP_feedback(self, path, target_point_metric):
+        self.mlp_path_publisher.publish(
+            waypoints_to_path(self.odom_frame, path)
+        )  # TODO: parameterize frame name
         target_point_metric_flattened = Point([p[0] for p in target_point_metric[:3]])
 
         pts = [target_point_metric_flattened]
@@ -215,7 +215,6 @@ class RosFeedbackCollector:
             MarkerArray, "~/mlp_target_publisher", qos_profile=latching_qos
         )
 
-
         self.annotated_img_pub = node.create_publisher(
             Image, "~/annotated_image", qos_profile=latching_qos
         )
@@ -254,7 +253,7 @@ class SpotExecutorRos(Node):
         assert bdai_username != ""
         bdai_password = self.get_parameter("bosdyn_client_password").value
         assert bdai_password != ""
-        
+
         self.declare_parameter("occupancy_frame", "")
         self.occupancy_frame = self.get_parameter("occupancy_frame").value
         self.get_logger().info(f"{self.occupancy_frame=}")
@@ -293,7 +292,7 @@ class SpotExecutorRos(Node):
         odom_frame = self.get_parameter("odom_frame").value
         assert odom_frame != ""
         self.odom_frame = odom_frame
-        
+
         self.declare_parameter("body_frame", "")
         body_frame = self.get_parameter("body_frame").value
         assert body_frame != ""
@@ -304,11 +303,11 @@ class SpotExecutorRos(Node):
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        
+
         # Robot Initialization
         self.declare_parameter("use_fake_spot_interface", False)
         use_fake_spot_interface = self.get_parameter("use_fake_spot_interface").value
-        
+
         # mid-level planner parameters
         self.declare_parameter("mid_level_planner_type", "identity")
         self.declare_parameter("lookahead_distance", 50)
@@ -317,7 +316,9 @@ class SpotExecutorRos(Node):
         mid_level_planner_type = self.get_parameter("mid_level_planner_type").value
         lookahead_distance = self.get_parameter("lookahead_distance").value
         assert lookahead_distance > 0
-        occupancy_inflation_radius = self.get_parameter("occupancy_inflation_radius").value
+        occupancy_inflation_radius = self.get_parameter(
+            "occupancy_inflation_radius"
+        ).value
         assert occupancy_inflation_radius > 0
         use_fake_path_plan = self.get_parameter("use_fake_path_plan").value
         self.get_logger().info(f"{mid_level_planner_type=}, {use_fake_path_plan=}")
@@ -325,14 +326,30 @@ class SpotExecutorRos(Node):
         # mid-level planner initialization
         match mid_level_planner_type:
             case "astar":
-                self.occupancy_map = OccupancyMap(self.feedback_collector, inflate_radius_meters=occupancy_inflation_radius)
-                self.occupancy_map_updater = OccupancyGridROSUpdater(self, self.body_frame, self.odom_frame, self.occupancy_map, self.feedback_collector, self.tf_buffer)
-                self.mid_level_planner = MidLevelPlanner(self.occupancy_map, self.feedback_collector, lookahead_distance_grid=lookahead_distance)
+                self.occupancy_map = OccupancyMap(
+                    self.feedback_collector,
+                    inflate_radius_meters=occupancy_inflation_radius,
+                )
+                self.occupancy_map_updater = OccupancyGridROSUpdater(
+                    self,
+                    self.body_frame,
+                    self.odom_frame,
+                    self.occupancy_map,
+                    self.feedback_collector,
+                    self.tf_buffer,
+                )
+                self.mid_level_planner = MidLevelPlanner(
+                    self.occupancy_map,
+                    self.feedback_collector,
+                    lookahead_distance_grid=lookahead_distance,
+                )
                 self.get_logger().info("Using A* mid-level planner")
             case "identity":
                 self.mid_level_planner = IdentityPlanner(self.feedback_collector)
             case _:
-                raise ValueError(f"Invalid mid-level planner type {mid_level_planner_type}")
+                raise ValueError(
+                    f"Invalid mid-level planner type {mid_level_planner_type}"
+                )
 
         if use_fake_spot_interface:
             self.declare_parameter("fake_spot_external_pose", False)
@@ -398,8 +415,9 @@ class SpotExecutorRos(Node):
                 return get_tf_pose(self.tf_buffer, parent, child)
             except tf2_ros.TransformException as e:
                 self.get_logger.warn(f"Failed to get transform: {e}")
-        self.tf_lookup_fn = tf_lookup_fn # TODO: use this to test transformation
-        
+
+        self.tf_lookup_fn = tf_lookup_fn  # TODO: use this to test transformation
+
         detector = YOLODetector(
             self.spot_interface,
             yolo_world_path=detector_model_path,
@@ -412,7 +430,7 @@ class SpotExecutorRos(Node):
             self.mid_level_planner,
             follower_lookahead,
             goal_tolerance,
-            self.feedback_collector, 
+            self.feedback_collector,
             use_fake_path_plan,
         )
         self.spot_executor.initialize_lease_manager(self.feedback_collector)
@@ -430,7 +448,7 @@ class SpotExecutorRos(Node):
         self.timer = self.create_timer(
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
-            
+
     def hb_callback(self):
         msg = NodeInfoMsg()
         msg.nickname = "spot_executor"
@@ -438,7 +456,7 @@ class SpotExecutorRos(Node):
         msg.status = NodeInfoMsg.NOMINAL
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
-            
+
     def process_action_sequence(self, msg):
         def process_sequence():
             self.status_str = "Processing action sequence"
@@ -457,6 +475,7 @@ class SpotExecutorRos(Node):
         self.feedback_collector.break_out_of_waiting_loop = False
         self.background_thread = threading.Thread(target=process_sequence, daemon=False)
         self.background_thread.start()
+
 
 def main(args=None):
     rclpy.init(args=args)

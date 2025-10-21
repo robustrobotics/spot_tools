@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 
-import os
-import numpy as np
 import argparse
+from functools import partial
+
+import numpy as np
 import rclpy
 import tf2_ros
-import tf_transformations
-from rclpy.node import Node
-from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Pose
-from functools import partial
-from scipy.spatial.transform import Rotation
-from spot_tools_ros.utils import pose_to_homo, get_tf_pose
+from nav_msgs.msg import OccupancyGrid
+from rclpy.node import Node
 
+from spot_tools_ros.utils import get_tf_pose, pose_to_homo
 
 
 class FakeOccupancyPublisher(Node):
-    def __init__(self, occupancy_grid, resolution, robot_name, crop_distance=-1, publish_rate=10.0):
+    def __init__(
+        self,
+        occupancy_grid,
+        resolution,
+        robot_name,
+        crop_distance=-1,
+        publish_rate=10.0,
+    ):
         super().__init__("fake_occupancy_publisher")
 
         self.occupancy_grid = occupancy_grid.astype(np.int8)
@@ -25,7 +30,6 @@ class FakeOccupancyPublisher(Node):
         self.robot_frame = robot_name + "/body"
         self.odom_frame = robot_name + "/odom"
         self.map_height, self.map_width = occupancy_grid.shape
-
 
         self.crop_distance = crop_distance  # meters
         self.crop = self.crop_distance > 0
@@ -43,11 +47,15 @@ class FakeOccupancyPublisher(Node):
                 return get_tf_pose(self.tf_buffer, parent, child)
             except tf2_ros.TransformException as e:
                 self.get_logger.warn(f"Failed to get transform: {e}")
-        self.tf_lookup_fn = tf_lookup_fn # TODO: use this to test transformation
 
+        self.tf_lookup_fn = tf_lookup_fn  # TODO: use this to test transformation
 
-        self.publisher = self.create_publisher(OccupancyGrid, f"/{robot_name}/hydra/tsdf/occupancy", 10)
-        self.unmodified_publisher = self.create_publisher(OccupancyGrid, f"/{robot_name}/hydra/tsdf/occupancy/unmodified", 10)
+        self.publisher = self.create_publisher(
+            OccupancyGrid, f"/{robot_name}/hydra/tsdf/occupancy", 10
+        )
+        self.unmodified_publisher = self.create_publisher(
+            OccupancyGrid, f"/{robot_name}/hydra/tsdf/occupancy/unmodified", 10
+        )
 
         self.timer = self.create_timer(
             1.0 / publish_rate,
@@ -59,56 +67,71 @@ class FakeOccupancyPublisher(Node):
             partial(self.publish_map, self.unmodified_publisher, crop_to_robot=False),
         )
 
+        self.get_logger().info(
+            f"Publishing {self.map_width}x{self.map_height} map at {publish_rate} Hz"
+        )
 
-        self.get_logger().info(f"Publishing {self.map_width}x{self.map_height} map at {publish_rate} Hz")
-        
         self.map_origin = None
 
-
     def global_pose_to_grid_cell(self, pose, map_origin):
-        '''
+        """
         Input:
             - pose: (4,1) numpy array in map (global) frame
         Output:
             - (x, y): tuple in grid frame
-        
+
         indexing: (i, j) = (row, col) = (y, x)
-        '''
-        pose_in_grid_frame = np.linalg.inv(map_origin) @ pose # (4,1)
-        
+        """
+        pose_in_grid_frame = np.linalg.inv(map_origin) @ pose  # (4,1)
+
         # Convert the pose to grid coordinates
         grid_j = int(pose_in_grid_frame[0, 0] / self.resolution)
         grid_i = int(pose_in_grid_frame[1, 0] / self.resolution)
-                
+
         return (grid_i, grid_j)
 
     def crop_around_robot(self, robot_pose_odom_frame, msg_info_origin):
-        '''
+        """
         Input:
             - robot_pose_odom_frame: tuple of (translation, rotation) from tf_lookup_fn
             - msg_info_origin: Pose message containing map origin
             - crop_size: float, size of the crop in meters
         Output:
             - cropped_grid: flattened numpy array
-        '''
-        
+        """
+
         # Get transformation from odom to map frame
         odom_to_map = self.tf_lookup_fn(self.odom_frame, self.map_frame)
-        
+
         # Convert to homogeneous transformation matrices
-        robot_pose_homo = pose_to_homo(robot_pose_odom_frame[0], robot_pose_odom_frame[1])
+        robot_pose_homo = pose_to_homo(
+            robot_pose_odom_frame[0], robot_pose_odom_frame[1]
+        )
         odom_to_map_homo = pose_to_homo(odom_to_map[0], odom_to_map[1])
-        map_origin_homo = pose_to_homo([msg_info_origin.position.x, msg_info_origin.position.y, msg_info_origin.position.z], msg_info_origin.orientation)
+        map_origin_homo = pose_to_homo(
+            [
+                msg_info_origin.position.x,
+                msg_info_origin.position.y,
+                msg_info_origin.position.z,
+            ],
+            msg_info_origin.orientation,
+        )
 
         # Transform map origin to odom frame (following spot_executor_ros pattern)
         map_origin_odom_frame = odom_to_map_homo @ map_origin_homo
-        
-        # Create robot position vector in odom frame
-        robot_pose_vector = robot_pose_homo[:, 3].reshape(4, 1)  # Extract position column
 
-        robot_grid_cell = self.global_pose_to_grid_cell(robot_pose_vector, map_origin_odom_frame)
-        rows, cols = np.ogrid[:self.occupancy_grid.shape[0], :self.occupancy_grid.shape[1]]
-        dist2 = (rows - robot_grid_cell[0])**2 + (cols - robot_grid_cell[1])**2
+        # Create robot position vector in odom frame
+        robot_pose_vector = robot_pose_homo[:, 3].reshape(
+            4, 1
+        )  # Extract position column
+
+        robot_grid_cell = self.global_pose_to_grid_cell(
+            robot_pose_vector, map_origin_odom_frame
+        )
+        rows, cols = np.ogrid[
+            : self.occupancy_grid.shape[0], : self.occupancy_grid.shape[1]
+        ]
+        dist2 = (rows - robot_grid_cell[0]) ** 2 + (cols - robot_grid_cell[1]) ** 2
 
         # Convert crop_size from meters to grid cells
         crop_size_cells = self.crop_distance / self.resolution
@@ -122,7 +145,6 @@ class FakeOccupancyPublisher(Node):
 
         return cropped_grid.flatten().tolist()
 
-
     def publish_map(self, publisher, crop_to_robot=False):
         msg = OccupancyGrid()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -132,7 +154,7 @@ class FakeOccupancyPublisher(Node):
         msg.info.width = self.map_width
         msg.info.height = self.map_height
         msg.info.origin = Pose()
-        
+
         msg.info.origin.position.x = -16.0
         msg.info.origin.position.y = 0.0
         msg.info.origin.position.z = 0.0
@@ -155,8 +177,10 @@ def create_test_map(width=200, height=200):
     grid[:10, 0:20] = 100  # Horizontal wall
     return grid
 
-def create_random_map(width=200, height=200, n_obstacles=10, 
-                      obstacle_min_size=5, obstacle_max_size=25):
+
+def create_random_map(
+    width=200, height=200, n_obstacles=10, obstacle_min_size=5, obstacle_max_size=25
+):
     """
     Create an occupancy grid with n randomly placed rectangular obstacles.
     0 = free, 100 = occupied.
@@ -180,23 +204,37 @@ def create_random_map(width=200, height=200, n_obstacles=10,
         y = np.random.randint(0, height - h)
 
         # Place the obstacle
-        grid[y:y+h, x:x+w] = 100
+        grid[y : y + h, x : x + w] = 100
 
     return grid
 
-def main():
-    parser = argparse.ArgumentParser(description='Fake occupancy publisher')
-    parser.add_argument('--robot_name', type=str, default='hamilton', help='Robot name')
-    parser.add_argument('--resolution', type=float, default=0.12, help='Map resolution in meters/cell')
-    parser.add_argument('--crop_distance', type=float, default=5.0, help='Crop distance in meters (set to -1 to disable cropping)')
-    parser.add_argument('--num_obstacles', type=int, default=15, help='Number of obstacles to place')
 
-    parser.add_argument('--publish_rate', type=float, default=10.0, help='Publish rate in Hz')
+def main():
+    parser = argparse.ArgumentParser(description="Fake occupancy publisher")
+    parser.add_argument("--robot_name", type=str, default="hamilton", help="Robot name")
+    parser.add_argument(
+        "--resolution", type=float, default=0.12, help="Map resolution in meters/cell"
+    )
+    parser.add_argument(
+        "--crop_distance",
+        type=float,
+        default=5.0,
+        help="Crop distance in meters (set to -1 to disable cropping)",
+    )
+    parser.add_argument(
+        "--num_obstacles", type=int, default=15, help="Number of obstacles to place"
+    )
+
+    parser.add_argument(
+        "--publish_rate", type=float, default=10.0, help="Publish rate in Hz"
+    )
     args = parser.parse_args()
     rclpy.init()
 
     # Create or load occupancy map
-    occupancy_map = create_random_map(width=200, height=200, n_obstacles=args.num_obstacles)
+    occupancy_map = create_random_map(
+        width=200, height=200, n_obstacles=args.num_obstacles
+    )
     # Or: occupancy_map = np.load("path/to/map.npy")
 
     node = FakeOccupancyPublisher(
@@ -204,7 +242,7 @@ def main():
         resolution=args.resolution,
         robot_name=args.robot_name,
         publish_rate=args.publish_rate,
-        crop_distance=args.crop_distance
+        crop_distance=args.crop_distance,
     )
 
     try:

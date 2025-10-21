@@ -2,12 +2,12 @@ import time
 from itertools import zip_longest
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 import rclpy.time
 import tf2_ros
 import tf_transformations
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
+from scipy.spatial.transform import Rotation
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 
 
@@ -54,11 +54,11 @@ def path_to_waypoints(path):
 
 
 def pose_to_homo(pose, quat):
-    '''
+    """
     Input:
         - pose: list [x, y, z]
         - quat: ros2 geometry_msgs.msg.Quaternion
-    '''
+    """
     # Convert pose and quaternion to a 4x4 homogeneous transformation matrix
     trans = np.array(pose)
     rot_mat = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
@@ -92,7 +92,11 @@ def get_tf_pose(tf_buffer, parent_frame: str, child_frame: str, get_euler=False)
         roll, pitch, yaw = tf_transformations.euler_from_quaternion(quat)
 
         if get_euler:
-            return np.array([translation.x, translation.y, translation.z]), (roll, pitch, yaw)
+            return np.array([translation.x, translation.y, translation.z]), (
+                roll,
+                pitch,
+                yaw,
+            )
         return np.array([translation.x, translation.y, translation.z]), rotation
 
     except tf2_ros.TransformException as e:
