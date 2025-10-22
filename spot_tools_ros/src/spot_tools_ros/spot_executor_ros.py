@@ -406,6 +406,7 @@ class SpotExecutorRos(Node):
         self.feedback_collector.print("INFO", matrix)
         self.feedback_collector.print("INFO", SE2_pose.from_matrix(matrix))
 
+        self.spot_interface.stand()
         navigate_to_relative_pose(
             self.spot_interface, math_helpers.SE2Pose(x=1.0, y=0.0, angle=0.0)
         )
