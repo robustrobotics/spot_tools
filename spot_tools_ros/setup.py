@@ -65,6 +65,8 @@ setup(
         "console_scripts": [
             "spot_executor_node = spot_tools_ros.spot_executor_ros:main",
             "spot_sensor_node = spot_tools_ros.spot_sensors:main",
+            "fake_occupancy_publisher = spot_tools_ros.fake_occupancy_publisher:main",
+            "fake_path_publisher = spot_tools_ros.fake_path_publisher:main",
         ],
     },
 )

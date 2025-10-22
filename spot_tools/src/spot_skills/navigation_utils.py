@@ -132,6 +132,7 @@ def follow_trajectory_continuous(
     lookahead_distance: float,
     goal_tolerance: float,
     timeout: float,
+    mid_level_planner,
     frame_name=VISION_FRAME_NAME,
     stairs=False,
     feedback=None,
@@ -151,11 +152,34 @@ def follow_trajectory_continuous(
 
     spot.robot.ensure_client(RobotCommandClient.default_service_name)
 
-    path = shapely.LineString(waypoints_list[:, :2])
     end_pt = waypoints_list[-1, :2]
     t0 = time.time()
     rate = 10
+    # TODO: reactive loop, yeild out the loop to get info
     while 1:
+        # if mid_level_planner is not None:
+        # update path every (couple?) loop
+        mlp_success, planning_output = mid_level_planner.plan_path(
+            waypoints_list[:, :2]
+        )
+        path = planning_output.path_shapely
+        path_wp = planning_output.path_waypoints_metric
+        target_point_metric = planning_output.target_point_metric
+
+        if feedback is not None and target_point_metric is not None:
+            feedback.print("INFO", f"target_point_metric: {target_point_metric}")
+            feedback.path_follow_MLP_feedback(path_wp, target_point_metric)
+
+        if not mlp_success:
+            feedback.print(
+                "INFO", "Mid-level planner failed, following high-level path directly"
+            )
+            if time.time() - t0 > timeout:
+                return False
+
+            path = shapely.LineString(waypoints_list[:, :2])
+            continue
+
         if time.time() - t0 > timeout:
             # TODO: I think we need to tell Spot to stop?
             # TODO: Also, we should probably have a finer-grained
@@ -188,16 +212,18 @@ def follow_trajectory_continuous(
         )
 
         if feedback is not None:
+            # get data back out
+            # TODO: new function for MLP
             feedback.path_following_progress_feedback(progress_point, target_point)
 
         # 3. send command
         current_waypoint = math_helpers.SE2Pose(
             x=target_point.x, y=target_point.y, angle=yaw_angle
         )
+        feedback.print("INFO", f"Navigating to waypoint {current_waypoint}")
 
         navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
         time.sleep(1 / rate)
-
     return True
 
 

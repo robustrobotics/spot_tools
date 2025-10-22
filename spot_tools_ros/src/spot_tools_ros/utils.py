@@ -3,8 +3,11 @@ from itertools import zip_longest
 
 import numpy as np
 import rclpy.time
+import tf2_ros
+import tf_transformations
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
+from scipy.spatial.transform import Rotation
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 
 
@@ -48,3 +51,54 @@ def path_to_waypoints(path):
         waypoints.append([p.pose.position.x, p.pose.position.y, psi])
 
     return np.array(waypoints)
+
+
+def pose_to_homo(pose, quat):
+    """
+    Input:
+        - pose: list [x, y, z]
+        - quat: ros2 geometry_msgs.msg.Quaternion
+    """
+    # Convert pose and quaternion to a 4x4 homogeneous transformation matrix
+    trans = np.array(pose)
+    rot_mat = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_matrix()
+    homo_mat = np.eye(4)
+    homo_mat[:3, :3] = rot_mat
+    homo_mat[:3, 3] = trans
+    return homo_mat
+
+
+def get_tf_pose(tf_buffer, parent_frame: str, child_frame: str, get_euler=False):
+    """
+    Looks up the transform from parent_frame to child_frame and returns [x, y, z, yaw].
+
+    """
+
+    try:
+        now = rclpy.time.Time()
+        tf_buffer.can_transform(
+            parent_frame,
+            child_frame,
+            now,
+            timeout=rclpy.duration.Duration(seconds=1.0),
+        )
+        transform = tf_buffer.lookup_transform(parent_frame, child_frame, now)
+
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+
+        # Convert quaternion to Euler angles
+        quat = [rotation.x, rotation.y, rotation.z, rotation.w]
+        roll, pitch, yaw = tf_transformations.euler_from_quaternion(quat)
+
+        if get_euler:
+            return np.array([translation.x, translation.y, translation.z]), (
+                roll,
+                pitch,
+                yaw,
+            )
+        return np.array([translation.x, translation.y, translation.z]), rotation
+
+    except tf2_ros.TransformException as e:
+        print(f"Transform error: {e}")
+        raise

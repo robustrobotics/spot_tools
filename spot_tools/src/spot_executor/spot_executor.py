@@ -126,8 +126,11 @@ class SpotExecutor:
         spot_interface,
         detector,
         transform_lookup,
+        planner,
         follower_lookahead=2,
         goal_tolerance=2.8,
+        feedback=None,
+        use_fake_path_planner=False,
     ):
         self.debug = False
         self.spot_interface = spot_interface
@@ -137,6 +140,8 @@ class SpotExecutor:
         self.detector = detector
         self.keep_going = True
         self.processing_action_sequence = False
+        self.mid_level_planner = planner
+        self.use_fake_path_planner = use_fake_path_planner
 
         self.lease_manager = None
 
@@ -211,6 +216,9 @@ class SpotExecutor:
                 try:
                     if type(command) is Follow:
                         success = self.execute_follow(command, feedback)
+                        feedback.print(
+                            "INFO", f"Finished `follow` command with return {success}"
+                        )
 
                     elif type(command) is Gaze:
                         success = self.execute_gaze(
@@ -299,7 +307,6 @@ class SpotExecutor:
         feedback.print(
             "INFO", f"transforming path from {command.frame} to <spot_vision_frame>"
         )
-
         # <spot_vision_frame> gets remapped to the actual robot odom frame name
         # by the transform_lookup function.
         t, r = self.transform_lookup("<spot_vision_frame>", command.frame)
@@ -317,12 +324,28 @@ class SpotExecutor:
         )
 
         feedback.follow_path_feedback(command_to_send)
-        ret = follow_trajectory_continuous(
-            self.spot_interface,
-            command_to_send,
-            self.follower_lookahead,
-            self.goal_tolerance,
-            timeout,
-            feedback=feedback,
-        )
+
+        if self.mid_level_planner is not None and self.use_fake_path_planner:
+            # this only publish the path but does not actually command the spot to follow it
+            # TODO: need to refactor this part
+            ret = False
+            mlp_success, planning_output = self.mid_level_planner.plan_path(
+                command_to_send[:, :2]
+            )
+            path_wp = planning_output.path_waypoints_metric
+            target_point_metric = planning_output.target_point_metric
+            if not mlp_success:
+                feedback.print("INFO", "Mid-level planner failed to find a path")
+            if target_point_metric is not None:
+                feedback.path_follow_MLP_feedback(path_wp, target_point_metric)
+        else:
+            ret = follow_trajectory_continuous(
+                self.spot_interface,
+                command_to_send,
+                self.follower_lookahead,
+                self.goal_tolerance,
+                timeout,
+                self.mid_level_planner,
+                feedback=feedback,
+            )
         return ret
