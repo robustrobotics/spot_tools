@@ -25,7 +25,7 @@ MAX_LINEAR_VEL = 0.75
 MAX_ROTATION_VEL = 0.65
 
 
-def navigate_to_relative_pose(
+def navigate_to_relative_pose_old(
     spot,
     body_tform_goal: math_helpers.SE2Pose,
     max_xytheta_vel: Tuple[float, float, float] = (2.0, 2.0, 1.0),
@@ -95,21 +95,26 @@ def navigate_to_relative_pose(
         spot.robot.logger.info("Timed out waiting for movement to execute!")
 
 
-def navigate_to_relative_pose_new(
+def navigate_to_relative_pose(
     spot,
     body_tform_goal: math_helpers.SE2Pose,
     max_xytheta_vel: Tuple[float, float, float] = (2.0, 2.0, 1.0),
     min_xytheta_vel: Tuple[float, float, float] = (-2.0, -2.0, -1.0),
     timeout: float = 20.0,
 ):
-    current_pose = spot.get_pose()  # Returns a np array
-    waypoint = math_helpers.SE2Pose(
-        x=current_pose[0] + body_tform_goal.x,
-        y=current_pose[1] + body_tform_goal.y,
-        angle=current_pose[2] + body_tform_goal.angle,
-    )
+    # Get an SE2 pose for vision_tform_body to convert the body-based command to a non-moving frame
+    # that can be issued to the robot.
+    robot_state = spot.get_state()
+    transforms = robot_state.kinematic_state.transforms_snapshot
 
-    navigate_to_absolute_pose(spot, waypoint=waypoint)
+    assert str(transforms) != ""
+
+    vision_tform_body = get_se2_a_tform_b(
+        transforms, VISION_FRAME_NAME, BODY_FRAME_NAME
+    )
+    vision_tform_goal = vision_tform_body * body_tform_goal
+
+    navigate_to_absolute_pose(spot, waypoint=vision_tform_goal)
 
 
 def navigate_to_absolute_pose(
