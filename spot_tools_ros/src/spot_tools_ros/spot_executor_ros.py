@@ -252,6 +252,10 @@ class SpotExecutorRos(Node):
         bdai_password = self.get_parameter("bosdyn_client_password").value
         assert bdai_password != ""
 
+        self.declare_parameter("occupancy_frame", "")
+        self.occupancy_frame = self.get_parameter("occupancy_frame").value
+        self.get_logger().info(f"{self.occupancy_frame=}")
+
         # Follow Skill
         self.declare_parameter("follower_lookahead", 0.0)
         follower_lookahead = self.get_parameter("follower_lookahead").value
