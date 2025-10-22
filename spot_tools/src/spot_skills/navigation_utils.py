@@ -174,9 +174,11 @@ def follow_trajectory_continuous(
             feedback.print(
                 "INFO", "Mid-level planner failed, following high-level path directly"
             )
+            if time.time() - t0 > timeout:
+                return False
+
             path = shapely.LineString(waypoints_list[:, :2])
             continue
-            # return False
 
         if time.time() - t0 > timeout:
             # TODO: I think we need to tell Spot to stop?
