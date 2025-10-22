@@ -128,7 +128,7 @@ def arm_to_drop(spot, duration: float = 2.0) -> None:
 
     looking_down_and_right_and_rotated_right_pose = math_helpers.SE3Pose(
         x=0.2,
-        y=-0.5,
+        y=0.0,
         z=0.1,
         rot=math_helpers.Quat.from_pitch(np.pi / 2)
         * math_helpers.Quat.from_roll(np.pi / 2),
