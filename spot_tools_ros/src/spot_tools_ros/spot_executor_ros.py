@@ -23,6 +23,7 @@ from sensor_msgs.msg import Image
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
+from spot_skills.navigation_utils import navigate_to_relative_pose
 from std_msgs.msg import Bool
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -404,6 +405,10 @@ class SpotExecutorRos(Node):
         matrix = math_helpers.SE2Pose.to_matrix(SE2_pose)
         self.feedback_collector.print("INFO", matrix)
         self.feedback_collector.print("INFO", SE2_pose.from_matrix(matrix))
+
+        navigate_to_relative_pose(
+            self.spot_interface, math_helpers.SE2Pose(x=1.0, y=0.0, angle=0.0)
+        )
 
     def hb_callback(self):
         msg = NodeInfoMsg()
