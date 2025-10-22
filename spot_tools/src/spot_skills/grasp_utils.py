@@ -26,7 +26,6 @@ from bosdyn.client.frame_helpers import (
 from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arrives
 
 from spot_skills.arm_utils import (
-    arm_to_carry,
     arm_to_drop,
     close_gripper,
     open_gripper,
@@ -115,7 +114,7 @@ def object_place(spot, semantic_class="bag", position=None):
         return True
 
     time.sleep(0.25)
-    arm_to_carry(spot)
+    # arm_to_carry(spot)
     # stow_arm(spot)
     arm_to_drop(spot)
 
