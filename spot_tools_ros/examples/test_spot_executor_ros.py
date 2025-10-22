@@ -53,7 +53,7 @@ class Tester(Node):
         path = np.array(
             [
                 [3.8, 0],
-                [7.8, 0],
+                [5.8, 0],
             ]
         )
 
