@@ -6,15 +6,13 @@ import time
 import numpy as np
 import rclpy
 import tf2_ros
-import tf_transformations
-from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import Path
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
-from robot_executor_interface_ros.action_descriptions_ros import to_viz_msg
-from robot_executor_msgs.msg import ActionMsg, ActionSequenceMsg
+from robot_executor_interface_ros.action_descriptions_ros import to_msg, to_viz_msg
+from robot_executor_msgs.msg import ActionSequenceMsg
 from visualization_msgs.msg import MarkerArray
 
+from robot_executor_interface.action_descriptions import ActionSequence, Follow
 from spot_tools_ros.utils import get_tf_pose
 
 
@@ -179,42 +177,51 @@ class FakePathPublisher(Node):
                 )
 
             # Create ActionSequenceMsg
-            msg = ActionSequenceMsg()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.header.frame_id = self.map_frame
-            msg.plan_id = "fake_path_plan"
-            msg.robot_name = self.robot_name
-            msg.actions = []
+            # msg = ActionSequenceMsg()
+            # msg.header.stamp = self.get_clock().now().to_msg()
+            # msg.header.frame_id = self.map_frame
+            # msg.plan_id = "fake_path_plan"
+            # msg.robot_name = self.robot_name
+            # msg.actions = []
 
-            # Create ActionMsg with path
-            action_msg = ActionMsg()
-            action_msg.action_type = "FOLLOW"
-            path = Path()
-            path.header.frame_id = self.map_frame
-            path.header.stamp = self.get_clock().now().to_msg()
-            path.poses = []
+            # # Create ActionMsg with path
+            # action_msg = ActionMsg()
+            # action_msg.action_type = "FOLLOW"
+            # path = Path()
+            # path.header.frame_id = self.map_frame
+            # path.header.stamp = self.get_clock().now().to_msg()
+            # path.poses = []
 
-            # Add waypoints to path
-            for wp in waypoints:
-                pose_stamped = PoseStamped()
-                pose_stamped.header.frame_id = self.map_frame
-                pose_stamped.header.stamp = self.get_clock().now().to_msg()
-                pose_stamped.pose.position.x = wp[0]
-                pose_stamped.pose.position.y = wp[1]
-                pose_stamped.pose.position.z = 0.0
-                quat = tf_transformations.quaternion_from_euler(0, 0, wp[2])
-                pose_stamped.pose.orientation.x = quat[0]
-                pose_stamped.pose.orientation.y = quat[1]
-                pose_stamped.pose.orientation.z = quat[2]
-                pose_stamped.pose.orientation.w = quat[3]
-                path.poses.append(pose_stamped)
+            # # Add waypoints to path
+            # for wp in waypoints:
+            #     pose_stamped = PoseStamped()
+            #     pose_stamped.header.frame_id = self.map_frame
+            #     pose_stamped.header.stamp = self.get_clock().now().to_msg()
+            #     pose_stamped.pose.position.x = wp[0]
+            #     pose_stamped.pose.position.y = wp[1]
+            #     pose_stamped.pose.position.z = 0.0
+            #     quat = tf_transformations.quaternion_from_euler(0, 0, wp[2])
+            #     pose_stamped.pose.orientation.x = quat[0]
+            #     pose_stamped.pose.orientation.y = quat[1]
+            #     pose_stamped.pose.orientation.z = quat[2]
+            #     pose_stamped.pose.orientation.w = quat[3]
+            #     path.poses.append(pose_stamped)
 
-            action_msg.path = path
-            msg.actions.append(action_msg)
+            # action_msg.path = path
+            # msg.actions.append(action_msg)
+
+            actions = []
+            actions.append(Follow(frame=self.map_frame, path2d=waypoints.T))
+            action_sequence = ActionSequence(
+                plan_id="fake_path_plan",
+                robot_name=self.robot_name,
+                actions=actions,
+            )
+            msg = to_msg(action_sequence)
 
             self.publisher.publish(msg)
             self.viz_publisher.publish(
-                to_viz_msg(msg, self.robot_name)
+                to_viz_msg(action_sequence, self.robot_name)
             )  # somehow throw an error about the msg type, it has a '_' before the actual msg name
             # self.viz_publisher.publish(self.to_viz_msg(msg, self.robot_name))
             self.get_logger().info(f"Published path with {len(waypoints)} waypoints")
