@@ -155,7 +155,7 @@ def object_place(spot, semantic_class="bag", position=None):
         recover_arm=False,
         relative_pose=math_helpers.SE2Pose(x=0.0, y=1.0, angle=0),
     )
-    time.sleep(0.25)
+    time.sleep(1)
     return True
 
 
