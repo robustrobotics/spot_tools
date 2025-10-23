@@ -504,9 +504,9 @@ class IdentityPlanner:
         Input: high level path in <robot>/odom frame, Nx2 numpy array
         Output: (bool, path) -> (success, path in odom frame)
         """
-        output = {
-            "target_point_metric": None,
-            "path_shapely": shapely.LineString(high_level_path_metric[:, :2]),
-            "path_waypoints_metric": None,
-        }
+        output = MidLevelPlannerOutput(
+            target_point_metric=None,
+            path_shapely=shapely.LineString(high_level_path_metric[:, :2]),
+            path_waypoints_metric=None,
+        )
         return True, output
