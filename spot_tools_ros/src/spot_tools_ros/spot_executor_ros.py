@@ -9,7 +9,6 @@ import spot_executor as se
 import tf2_ros
 import tf_transformations
 import yaml
-from bosdyn.client import math_helpers
 from cv_bridge import CvBridge
 from nav_msgs.msg import Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -396,19 +395,6 @@ class SpotExecutorRos(Node):
         self.timer = self.create_timer(
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
-
-        pose = self.spot_interface.get_pose()
-        self.feedback_collector.print("INFO", pose)
-        SE2_pose = math_helpers.SE2Pose(x=pose[0], y=pose[1], angle=pose[2])
-        self.feedback_collector.print("INFO", SE2_pose)
-        matrix = math_helpers.SE2Pose.to_matrix(SE2_pose)
-        self.feedback_collector.print("INFO", matrix)
-        self.feedback_collector.print("INFO", SE2_pose.from_matrix(matrix))
-
-        # self.spot_interface.stand()
-        # navigate_to_relative_pose(
-        #     self.spot_interface, math_helpers.SE2Pose(x=0.0, y=-2.0, angle=np.pi)
-        # )
 
     def hb_callback(self):
         msg = NodeInfoMsg()

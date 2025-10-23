@@ -6,14 +6,10 @@ from typing import Tuple
 import numpy as np
 import shapely
 from bosdyn.api import geometry_pb2
-from bosdyn.api.basic_command_pb2 import RobotCommandFeedbackStatus
-from bosdyn.api.geometry_pb2 import SE2Velocity, SE2VelocityLimit, Vec2
 from bosdyn.api.spot import robot_command_pb2
-from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
 from bosdyn.client import math_helpers
 from bosdyn.client.frame_helpers import (
     BODY_FRAME_NAME,
-    ODOM_FRAME_NAME,
     VISION_FRAME_NAME,
     get_se2_a_tform_b,
 )
@@ -23,76 +19,6 @@ from numpy.typing import ArrayLike
 # Global constants to define spot motion speed
 MAX_LINEAR_VEL = 0.75
 MAX_ROTATION_VEL = 0.65
-
-
-def navigate_to_relative_pose_old(
-    spot,
-    body_tform_goal: math_helpers.SE2Pose,
-    max_xytheta_vel: Tuple[float, float, float] = (2.0, 2.0, 1.0),
-    min_xytheta_vel: Tuple[float, float, float] = (-2.0, -2.0, -1.0),
-    timeout: float = 10.0,
-) -> None:
-    """Execute a relative move.
-
-    The pose is dx, dy, dyaw relative to the robot's body.
-    """
-    # Get the robot's current state.
-    robot_state = spot.get_state()
-    transforms = robot_state.kinematic_state.transforms_snapshot
-
-    assert str(transforms) != ""
-
-    # We do not want to command this goal in body frame because the body will
-    # move, thus shifting our goal. Instead, we transform this offset to get
-    # the goal position in the output frame (odometry).
-    out_tform_body = get_se2_a_tform_b(transforms, ODOM_FRAME_NAME, BODY_FRAME_NAME)
-    out_tform_goal = out_tform_body * body_tform_goal
-
-    # Command the robot to go to the goal point in the specified
-    # frame. The command will stop at the new position.
-    # Constrain the robot not to turn, forcing it to strafe laterally.
-    speed_limit = SE2VelocityLimit(
-        max_vel=SE2Velocity(
-            linear=Vec2(x=max_xytheta_vel[0], y=max_xytheta_vel[1]),
-            angular=max_xytheta_vel[2],
-        ),
-        min_vel=SE2Velocity(
-            linear=Vec2(x=min_xytheta_vel[0], y=min_xytheta_vel[1]),
-            angular=min_xytheta_vel[2],
-        ),
-    )
-    mobility_params = spot_command_pb2.MobilityParams(vel_limit=speed_limit)
-
-    robot_command_client = spot.robot.ensure_client(
-        RobotCommandClient.default_service_name
-    )
-    robot_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
-        goal_x=out_tform_goal.x,
-        goal_y=out_tform_goal.y,
-        goal_heading=out_tform_goal.angle,
-        frame_name=ODOM_FRAME_NAME,
-        params=mobility_params,
-    )
-    cmd_id = robot_command_client.robot_command(
-        lease=None, command=robot_cmd, end_time_secs=time.time() + timeout
-    )
-    start_time = time.perf_counter()
-    while (time.perf_counter() - start_time) <= timeout:
-        feedback = robot_command_client.robot_command_feedback(cmd_id)
-        mobility_feedback = (
-            feedback.feedback.synchronized_feedback.mobility_command_feedback
-        )
-        if mobility_feedback.status != RobotCommandFeedbackStatus.STATUS_PROCESSING:  # pylint: disable=no-member,line-too-long
-            spot.robot.logger.info("Failed to reach the goal")
-            return
-        traj_feedback = mobility_feedback.se2_trajectory_feedback
-        if (
-            traj_feedback.status == traj_feedback.STATUS_STOPPED
-            and traj_feedback.body_movement_status == traj_feedback.BODY_STATUS_SETTLED
-        ):
-            return
-    if (time.perf_counter() - start_time) > timeout:
-        spot.robot.logger.info("Timed out waiting for movement to execute!")
 
 
 def navigate_to_relative_pose(
