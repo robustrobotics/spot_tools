@@ -47,13 +47,13 @@ class Tester(Node):
         # )
 
         pick_cmd = Pick(
-            "hamilton/odom", "cone", np.array([5.0, 5, 0]), np.array([7.0, 7, 0])
+            "hamilton/odom", "bag", np.array([5.0, 5, 0]), np.array([7.0, 7, 0])
         )
 
         path = np.array(
             [
                 [3.8, 0],
-                [7.8, 0],
+                [5.8, 0],
             ]
         )
 

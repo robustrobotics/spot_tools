@@ -144,7 +144,18 @@ def object_place(spot, semantic_class="bag", position=None):
     # drop_object(spot)
     stow_arm(spot)
     close_gripper(spot)
-    time.sleep(0.25)
+    execute_recovery_action(
+        spot,
+        recover_arm=False,
+        relative_pose=math_helpers.SE2Pose(x=-1.0, y=0.0, angle=0),
+    )
+    time.sleep(1)
+    execute_recovery_action(
+        spot,
+        recover_arm=False,
+        relative_pose=math_helpers.SE2Pose(x=0.0, y=1.0, angle=0),
+    )
+    time.sleep(1)
     return True
 
 
