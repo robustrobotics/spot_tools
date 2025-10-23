@@ -176,6 +176,8 @@ def object_grasp(
         raise Exception("You need to define a valid detector to pick up an object.")
 
     print(f'Grasping object of class "{semantic_class}"')
+    if spot.is_fake:
+        semantic_class = "bag"
 
     robot_state_client = spot.state_client
     manipulation_api_client = spot.manipulation_api_client
