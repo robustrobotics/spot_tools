@@ -256,7 +256,7 @@ class RosFeedbackCollector:
             fo.write(f"{t},{event}\n")
 
         msg = String()
-        msg.data = f"{t},event"
+        msg.data = f"{t},{event}"
         self.lease_takeover_publisher.publish(msg)
 
 

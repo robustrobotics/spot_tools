@@ -245,7 +245,7 @@ class SpotExecutor:
 
                 except LeaseUseError:
                     feedback.print("INFO", "Lost lease, stopping action sequence.")
-                    feedback.log_lease_takeover("manual_interventio")
+                    feedback.log_lease_takeover("manual_intervention")
                     # Wait until the lease manager has taken the lease back
                     time.sleep(2)
 
