@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 
@@ -22,7 +23,7 @@ from shapely.geometry import Point
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
 
 from robot_executor_interface.mid_level_planner import (
@@ -73,12 +74,14 @@ def build_markers(pts, namespaces, frames, colors):
 
 
 class RosFeedbackCollector:
-    def __init__(self, odom_frame):
+    def __init__(self, odom_frame: str, output_dir: str):
         self.pick_confirmation_event = threading.Event()
         self.pick_confirmation_response = False
 
         self.break_out_of_waiting_loop = False
         self.odom_frame = odom_frame
+
+        self.output_dir = output_dir
 
     def bounding_box_detection_feedback(
         self, annotated_img, centroid_x, centroid_y, semantic_class
@@ -217,12 +220,24 @@ class RosFeedbackCollector:
             Image, "~/annotated_image", qos_profile=latching_qos
         )
 
+        self.lease_takeover_publisher = node.create_publisher(String, "~/takeover", 10)
+
         node.create_subscription(
             Bool,
             "~/pick_confirmation",
             self.pick_confirmation_callback,
             10,
         )
+
+        # TODO(aaron): Once we switch logging to python logger,
+        # should move into init
+        self.logger.info(f"Logging to: {self.output_dir}")
+        if not os.path.exists(self.output_dir):
+            self.logger.info(f"Making {self.output_dir}")
+            os.mkdir(self.output_dir)
+        log_fn = os.path.join(self.output_dir, "lease_log.txt")
+        with open(log_fn, "w") as fo:
+            fo.write("time,event\n")
 
     def pick_confirmation_callback(self, msg):
         if msg.data:
@@ -233,6 +248,16 @@ class RosFeedbackCollector:
             self.pick_confirmation_response = False
 
         self.pick_confirmation_event.set()
+
+    def log_lease_takeover(self, event: str):
+        log_fn = os.path.join(self.output_dir, "lease_log.txt")
+        t = time.time()
+        with open(log_fn, "a") as fo:
+            fo.write(f"{t},{event}\n")
+
+        msg = String()
+        msg.data = f"{t},{event}"
+        self.lease_takeover_publisher.publish(msg)
 
 
 class SpotExecutorRos(Node):
@@ -292,7 +317,11 @@ class SpotExecutorRos(Node):
         assert body_frame != ""
         self.body_frame = body_frame
 
-        self.feedback_collector = RosFeedbackCollector(self.odom_frame)
+        self.declare_parameter("output_dir", "")
+        output_dir = self.get_parameter("output_dir").value
+        assert output_dir != ""
+
+        self.feedback_collector = RosFeedbackCollector(self.odom_frame, output_dir)
         self.feedback_collector.register_publishers(self)
 
         self.tf_buffer = tf2_ros.Buffer()
