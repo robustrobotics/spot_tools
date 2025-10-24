@@ -76,6 +76,7 @@ class LeaseManager:
                             "INFO",
                             "LEASE MANAGER THREAD: Trying to take lease back, since nobody owns it.",
                         )
+                        self.feedback.log_lease_takeover("spot_executor_takes_lease")
                     self.spot_interface.take_lease()
                     try:
                         stow_arm(self.spot_interface)
@@ -243,7 +244,8 @@ class SpotExecutor:
                         time.sleep(1)
 
                 except LeaseUseError:
-                    # feedback.print("INFO", "Lost lease, stopping action sequence.")
+                    feedback.print("INFO", "Lost lease, stopping action sequence.")
+                    feedback.log_lease_takeover("manual_interventio")
                     # Wait until the lease manager has taken the lease back
                     time.sleep(2)
 
