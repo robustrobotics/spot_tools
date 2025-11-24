@@ -10,6 +10,7 @@ import spot_executor as se
 import tf2_ros
 import yaml
 from cv_bridge import CvBridge
+from heracles_ros_interfaces.srv import UpdateHoldingState
 from nav_msgs.msg import Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -229,6 +230,11 @@ class RosFeedbackCollector:
             10,
         )
 
+        self.holding_client = node.create_client(
+            UpdateHoldingState,
+            "update_holding_state"
+        )
+
         # TODO(aaron): Once we switch logging to python logger,
         # should move into init
         self.logger.info(f"Logging to: {self.output_dir}")
@@ -238,6 +244,20 @@ class RosFeedbackCollector:
         log_fn = os.path.join(self.output_dir, "lease_log.txt")
         with open(log_fn, "w") as fo:
             fo.write("time,event\n")
+
+    def set_robot_holding_state(self, is_holding: bool, object_id: str, timeout=5):
+        req = UpdateHoldingState.Request()
+        req.is_holding = is_holding
+        req.id = object_id
+
+        future = self.holding_client.call_async(req)
+        start = time.time()
+        while not future.done():
+            if time.time() - start > timeout:
+                self.logger.error("UpdateHoldingState call timed out")
+                return False
+
+        return future.result().success
 
     def pick_confirmation_callback(self, msg):
         if msg.data:
