@@ -231,8 +231,7 @@ class RosFeedbackCollector:
         )
 
         self.holding_client = node.create_client(
-            UpdateHoldingState,
-            "update_holding_state"
+            UpdateHoldingState, "update_holding_state"
         )
 
         # TODO(aaron): Once we switch logging to python logger,
