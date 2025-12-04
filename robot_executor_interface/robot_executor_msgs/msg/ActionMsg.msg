@@ -24,6 +24,7 @@ geometry_msgs/Point gaze_point
 string pick_frame
 string object_class
 geometry_msgs/Point object_point
+string object_id
 
 # Definition for PLACE
 string place_frame

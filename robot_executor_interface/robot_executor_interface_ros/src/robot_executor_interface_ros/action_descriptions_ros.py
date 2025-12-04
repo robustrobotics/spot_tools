@@ -153,12 +153,14 @@ def gaze_from_msg(msg):
     robot_point = np.array([msg.robot_point.x, msg.robot_point.y, msg.robot_point.z])
     gaze_point = np.array([msg.gaze_point.x, msg.gaze_point.y, msg.gaze_point.z])
     stow_after = msg.place_frame == "STOW"
+    object_id = msg.object_id
 
     return Gaze(
         frame=msg.gaze_frame,
         robot_point=robot_point,
         gaze_point=gaze_point,
         stow_after=stow_after,
+        object_id=object_id,
     )
 
 
@@ -167,8 +169,6 @@ def _(action: Gaze):
     msg = ActionMsg()
     msg.action_type = msg.GAZE
 
-    print(action.robot_point[0])
-    print(type(action.robot_point[0]))
     msg.robot_point.x = action.robot_point[0]
     msg.robot_point.y = action.robot_point[1]
     msg.robot_point.z = action.robot_point[2]
@@ -178,6 +178,8 @@ def _(action: Gaze):
     msg.gaze_point.z = action.gaze_point[2]
 
     msg.place_frame = "STOW" if action.stow_after else "NO_STOW"
+
+    msg.object_id = action.object_id
 
     return msg
 
@@ -223,6 +225,7 @@ def pick_from_msg(msg):
         object_class=msg.object_class,
         robot_point=robot_point,
         object_point=object_point,
+        object_id=msg.object_id,
     )
 
 
@@ -240,6 +243,7 @@ def _(action: Pick):
     msg.object_point.z = action.object_point[2]
 
     msg.object_class = action.object_class
+    msg.object_id = action.object_id
 
     return msg
 
@@ -285,6 +289,7 @@ def place_from_msg(msg):
         object_class=msg.object_class,
         robot_point=robot_point,
         object_point=object_point,
+        obejct_id=msg.object_id,
     )
 
 
@@ -300,6 +305,8 @@ def _(action: Place):
     msg.object_point.x = action.object_point[0]
     msg.object_point.y = action.object_point[1]
     msg.object_point.z = action.object_point[2]
+
+    msg.object_id = action.object_id
 
     return msg
 
