@@ -294,6 +294,11 @@ class SpotExecutor:
 
             feedback.pick_image_feedback(sem_img, outline_img)
 
+        if success:
+            # Update object holding state
+            # TODO: don't hard-code the object to hold
+            feedback.set_robot_holding_state(True, command.object_id.upper())
+
         feedback.print("INFO", "Finished `pick` command")
         feedback.print("INFO", f"Pick skill success: {success}")
         return success
@@ -301,6 +306,11 @@ class SpotExecutor:
     def execute_place(self, command, feedback):
         feedback.print("INFO", "Executing `place` command")
         success = object_place(self.spot_interface, semantic_class=command.object_class)
+
+        if success:
+            # Update object holding state
+            feedback.set_robot_holding_state(False, command.object_id.upper())
+
         feedback.print("INFO", "Finished `place` command")
         return success
 

@@ -21,6 +21,7 @@ class Gaze:
     frame: str
     robot_point: np.ndarray
     gaze_point: np.ndarray
+    object_id: str
     stow_after: bool = False
 
 
@@ -30,6 +31,7 @@ class Pick:
     object_class: str
     robot_point: np.ndarray
     object_point: np.ndarray
+    object_id: str
 
 
 @dataclass
@@ -38,3 +40,4 @@ class Place:
     object_class: str
     robot_point: np.ndarray
     object_point: np.ndarray
+    object_id: str

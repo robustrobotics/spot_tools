@@ -81,3 +81,10 @@ class FeedbackCollector:
         cv2.imshow("Most Confident Output", annotated_img)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+
+    def set_robot_holding_state(self, is_holding: bool, object_id: str, timeout=5):
+        action = "picked up" if is_holding else "placed down"
+        print(
+            f"[HOLDING STATE] Robot {action} object '{object_id}' (is_holding={is_holding})"
+        )
+        return True
