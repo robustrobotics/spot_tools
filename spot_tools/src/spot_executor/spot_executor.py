@@ -297,7 +297,7 @@ class SpotExecutor:
         if success:
             # Update object holding state
             # TODO: don't hard-code the object to hold
-            feedback.set_robot_holding_state(True, "O43")
+            feedback.set_robot_holding_state(True, command.object_id.upper())
 
         feedback.print("INFO", "Finished `pick` command")
         feedback.print("INFO", f"Pick skill success: {success}")
@@ -309,8 +309,7 @@ class SpotExecutor:
 
         if success:
             # Update object holding state
-            # TODO: don't hard-code the object to hold
-            feedback.set_robot_holding_state(False, "O43")
+            feedback.set_robot_holding_state(False, command.object_id.upper())
 
         feedback.print("INFO", "Finished `place` command")
         return success

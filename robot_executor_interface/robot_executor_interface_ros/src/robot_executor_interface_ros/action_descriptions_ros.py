@@ -289,7 +289,7 @@ def place_from_msg(msg):
         object_class=msg.object_class,
         robot_point=robot_point,
         object_point=object_point,
-        obejct_id=msg.object_id,
+        object_id=msg.object_id,
     )
 
 
