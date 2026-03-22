@@ -4,7 +4,7 @@ import threading
 import numpy as np
 import shapely
 from attr import dataclass
-from scipy.ndimage import binary_dilation, convolve
+from scipy.ndimage import binary_dilation, convolve, distance_transform_edt
 
 
 def invert_pose(p):
@@ -34,6 +34,9 @@ class OccupancyMap:
         map_resolution=None,
         map_origin=None,
         inflate_radius_meters=0.5,
+        use_cost_map=False,
+        safe_distance=0.5,
+        nearest_obstacle_cost=5.0,
     ):
         self.feedback = feedback
         self.occupancy_map = occupancy_map
@@ -41,6 +44,10 @@ class OccupancyMap:
         self.map_origin = map_origin
         self.robot_pose = None  # <robot>/odom frame
         self.inflate_radius_meters = inflate_radius_meters
+        self.use_cost_map = use_cost_map
+        self.safe_distance = safe_distance  # meters
+        self.nearest_obstacle_cost = nearest_obstacle_cost
+        self.proximity_cost_map = None
         self.map_lock = threading.Lock()  # used for async updates
         self.last_update_time = None
 
@@ -67,6 +74,10 @@ class OccupancyMap:
             self.occupancy_map = self.inflate_obstacles(
                 self.occupancy_map, self.inflate_radius_meters
             )
+            if self.use_cost_map:
+                self.proximity_cost_map = self._compute_proximity_cost_map(
+                    self.occupancy_map
+                )
         self.feedback.print(
             "DEBUG",
             f"Occupancy map updated: shape={self.occupancy_map.shape}, resolution={self.map_resolution}, origin=\n{self.map_origin}, robot_pose=\n{self.robot_pose}",
@@ -150,6 +161,29 @@ class OccupancyMap:
         inflated_grid[newly_occupied] = 100
 
         return inflated_grid
+
+    def _compute_proximity_cost_map(self, inflated_grid):
+        """
+        Computes a per-cell proximity cost based on Euclidean distance to the nearest obstacle.
+
+        For each free cell, if its distance to the nearest obstacle is within safe_distance,
+        a Gaussian (RBF) cost is assigned: cost = nearest_obstacle_cost * exp(-d^2 / (2*sigma^2))
+        where sigma = safe_distance_cells / 3, so cost drops to ~1% of max at the safe_distance
+        boundary. Cells beyond safe_distance get zero cost.
+
+        Returns a float32 array with the same shape as inflated_grid.
+        """
+        free_mask = inflated_grid == 0
+        dist_cells = distance_transform_edt(free_mask)  # distance in grid cells
+        safe_dist_cells = (
+            self.safe_distance / self.map_resolution
+        )  # convert safe distance to grid cells
+        sigma = safe_dist_cells / 3.0
+        raw_cost = self.nearest_obstacle_cost * np.exp(
+            -(dist_cells**2) / (2 * sigma**2)
+        )
+        proximity_cost_map = np.where(dist_cells < safe_dist_cells, raw_cost, 0.0)
+        return proximity_cost_map.astype(np.float32)
 
 
 @dataclass
@@ -482,7 +516,12 @@ class MidLevelPlanner:
                 if not is_valid(neighbor) or is_obstacle(neighbor):
                     continue
 
-                tentative_g_cost = g_cost[current] + 1
+                prox_cost = (
+                    self.occupancy_map_obj.proximity_cost_map[neighbor[0], neighbor[1]]
+                    if self.occupancy_map_obj.proximity_cost_map is not None
+                    else 0.0
+                )
+                tentative_g_cost = g_cost[current] + 1 + prox_cost
                 if tentative_g_cost < g_cost[neighbor]:
                     came_from[neighbor] = current
                     g_cost[neighbor] = tentative_g_cost

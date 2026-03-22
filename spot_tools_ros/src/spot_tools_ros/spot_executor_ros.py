@@ -355,6 +355,9 @@ class SpotExecutorRos(Node):
         self.declare_parameter("lookahead_distance", 50)
         self.declare_parameter("occupancy_inflation_radius", 0.5)
         self.declare_parameter("use_fake_path_plan", False)
+        self.declare_parameter("use_cost_map", False)
+        self.declare_parameter("cost_map_safe_distance", 0.5)
+        self.declare_parameter("cost_map_nearest_obstacle_cost", 5.0)
         mid_level_planner_type = self.get_parameter("mid_level_planner_type").value
         lookahead_distance = self.get_parameter("lookahead_distance").value
         assert lookahead_distance > 0
@@ -363,7 +366,14 @@ class SpotExecutorRos(Node):
         ).value
         assert occupancy_inflation_radius > 0
         use_fake_path_plan = self.get_parameter("use_fake_path_plan").value
-        self.get_logger().info(f"{mid_level_planner_type=}, {use_fake_path_plan=}")
+        use_cost_map = self.get_parameter("use_cost_map").value
+        cost_map_safe_distance = self.get_parameter("cost_map_safe_distance").value
+        cost_map_nearest_obstacle_cost = self.get_parameter(
+            "cost_map_nearest_obstacle_cost"
+        ).value
+        self.get_logger().info(
+            f"{mid_level_planner_type=}, {use_fake_path_plan=}, {use_cost_map=}"
+        )
 
         # mid-level planner initialization
         match mid_level_planner_type:
@@ -371,6 +381,9 @@ class SpotExecutorRos(Node):
                 self.occupancy_map = OccupancyMap(
                     self.feedback_collector,
                     inflate_radius_meters=occupancy_inflation_radius,
+                    use_cost_map=use_cost_map,
+                    safe_distance=cost_map_safe_distance,
+                    nearest_obstacle_cost=cost_map_nearest_obstacle_cost,
                 )
                 self.occupancy_map_updater = OccupancyGridROSUpdater(
                     self,
