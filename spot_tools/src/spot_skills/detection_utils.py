@@ -2,7 +2,7 @@ from copy import copy
 
 import cv2
 import numpy as np
-from ultralytics import YOLOWorld
+from ultralytics import YOLOE
 
 
 class Detector:
@@ -18,7 +18,7 @@ class YOLODetector(Detector):
         if not yolo_world_path:
             raise ValueError("YOLOWorld model path must be provided.")
 
-        self.yolo_model = YOLOWorld(yolo_world_path)
+        self.yolo_model = YOLOE(yolo_world_path)
         custom_classes = ["", "bag", "cone", "pipe"]
         self.yolo_model.set_classes(custom_classes)
         print("Set classes for YOLOWorld model.")

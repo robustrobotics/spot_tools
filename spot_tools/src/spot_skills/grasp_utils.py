@@ -26,7 +26,6 @@ from bosdyn.client.frame_helpers import (
 from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arrives
 
 from spot_skills.arm_utils import (
-    arm_to_drop,
     close_gripper,
     open_gripper,
     stow_arm,
@@ -116,7 +115,7 @@ def object_place(spot, semantic_class="bag", position=None):
     time.sleep(0.25)
     # arm_to_carry(spot)
     # stow_arm(spot)
-    arm_to_drop(spot)
+    # arm_to_drop(spot)
 
     # odom_T_task = get_root_T_ground_body(
     #    robot_state=spot.get_state(), root_frame_name=ODOM_FRAME_NAME
@@ -153,7 +152,7 @@ def object_place(spot, semantic_class="bag", position=None):
     execute_recovery_action(
         spot,
         recover_arm=False,
-        relative_pose=math_helpers.SE2Pose(x=0.0, y=1.0, angle=0),
+        relative_pose=math_helpers.SE2Pose(x=0.0, y=-1.0, angle=0),
     )
     time.sleep(1)
     return True
