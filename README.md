@@ -11,6 +11,110 @@ pre-commit run --all-files
 ```
 
 
+# Direct Navigation Commands
+
+In addition to high-level PDDL-based planning, the spot executor supports
+direct navigation commands for teleoperation-style control through the chat
+interface. These commands bypass the PDDL planning pipeline and are sent
+directly to the executor.
+
+## Available Commands
+
+| Command | Action Type | Parameters | Description |
+|---------|-------------|------------|-------------|
+| Move | `MOVE_RELATIVE` | `distance_m` (float) | Move forward (positive) or backward (negative) by a distance in meters |
+| Turn | `TURN_RELATIVE` | `angle_deg` (float) | Turn left/CCW (positive) or right/CW (negative) by an angle in degrees |
+| Strafe | `STRAFE` | `distance_m` (float) | Move left (positive) or right (negative) sideways by a distance in meters |
+| Stop | `STOP` | none | Halt all motion and cancel any in-progress action sequence |
+| Stand/Sit | `STAND_SIT` | `action` ("stand" or "sit") | Stand up or sit down |
+
+## Architecture
+
+These commands are defined as action dataclasses in
+`robot_executor_interface/action_descriptions.py` alongside the existing
+`Follow`, `Gaze`, `Pick`, and `Place` actions. They are dispatched by the
+`SpotExecutor` in `spot_executor.py`, which uses `navigate_to_relative_pose()`
+from `navigation_utils.py` to convert body-frame relative commands into
+vision-frame absolute trajectories.
+
+The corresponding LLM tools are defined in `heracles_agents` at
+`src/heracles_agents/tools/navigation_tools.py`. When the LLM calls a
+navigation tool, it publishes an `ActionSequenceMsg` via `ros2 topic pub`
+directly to the executor's action sequence topic.
+
+```
+Chat input -> LLM tool call (e.g., move_relative) -> ros2 topic pub ActionSequenceMsg -> SpotExecutor
+```
+
+## Testing Direct Commands
+
+You can manually publish direct commands for testing without the chat interface:
+
+```bash
+# Move forward 2 meters
+ros2 topic pub /hamilton/spot_executor_node/action_sequence_subscriber \
+  robot_executor_msgs/msg/ActionSequenceMsg \
+  "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'MOVE_RELATIVE', scalar_value: 2.0}]}" -1
+
+# Turn right 90 degrees
+ros2 topic pub /hamilton/spot_executor_node/action_sequence_subscriber \
+  robot_executor_msgs/msg/ActionSequenceMsg \
+  "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'TURN_RELATIVE', scalar_value: -90.0}]}" -1
+
+# Stop
+ros2 topic pub /hamilton/spot_executor_node/action_sequence_subscriber \
+  robot_executor_msgs/msg/ActionSequenceMsg \
+  "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'STOP'}]}" -1
+
+# Sit down
+ros2 topic pub /hamilton/spot_executor_node/action_sequence_subscriber \
+  robot_executor_msgs/msg/ActionSequenceMsg \
+  "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'STAND_SIT', stand_sit_action: 'sit'}]}" -1
+```
+
+After modifying `ActionMsg.msg`, rebuild with:
+```bash
+colcon build --packages-select robot_executor_msgs
+```
+
+## Pause / Resume
+
+The executor supports a lightweight pause/resume mechanism via a ROS topic.
+When paused, the robot cancels any in-progress action sequence, holds its
+current pose (stays standing), and rejects new action sequences until resumed.
+
+```bash
+# Pause — robot stops and holds position
+ros2 topic pub /hamilton/spot_executor_node/pause std_msgs/msg/Bool "{data: true}" -1
+
+# Resume — robot accepts commands again
+ros2 topic pub /hamilton/spot_executor_node/pause std_msgs/msg/Bool "{data: false}" -1
+```
+
+This can be bound to a joystick button, keyboard shortcut, or RViz panel
+button for one-press pause without going through the chat/LLM stack. The robot
+stays powered on and standing — no lease transfer, no E-Stop, no recovery
+sequence needed.
+
+## Stopping Behavior
+
+There are three levels of stopping:
+
+- **Pause** (`~/pause` topic): Cancels the action sequence and holds position.
+  The robot stays standing with motors on. Resume at any time by publishing
+  `false`. No LLM or chat interface needed. Best for: operator wants to
+  temporarily halt the robot.
+
+- **Software stop** (`STOP` command via chat): Same effect as pause, but
+  triggered through the chat interface / LLM tool call. Adds LLM latency.
+  Best for: "I changed my mind" during a chat session.
+
+- **Hardware E-Stop** (tablet): Cuts motor power immediately — the robot will
+  collapse. This is always available and should be used for safety-critical
+  situations. The robot requires a full recovery sequence (clear faults, power
+  on, stand) before it can move again.
+
+
 # Examples
 
 You can find an example of the ROS-free spot executor in
