@@ -48,26 +48,70 @@ Chat input -> LLM tool call (e.g., move_relative) -> ros2 topic pub ActionSequen
 
 ## Testing Direct Commands
 
-You can manually publish direct commands for testing without the chat interface:
+### nav_test.sh (recommended)
+
+A helper script at `spot_tools_ros/scripts/nav_test.sh` provides one-liner
+commands for interactive testing without the chat interface. Source it in any
+terminal on the robot:
+
+```bash
+source ~/dcist_ws/src/awesome_dcist_t4/spot_tools/spot_tools_ros/scripts/nav_test.sh
+```
+
+This auto-sources ROS, sets Zenoh env vars, and loads the workspace. Available
+commands (optional argument shown in brackets):
+
+```bash
+forward [m]        # move forward (default 1.0m)
+backward [m]       # move backward
+turn_left [deg]    # turn CCW (default 90deg)
+turn_right [deg]   # turn CW
+strafe_left [m]    # move left (default 0.5m)
+strafe_right [m]   # move right
+stand
+sit
+stop               # cancel sequence and hold position
+pause              # hold position, reject new commands
+resume             # accept commands again
+```
+
+Example session:
+```bash
+forward 0.5
+turn_left 90
+strafe_right 0.3
+sit
+stand
+stop
+```
+
+> **Topic note:** The executor's `~/action_sequence_subscriber` topic is
+> remapped in the hamilton launch config to
+> `/hamilton/omniplanner_node/compiled_plan_out`. Update `EXEC_TOPIC` in the
+> script if deploying on a different robot or launch configuration.
+
+### Raw ros2 topic pub
+
+You can also publish commands directly:
 
 ```bash
 # Move forward 2 meters
-ros2 topic pub /hamilton/spot_executor_node/action_sequence_subscriber \
+ros2 topic pub /hamilton/omniplanner_node/compiled_plan_out \
   robot_executor_msgs/msg/ActionSequenceMsg \
   "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'MOVE_RELATIVE', scalar_value: 2.0}]}" -1
 
 # Turn right 90 degrees
-ros2 topic pub /hamilton/spot_executor_node/action_sequence_subscriber \
+ros2 topic pub /hamilton/omniplanner_node/compiled_plan_out \
   robot_executor_msgs/msg/ActionSequenceMsg \
   "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'TURN_RELATIVE', scalar_value: -90.0}]}" -1
 
 # Stop
-ros2 topic pub /hamilton/spot_executor_node/action_sequence_subscriber \
+ros2 topic pub /hamilton/omniplanner_node/compiled_plan_out \
   robot_executor_msgs/msg/ActionSequenceMsg \
   "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'STOP'}]}" -1
 
 # Sit down
-ros2 topic pub /hamilton/spot_executor_node/action_sequence_subscriber \
+ros2 topic pub /hamilton/omniplanner_node/compiled_plan_out \
   robot_executor_msgs/msg/ActionSequenceMsg \
   "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'STAND_SIT', stand_sit_action: 'sit'}]}" -1
 ```
