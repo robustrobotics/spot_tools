@@ -16,3 +16,12 @@
         labelspace_path: "labelspace_path"
         #labelspace_grouping_path: "(find-pkg-share semantic_inference)/config/label_groupings/ade20k_mit.yaml"
         labelspace_grouping_path: "grouping_path"
+        # mid-level planner
+        mid_level_planner_type: "astar"   # "astar" or "identity"
+        lookahead_distance: 50            # grid cells
+        occupancy_inflation_radius: 0.2   # meters
+        use_fake_path_plan: false
+        # cost map: penalizes paths near obstacles (adds proximity cost to A* g_cost)
+        use_cost_map: false
+        cost_map_safe_distance: 1.0       # meters; cells within this distance incur extra cost
+        cost_map_nearest_obstacle_cost: 5.0  # max extra cost per step at zero distance (Gaussian RBF)
