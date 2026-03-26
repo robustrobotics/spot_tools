@@ -399,7 +399,7 @@ class SpotExecutor:
 
     def execute_turn_relative(self, command, feedback):
         feedback.print("INFO", f"Turning {command.angle_deg} degrees")
-        angle_rad = np.deg2rad(command.angle_deg)
+        angle_rad = -np.deg2rad(command.angle_deg)  # BD SE2Pose: positive=CW=right, so negate for positive=CCW=left
         body_tform_goal = math_helpers.SE2Pose(x=0, y=0, angle=angle_rad)
         navigate_to_relative_pose(self.spot_interface, body_tform_goal)
         time.sleep(abs(angle_rad) / MAX_ROTATION_VEL + 2)
