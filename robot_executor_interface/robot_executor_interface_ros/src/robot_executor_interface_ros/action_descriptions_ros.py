@@ -369,7 +369,30 @@ def _(action: MoveRelative):
 
 @to_viz_msg.register
 def _(action: MoveRelative, marker_ns):
-    return []
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.ARROW
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.1  # shaft diameter
+    m.scale.y = 0.15  # head diameter
+    m.color.a = 1.0
+    m.color.r = 0.0
+    m.color.g = 1.0
+    m.color.b = 1.0
+    pt1 = Point()
+    pt1.x = 0.0
+    pt1.y = 0.0
+    pt1.z = 0.0
+    pt2 = Point()
+    pt2.x = action.distance_m
+    pt2.y = 0.0
+    pt2.z = 0.0
+    m.points = [pt1, pt2]
+    return [m]
 
 
 @to_msg.register
@@ -382,7 +405,23 @@ def _(action: TurnRelative):
 
 @to_viz_msg.register
 def _(action: TurnRelative, marker_ns):
-    return []
+    # Create a cone to visualize rotation
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.CYLINDER
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.5  # radius
+    m.scale.y = 0.5
+    m.scale.z = 0.1  # height
+    m.color.a = 0.3
+    m.color.r = 1.0
+    m.color.g = 0.5
+    m.color.b = 0.0
+    return [m]
 
 
 @to_msg.register
@@ -395,7 +434,30 @@ def _(action: Strafe):
 
 @to_viz_msg.register
 def _(action: Strafe, marker_ns):
-    return []
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.ARROW
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.1  # shaft diameter
+    m.scale.y = 0.15  # head diameter
+    m.color.a = 1.0
+    m.color.r = 1.0
+    m.color.g = 1.0
+    m.color.b = 0.0
+    pt1 = Point()
+    pt1.x = 0.0
+    pt1.y = 0.0
+    pt1.z = 0.0
+    pt2 = Point()
+    pt2.x = 0.0
+    pt2.y = action.distance_m
+    pt2.z = 0.0
+    m.points = [pt1, pt2]
+    return [m]
 
 
 @to_msg.register
@@ -407,7 +469,23 @@ def _(action: Stop):
 
 @to_viz_msg.register
 def _(action: Stop, marker_ns):
-    return []
+    # Red X marker to indicate stop
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.CUBE
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.3
+    m.scale.y = 0.3
+    m.scale.z = 0.3
+    m.color.a = 0.8
+    m.color.r = 1.0
+    m.color.g = 0.0
+    m.color.b = 0.0
+    return [m]
 
 
 @to_msg.register
@@ -420,4 +498,25 @@ def _(action: StandSit):
 
 @to_viz_msg.register
 def _(action: StandSit, marker_ns):
-    return []
+    # Green sphere for stand, blue sphere for sit
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.SPHERE
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.2
+    m.scale.y = 0.2
+    m.scale.z = 0.2
+    m.color.a = 0.8
+    if action.action == "stand":
+        m.color.r = 0.0
+        m.color.g = 1.0
+        m.color.b = 0.0
+    else:  # sit
+        m.color.r = 0.0
+        m.color.g = 0.0
+        m.color.b = 1.0
+    return [m]
