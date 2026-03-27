@@ -36,6 +36,8 @@ from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.occupancy_grid_ros_updater import OccupancyGridROSUpdater
 from spot_tools_ros.utils import get_tf_pose, waypoints_to_path
 
+from nlu_interface_rviz.msg import ManipulationApprovalRequest, ManipulationApprovalResponse
+
 
 def load_inverse_semantic_id_map_from_label_space(fn):
     with open(fn, "r") as fo:
@@ -77,7 +79,11 @@ def build_markers(pts, namespaces, frames, colors):
 class RosFeedbackCollector:
     def __init__(self, odom_frame: str, output_dir: str):
         self.pick_confirmation_event = threading.Event()
-        self.pick_confirmation_response = False
+        #self.pick_confirmation_response = False
+
+        self.pick_confirmation_approved = False
+        self.pick_confirmation_xy = [0,0]
+        self.pick_confirmation_image_index = 0
 
         self.break_out_of_waiting_loop = False
         self.odom_frame = odom_frame
@@ -85,11 +91,13 @@ class RosFeedbackCollector:
         self.output_dir = output_dir
 
     def bounding_box_detection_feedback(
-        self, annotated_img, centroid_x, centroid_y, semantic_class
+        self, annotated_imgs, detection_index, centroid_x, centroid_y, semantic_class
     ):
         bridge = CvBridge()
 
-        if centroid_x is not None and centroid_y is not None:
+        # Annotate only the detection image
+        if detection_index is not None and centroid_x is not None and centroid_y is not None:
+            annotated_img = annotated_imgs[detection_index]
             label = f"{semantic_class}"
             cv2.putText(
                 annotated_img,
@@ -100,8 +108,6 @@ class RosFeedbackCollector:
                 (0, 0, 225),
                 20,
             )
-
-            # Label the centroid
             cv2.drawMarker(
                 annotated_img,
                 (centroid_x, centroid_y),
@@ -111,8 +117,12 @@ class RosFeedbackCollector:
                 thickness=30,
             )
 
-        annotated_img_msg = bridge.cv2_to_imgmsg(annotated_img, encoding="passthrough")
-        self.annotated_img_pub.publish(annotated_img_msg)
+        request_msg = ManipulationApprovalRequest()
+        request_msg.images = [bridge.cv2_to_imgmsg(img, encoding="passthrough") for img in annotated_imgs]
+        request_msg.detection_image_index = detection_index if detection_index is not None else 0
+        request_msg.image_x = centroid_x if centroid_x is not None else 0
+        request_msg.image_y = centroid_y if centroid_y is not None else 0
+        self.annotated_img_pub.publish(request_msg)
 
         self.pick_confirmation_event.clear()
 
@@ -126,10 +136,13 @@ class RosFeedbackCollector:
 
         if self.break_out_of_waiting_loop:
             self.logger.info("ROBOT WAS PREEMPTED")
-            self.pick_confirmation_response = False
+            self.pick_confirmation_approved = False
+        else:
+            self.logger.info(f"Pick Confirmation Response Received: approved ({self.pick_confirmation_approved}), xy ({self.pick_confirmation_xy}), image_index ({self.pick_confirmation_image_index})")
 
-        # This boolean determines whether the executor keeps going
-        return self.pick_confirmation_response
+        return (self.pick_confirmation_approved,
+                self.pick_confirmation_xy,
+                self.pick_confirmation_image_index)
 
     def pick_image_feedback(self, semantic_image, mask_image):
         bridge = CvBridge()
@@ -218,13 +231,20 @@ class RosFeedbackCollector:
         )
 
         self.annotated_img_pub = node.create_publisher(
-            Image, "~/annotated_image", qos_profile=latching_qos
+            ManipulationApprovalRequest, "~/annotated_image", qos_profile=latching_qos
         )
 
         self.lease_takeover_publisher = node.create_publisher(String, "~/takeover", 10)
 
+        #node.create_subscription(
+        #    Bool,
+        #    "~/pick_confirmation",
+        #    self.pick_confirmation_callback,
+        #    10,
+        #)
+
         node.create_subscription(
-            Bool,
+            ManipulationApprovalResponse,
             "~/pick_confirmation",
             self.pick_confirmation_callback,
             10,
@@ -259,13 +279,26 @@ class RosFeedbackCollector:
         return future.result().success
 
     def pick_confirmation_callback(self, msg):
-        if msg.data:
-            self.logger.info("Detection is valid. Continuing pick action!")
-            self.pick_confirmation_response = True
-        else:
-            self.logger.warn("Detection is invalid. Discontinuing pick action.")
-            self.pick_confirmation_response = False
+        #if msg.data:
+        #    self.logger.info("Detection is valid. Continuing pick action!")
+        #    self.pick_confirmation_response = True
+        #else:
+        #    self.logger.warn("Detection is invalid. Discontinuing pick action.")
+        #    self.pick_confirmation_response = False
 
+        #self.pick_confirmation_event.set()
+
+        # If not approved, discontinue
+        # If approved, check whether the detection is overwritten
+        if not msg.approve:
+            self.logger.warn("Detection is invalid. Discontinuing pick action.")
+            self.pick_confirmation_approved = False
+        else:
+          self.pick_confirmation_approved = True
+          self.pick_confirmation_image_index = msg.image_index
+          self.pick_confirmation_xy[0] = msg.image_x
+          self.pick_confirmation_xy[1] = msg.image_y
+          self.logger.warn("Detection is valid. Continuing pick action!")
         self.pick_confirmation_event.set()
 
     def log_lease_takeover(self, event: str):

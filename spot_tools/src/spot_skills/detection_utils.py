@@ -39,19 +39,25 @@ class YOLODetector(Detector):
             print(f"Updated recognized classes: {updated_classes}")
 
     def return_centroid(self, img_source, semantic_class, debug):
-        image, img = self.spot.get_image_RGB(view=img_source)
+        # Primary image
+        primary_image, primary_img = self.spot.get_image_RGB(view=img_source)
+        primary_xy = self._get_centroid(primary_img, semantic_class, rotate=0, debug=debug)
 
-        xy = self._get_centroid(img, semantic_class, rotate=0, debug=debug)
-        if xy is None:
-            print("Object not found in first image. Looking around!")
-            xy, image, img, image_source = self._look_for_object(
-                semantic_class, debug=debug
-            )
+        # Always scan all other cameras
+        other_candidates, other_detection_index = self._look_for_object(semantic_class, debug=debug)
 
-            if xy is None:
-                print("Object not found near robot")
+        # Combine: primary first
+        candidates = [(primary_image, primary_img, primary_xy)] + other_candidates
 
-        return xy, image, img
+        if primary_xy is not None:
+            detection_index = 0
+        elif other_detection_index is not None:
+            detection_index = other_detection_index + 1  # offset for prepended primary
+        else:
+            detection_index = None
+            print("Object not found in any camera")
+
+        return detection_index, candidates
 
     def _get_centroid(self, img, semantic_class, rotate, debug):
         if rotate == 0:
@@ -118,6 +124,9 @@ class YOLODetector(Detector):
     def _look_for_object(self, semantic_class, debug):
         sources = self.spot.image_client.list_image_sources()
 
+        candidates = []  # list of (bosdyn_image, cv2_img, xy_or_None)
+        detection_index = None
+
         for source in sources:
             if (
                 "depth" in source.name or source.name == "hand_image"
@@ -143,11 +152,12 @@ class YOLODetector(Detector):
             print("Found object centroid:", xy)
             if xy is None:
                 print(f"Object not found in {image_source}.")
-                continue
-            else:
-                return xy, image, img, image_source
 
-        return None, None, None, None
+            candidates.append((image, img, xy))
+            if xy is not None and detection_index is None:
+                detection_index = len(candidates) - 1
+
+        return candidates, detection_index
 
 
 class SemanticDetector(Detector):
