@@ -1,3 +1,4 @@
+import hashlib
 import time
 from functools import singledispatch
 
@@ -5,6 +6,7 @@ import numpy as np
 import rclpy.time
 from geometry_msgs.msg import Point
 from robot_executor_msgs.msg import ActionMsg, ActionSequenceMsg
+from std_msgs.msg import ColorRGBA
 from visualization_msgs.msg import Marker, MarkerArray
 
 from robot_executor_interface.action_descriptions import (
@@ -15,6 +17,48 @@ from robot_executor_interface.action_descriptions import (
     Place,
 )
 from spot_tools_ros.utils import path_to_waypoints, waypoints_to_path
+
+# Visually distinct colors for differentiating robot plans in RViz.
+# Avoids pure green (blends with occupancy grids).
+_ROBOT_COLORS = [
+    ColorRGBA(r=0.0, g=0.6, b=1.0, a=1.0),   # sky blue
+    ColorRGBA(r=1.0, g=0.4, b=0.0, a=1.0),   # orange
+    ColorRGBA(r=0.8, g=0.0, b=0.8, a=1.0),   # magenta
+    ColorRGBA(r=0.0, g=0.9, b=0.9, a=1.0),   # cyan
+    ColorRGBA(r=1.0, g=0.85, b=0.0, a=1.0),  # gold
+    ColorRGBA(r=1.0, g=0.0, b=0.3, a=1.0),   # rose
+    ColorRGBA(r=0.4, g=0.2, b=1.0, a=1.0),   # purple
+    ColorRGBA(r=0.0, g=0.8, b=0.4, a=1.0),   # teal green
+]
+
+
+def robot_color(marker_ns: str) -> ColorRGBA:
+    """Return a deterministic color for a robot based on its namespace/name."""
+    # Strip sub-action suffixes (e.g. "spot1/0") so all actions for one robot match.
+    robot_name = marker_ns.split("/")[0]
+    idx = int(hashlib.md5(robot_name.encode()).hexdigest(), 16) % len(_ROBOT_COLORS)
+    c = _ROBOT_COLORS[idx]
+    return ColorRGBA(r=c.r, g=c.g, b=c.b, a=c.a)
+
+
+def robot_label_marker(marker_ns: str, frame_id: str, x: float, y: float) -> Marker:
+    """Create a TEXT_VIEW_FACING marker showing the robot name at (x, y)."""
+    robot_name = marker_ns.split("/")[0]
+    label = Marker()
+    label.header.frame_id = frame_id
+    label.header.stamp = gtm()
+    label.ns = marker_ns
+    label.id = 999
+    label.type = Marker.TEXT_VIEW_FACING
+    label.action = Marker.ADD
+    label.pose.position.x = float(x)
+    label.pose.position.y = float(y)
+    label.pose.position.z = 0.5
+    label.pose.orientation.w = 1.0
+    label.scale.z = 0.4
+    label.color = robot_color(marker_ns)
+    label.text = robot_name
+    return label
 
 
 # get time message
@@ -49,6 +93,16 @@ def _(action: ActionSequence, marker_ns):
     ma = MarkerArray()
     for ix, a in enumerate(action.actions):
         ma.markers += to_viz_msg(a, marker_ns + f"/{ix}")
+
+    # Add a text label at the start of the first action
+    if action.actions:
+        first = action.actions[0]
+        if isinstance(first, Follow) and len(first.path2d) > 0:
+            label = robot_label_marker(
+                marker_ns, first.frame, first.path2d[0][0], first.path2d[0][1]
+            )
+            ma.markers.append(label)
+
     return ma
 
 
@@ -100,12 +154,10 @@ def _(action: Follow, marker_ns):
     m.type = m.LINE_STRIP
     m.action = m.ADD
     m.pose.orientation.w = 1.0
+    c = robot_color(marker_ns)
     m.scale.x = 0.2
     m.scale.y = 0.2
-    m.color.a = 1.0
-    m.color.r = 0.0
-    m.color.g = 1.0
-    m.color.b = 0.0
+    m.color = c
     m.points = points
 
     start = Marker()
@@ -119,10 +171,7 @@ def _(action: Follow, marker_ns):
     start.scale.x = 0.4
     start.scale.y = 0.4
     start.scale.z = 0.4
-    start.color.a = 0.5
-    start.color.r = 1.0
-    start.color.g = 0.0
-    start.color.b = 0.0
+    start.color = ColorRGBA(r=c.r * 0.6, g=c.g * 0.6, b=c.b * 0.6, a=0.5)
     start.pose.position.x = points[0].x
     start.pose.position.y = points[0].y
     start.pose.position.z = points[0].z
@@ -138,10 +187,7 @@ def _(action: Follow, marker_ns):
     end.scale.x = 0.4
     end.scale.y = 0.4
     end.scale.z = 0.4
-    end.color.a = 0.5
-    end.color.r = 0.0
-    end.color.g = 0.0
-    end.color.b = 1.0
+    end.color = ColorRGBA(r=min(c.r + 0.3, 1.0), g=min(c.g + 0.3, 1.0), b=min(c.b + 0.3, 1.0), a=0.5)
     end.pose.position.x = points[-1].x
     end.pose.position.y = points[-1].y
     end.pose.position.z = points[-1].z
@@ -205,10 +251,7 @@ def _(action: Gaze, marker_ns):
     m.pose.orientation.w = 1.0
     m.scale.x = 0.1  # shaft diameter
     m.scale.y = 0.2  # head diameter
-    m.color.a = 1.0
-    m.color.r = 1.0
-    m.color.g = 0.0
-    m.color.b = 0.0
+    m.color = robot_color(marker_ns)
     m.points = [pt1, pt2]
 
     return [m]
@@ -269,10 +312,7 @@ def _(action: Pick, marker_ns):
     m.pose.orientation.w = 1.0
     m.scale.x = 0.1  # shaft diameter
     m.scale.y = 0.2  # head diameter
-    m.color.a = 1.0
-    m.color.r = 0.0
-    m.color.g = 1.0
-    m.color.b = 0.0
+    m.color = robot_color(marker_ns)
     m.points = [pt1, pt2]
 
     return [m]
@@ -332,10 +372,7 @@ def _(action: Place, marker_ns):
     m.pose.orientation.w = 1.0
     m.scale.x = 0.1  # shaft diameter
     m.scale.y = 0.2  # head diameter
-    m.color.a = 1.0
-    m.color.r = 0.0
-    m.color.g = 0.0
-    m.color.b = 1.0
+    m.color = robot_color(marker_ns)
     m.points = [pt1, pt2]
 
     return [m]
