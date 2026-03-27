@@ -249,6 +249,10 @@ class RosFeedbackCollector:
         req.is_holding = is_holding
         req.id = object_id
 
+        if not self.holding_client.wait_for_service(timeout_sec=0.5):
+            self.logger.warning("UpdateHoldingState service not available")
+            return False
+
         future = self.holding_client.call_async(req)
         start = time.time()
         while not future.done():
