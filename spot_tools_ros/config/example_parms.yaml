@@ -10,12 +10,6 @@
         fake_spot_y: 0
         fake_spot_yaw: 0
         follower_lookahead: 2
-        #semantic_model_path: "(find-pkg-share semantic_inference)/models/ade20k-efficientvit_seg_l2.onnx"
-        semantic_model_path: "path_to_semantic_model"
-        #labelspace_path: "(find-pkg-share hydra)/config/label_spaces/ade20k_mit_label_space.yaml"
-        labelspace_path: "labelspace_path"
-        #labelspace_grouping_path: "(find-pkg-share semantic_inference)/config/label_groupings/ade20k_mit.yaml"
-        labelspace_grouping_path: "grouping_path"
         # mid-level planner
         mid_level_planner_type: "astar"   # "astar" or "identity"
         lookahead_distance: 50            # grid cells

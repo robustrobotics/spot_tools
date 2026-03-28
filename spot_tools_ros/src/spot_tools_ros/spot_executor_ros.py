@@ -307,24 +307,8 @@ class SpotExecutorRos(Node):
         self.get_logger().info(f"{goal_tolerance=}")
 
         # Pick/Inspect Skill
-        self.declare_parameter("semantic_model_path", "")
-        self.declare_parameter("labelspace_path", "")
-        self.declare_parameter("labelspace_grouping_path", "")
         self.declare_parameter("detector_model_path", "")
         detector_model_path = self.get_parameter("detector_model_path").value
-        # semantic_model_path = self.get_parameter("semantic_model_path").value
-        # labelspace_path = self.get_parameter("labelspace_path").value
-        # semantic_name_to_id = load_inverse_semantic_id_map_from_label_space(
-        #    labelspace_path
-        # )
-        # labelspace_grouping_path = self.get_parameter("labelspace_grouping_path").value
-        # with open(labelspace_grouping_path, "r") as f:
-        #    grouping_info = yaml.safe_load(f)
-        # turn list of dictionaries into single dictionary
-        # self.labelspace_map = {}
-        # offset = int(grouping_info["offset"])
-        # for group in grouping_info["groups"]:
-        #    self.labelspace_map[group["name"]] = [g + offset for g in group["labels"]]
 
         self.declare_parameter("odom_frame", "")
         odom_frame = self.get_parameter("odom_frame").value
@@ -434,7 +418,6 @@ class SpotExecutorRos(Node):
                 username=bdai_username,
                 password=bdai_password,
                 init_pose=spot_init_pose2d,
-                semantic_model_path=None,
             )
 
             self.spot_ros_interface = FakeSpotRos(

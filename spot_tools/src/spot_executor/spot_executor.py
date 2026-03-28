@@ -284,11 +284,7 @@ class SpotExecutor:
         if self.debug:
             success, debug_images = success
             sem_img = ski.util.img_as_ubyte(debug_images[0])
-            feedback.print(
-                "INFO",
-                "looking for classes: ",
-                self.spot_interface.labelspace_map[command.object_class],
-            )
+            feedback.print("INFO", f"looking for classes: {command.object_class}")
             feedback.print("INFO", "unique semantic labels: ", np.unique(sem_img))
             outline_img = ski.util.img_as_ubyte(debug_images[1])
 

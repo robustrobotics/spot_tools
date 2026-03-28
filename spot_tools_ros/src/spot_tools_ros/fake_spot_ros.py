@@ -18,8 +18,6 @@ class FakeSpotRos:
         odom_frame,
         body_frame,
         external_pose=False,
-        semantic_model_path=None,
-        semantic_name_to_id=None,
     ):
         self.host_node = host_node
         self.robot = spot
@@ -31,7 +29,6 @@ class FakeSpotRos:
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self.host_node)
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self.host_node)
-        self.semantic_name_to_id = semantic_name_to_id
 
         self.joint_state_publisher = host_node.create_publisher(
             JointState, "~/joint_states", 10

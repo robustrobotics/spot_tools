@@ -1,7 +1,6 @@
 from copy import copy
 
 import cv2
-import numpy as np
 from ultralytics import YOLOWorld
 
 
@@ -140,130 +139,6 @@ class YOLODetector(Detector):
                 rotate = 2  # cv2.rotate(img, cv2.ROTATE_180)
 
             xy = self._get_centroid(img, semantic_class, rotate=rotate, debug=debug)
-            print("Found object centroid:", xy)
-            if xy is None:
-                print(f"Object not found in {image_source}.")
-                continue
-            else:
-                return xy, image, img, image_source
-
-        return None, None, None, None
-
-
-class SemanticDetector(Detector):
-    def __init__(self, spot, labelspace_map):
-        super().__init__(spot)
-
-        if self.spot.semantic_name_to_id is None:
-            raise Exception(
-                "Semantic names must be mapped to their id's (semantic_name_to_id is undefined)."
-            )
-
-        self.semantic_ids_to_grab = []
-
-    def set_up_detector(self, semantic_class):
-        if self.spot.labelspace_map is not None:
-            self.semantic_ids_to_grab = (
-                self.spot.labelspace_map[semantic_class]
-                + self.spot.labelspace_map["clothes"]
-                + self.spot.labelspace_map["bag"]
-            )
-        else:
-            self.semantic_ids_to_grab = [
-                self.spot.semantic_name_to_id[semantic_class],
-                self.spot.semantic_name_to_id["bag"],
-                self.spot.semantic_name_to_id["clothes"],
-            ]
-
-    def return_centroid(self, img_source, semantic_class, debug):
-        image, img = self.spot.get_image_alt(view=img_source)
-        semantic_image = self.spot.segment_image(img)
-
-        # Convert to grayscale if needed
-        if len(semantic_image.shape) == 3:
-            gray = cv2.cvtColor(semantic_image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = semantic_image
-
-        # Create a binary mask where the class of interest is white and the rest is black
-        mask = np.zeros_like(gray)
-        # mask[gray == class_index] = 255
-        mask[np.isin(gray, self.semantic_ids_to_grab)] = 255
-
-        xy = self._get_centroid(semantic_image, self.semantic_ids_to_grab, img)
-
-        if xy is None:
-            print("Object not found in first image. Looking around!")
-            xy, image, img, image_source = self._look_for_object(
-                self.semantic_ids_to_grab
-            )
-            if xy is None:
-                print("Object not found near robot.")
-
-        return xy, image, img
-
-    def _get_centroid(self, segmented_image, class_indices, image):
-        """Get the centroid of a class in a segmented image."""
-
-        # Convert to grayscale if needed
-        if len(segmented_image.shape) == 3:
-            gray = cv2.cvtColor(segmented_image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = segmented_image
-
-        # Create a binary mask where the class of interest is white and the rest is black
-        mask = np.zeros_like(gray)
-        # mask[gray == class_index] = 255
-        mask[np.isin(gray, class_indices)] = 255
-
-        if mask.dtype != np.uint8:
-            mask = mask.astype(np.uint8)
-
-        # Find contours
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        if len(contours) == 0:
-            return None  # No contour found for the class
-
-        # Assuming we take the largest contour if multiple are found
-        largest_contour = max(contours, key=cv2.contourArea)
-
-        # Calculate moments for the largest contour
-        M = cv2.moments(largest_contour)
-
-        # Calculate centroid using moments
-        if M["m00"] != 0:
-            cX = int(M["m10"] / M["m00"])
-            cY = int(M["m01"] / M["m00"])
-
-            seg_image_size = segmented_image.shape
-            image_size = image.shape
-            x_scale = image_size[1] / seg_image_size[1]
-            y_scale = image_size[0] / seg_image_size[0]
-
-            return (cX * x_scale, cY * y_scale)
-        else:
-            return None  # Centroid calculation failed
-
-    def _look_for_object(self, semantic_ids):
-        """Look for an object in the image sources. Return the centroid of the object, and the image source."""
-
-        sources = self.spot.image_client.list_image_sources()
-
-        for source in sources:
-            if "depth" in source.name:
-                continue
-            image_source = source.name
-            image, img = self.spot.get_image_alt(view=image_source)
-
-            rotate = 0
-            if "front" in image_source or "hand_image" in image_source:
-                rotate = 1
-            elif "right_fisheye_image" in image_source:
-                rotate = 2
-
-            semantic_image = self.spot.segment_image(img, rotate=rotate, show=False)
-            xy = self.get_class_centroid(semantic_image, semantic_ids, img)
             print("Found object centroid:", xy)
             if xy is None:
                 print(f"Object not found in {image_source}.")

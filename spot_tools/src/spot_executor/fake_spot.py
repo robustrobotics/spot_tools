@@ -211,7 +211,6 @@ class FakeSpot:
         username="",
         password="",
         init_pose=None,
-        semantic_model_path=None,
     ):
         print("Initialized Fake Spot!")
         self.is_fake = True
@@ -294,11 +293,6 @@ class FakeSpot:
             img = cv2.imread(path)
 
         return FakeImageResponse(name=view), img
-
-    def segment_image(
-        self, image, model_path=None, rotate=0, class_name="bag", show=False
-    ):
-        raise NotImplementedError("segment_image not implemented for FakeSpot")
 
     def get_joint_states(self):
         joint_to_state = {}

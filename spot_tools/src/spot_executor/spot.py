@@ -4,9 +4,7 @@ import time
 
 import bosdyn.client.util
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
-import onnxruntime as ort
 from bosdyn import geometry
 from bosdyn.api import basic_command_pb2, image_pb2
 from bosdyn.client.frame_helpers import (
@@ -34,10 +32,7 @@ class Spot:
         take_lease=True,
         set_estop=False,
         verbose=False,
-        semantic_model_path=None,
         debug=False,
-        semantic_name_to_id=None,
-        labelspace_map=None,
     ):
         self.is_fake = False
         self.verbose = verbose
@@ -73,12 +68,6 @@ class Spot:
             RobotCommandClient.default_service_name
         )
         self.lease_keep_alive = None
-        if semantic_model_path is not None:
-            self.ort_session = ort.InferenceSession(semantic_model_path)
-        else:
-            self.ort_session = None
-        self.semantic_name_to_id = semantic_name_to_id
-        self.labelspace_map = labelspace_map
 
         if set_estop:
             self.set_estop()
@@ -169,58 +158,6 @@ class Spot:
             img = cv2.imdecode(img, -1)
 
         return image, img
-
-    def segment_image(
-        self,
-        image,
-        model_path="data/models/efficientvit_seg_l2.onnx",
-        rotate=0,
-        class_name="bag",
-        show=False,
-    ):
-        if self.ort_session is None:
-            raise Exception("Cannot segment image if no ort_session is loaded!")
-
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
-        image = cv2.resize(image, (512, 512))  # Resize to match the model's input size
-
-        # Rotate Image
-        for i in range(rotate):
-            image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
-
-        if show:
-            plt.imshow(
-                image, cmap="jet"
-            )  # 'jet' is a colormap, you can choose other colormaps like 'gray'
-            plt.colorbar()  # Add a colorbar to the side
-            plt.title("Image Output")
-            plt.show()
-
-        # Normalize and convert to float
-        image = image.astype(np.float32) / 255.0  # Normalize to [0, 1]
-
-        # Convert to the format (batch_size, channels, height, width)
-        image = np.transpose(image, (2, 0, 1))  # Change shape to (3, 512, 512)
-        image = np.expand_dims(image, axis=0)  # Add batch dimension
-
-        # Run the model on the input image
-        input_name = self.ort_session.get_inputs()[0].name
-        outputs = self.ort_session.run(None, {input_name: image})
-
-        if show:
-            plt.imshow(
-                outputs[0], cmap="jet"
-            )  # 'jet' is a colormap, you can choose other colormaps like 'gray'
-            plt.colorbar()  # Add a colorbar to the side
-            plt.title("Segmentation Output")
-            plt.show()
-
-        # Rotate Outputs
-        for i in range(rotate):
-            outputs[0] = cv2.rotate(outputs[0], cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-        # Get the model's output
-        return outputs[0]
 
     def set_estop(self, name="my_estop", timeout=9.0):
         self.estop_client.get_status()
