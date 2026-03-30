@@ -211,11 +211,11 @@ def object_grasp(
             detection_index = 0
             print("Found object centroid:", xy)
 
-    if detection_index is None or candidates is None:
+    if candidates is None:
         if feedback is not None:
             feedback.print(
                 "INFO",
-                "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input.",
+                "Failed to capture any camera images. Please check the detector or user input.",
             )
         execute_recovery_action(
             spot,
@@ -227,17 +227,23 @@ def object_grasp(
         time.sleep(1)
         return False
 
-    image, _, xy = candidates[detection_index]
-
     # Display all candidate images in the approval panel
     if feedback is not None:
         annotated_imgs = [copy(img) for (_, img, _) in candidates]
 
+        if detection_index is not None:
+            _, _, xy = candidates[detection_index]
+            det_x = xy[0] if xy else None
+            det_y = xy[1] if xy else None
+        else:
+            det_x = None
+            det_y = None
+
         approved, updated_xy, selected_index = feedback.bounding_box_detection_feedback(
             annotated_imgs,
             detection_index,
-            xy[0] if xy else None,
-            xy[1] if xy else None,
+            det_x,
+            det_y,
             semantic_class,
         )
 
@@ -248,6 +254,18 @@ def object_grasp(
         # Use selected camera image and pixel (panel always sends the correct selection)
         image, _, _ = candidates[selected_index]
         xy = updated_xy
+    else:
+        if detection_index is None:
+            execute_recovery_action(
+                spot,
+                recover_arm=False,
+                relative_pose=math_helpers.SE2Pose(
+                    x=0.0, y=0.0, angle=np.random.choice([-0.5, 0.5])
+                ),
+            )
+            time.sleep(1)
+            return False
+        image, _, xy = candidates[detection_index]
 
     pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
     stow_arm(spot)

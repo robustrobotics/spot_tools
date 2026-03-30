@@ -95,30 +95,9 @@ class RosFeedbackCollector:
     ):
         bridge = CvBridge()
 
-        # Annotate only the detection image
-        if detection_index is not None and centroid_x is not None and centroid_y is not None:
-            annotated_img = annotated_imgs[detection_index]
-            label = f"{semantic_class}"
-            cv2.putText(
-                annotated_img,
-                label,
-                (centroid_x - 100, centroid_y - 200),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                5,
-                (0, 0, 225),
-                20,
-            )
-            cv2.drawMarker(
-                annotated_img,
-                (centroid_x, centroid_y),
-                (0, 0, 255),
-                markerType=cv2.MARKER_TILTED_CROSS,
-                markerSize=200,
-                thickness=30,
-            )
-
         request_msg = ManipulationApprovalRequest()
         request_msg.images = [bridge.cv2_to_imgmsg(img, encoding="passthrough") for img in annotated_imgs]
+        request_msg.has_detection = detection_index is not None
         request_msg.detection_image_index = detection_index if detection_index is not None else 0
         request_msg.image_x = centroid_x if centroid_x is not None else 0
         request_msg.image_y = centroid_y if centroid_y is not None else 0
