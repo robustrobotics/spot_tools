@@ -49,7 +49,6 @@ class YOLODetector(Detector):
             print(f"Updated recognized classes: {updated_classes}")
 
     def return_centroid(self, img_source, semantic_class, debug):
-        # List of DetectionCandidates
         detection_candidates = [] # List of DetectionCandidates -- one per camera source on Spot
         detection_index = None
 
