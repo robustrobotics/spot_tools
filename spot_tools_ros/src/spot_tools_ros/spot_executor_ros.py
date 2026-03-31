@@ -91,17 +91,17 @@ class RosFeedbackCollector:
         self.output_dir = output_dir
 
     def bounding_box_detection_feedback(
-        self, annotated_imgs, detection_index, centroid_x, centroid_y, semantic_class
+        self, detection_imgs, detection_index, centroid_x, centroid_y, semantic_class
     ):
         bridge = CvBridge()
 
         request_msg = ManipulationApprovalRequest()
-        request_msg.images = [bridge.cv2_to_imgmsg(img, encoding="passthrough") for img in annotated_imgs]
+        request_msg.images = [bridge.cv2_to_imgmsg(img, encoding="passthrough") for img in detection_imgs]
         request_msg.has_detection = detection_index is not None
         request_msg.detection_image_index = detection_index if detection_index is not None else 0
         request_msg.image_x = centroid_x if centroid_x is not None else 0
         request_msg.image_y = centroid_y if centroid_y is not None else 0
-        self.annotated_img_pub.publish(request_msg)
+        self.detection_img_pub.publish(request_msg)
 
         self.pick_confirmation_event.clear()
 
@@ -209,8 +209,8 @@ class RosFeedbackCollector:
             MarkerArray, "~/mlp_target_publisher", qos_profile=latching_qos
         )
 
-        self.annotated_img_pub = node.create_publisher(
-            ManipulationApprovalRequest, "~/annotated_image", qos_profile=latching_qos
+        self.detection_img_pub = node.create_publisher(
+            ManipulationApprovalRequest, "~/manipulation_request", qos_profile=latching_qos
         )
 
         self.lease_takeover_publisher = node.create_publisher(String, "~/takeover", 10)
