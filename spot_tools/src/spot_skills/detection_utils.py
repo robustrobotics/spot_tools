@@ -1,9 +1,19 @@
 from copy import copy
+from dataclasses import dataclass
+from typing import Optional
 
 import cv2
 import numpy as np
+from bosdyn.api import image_pb2
 from ultralytics import YOLOE
 
+
+@dataclass
+class DetectionCandidate:
+    """A candidate image from a single camera source for object detection."""
+    bosdyn_image: image_pb2.ImageResponse
+    cv2_image: np.ndarray
+    detection_xy: Optional[tuple[int, int]]
 
 class Detector:
     def __init__(self, spot):
@@ -39,25 +49,26 @@ class YOLODetector(Detector):
             print(f"Updated recognized classes: {updated_classes}")
 
     def return_centroid(self, img_source, semantic_class, debug):
-        # Primary image
-        primary_image, primary_img = self.spot.get_image_RGB(view=img_source)
-        primary_xy = self._get_centroid(primary_img, semantic_class, rotate=0, debug=debug)
+        # List of DetectionCandidates
+        detection_candidates = [] # List of DetectionCandidates -- one per camera source on Spot
+        detection_index = None
 
-        # Always scan all other cameras
-        other_candidates, other_detection_index = self._look_for_object(semantic_class, debug=debug)
+        # Get the primary image source & run the detector; Add to detection_candidates
+        primary_bosdyn_image, primary_cv2_image = self.spot.get_image_RGB(view=img_source)
+        primary_xy = self._get_centroid(primary_cv2_image, semantic_class, rotate=0, debug=debug)
+        detection_candidates.append(DetectionCandidate(primary_bosdyn_image, primary_cv2_image, primary_xy))
 
-        # Combine: primary first
-        candidates = [(primary_image, primary_img, primary_xy)] + other_candidates
-
+        # If primary image has a detection, just get the images from the other image sources; Otherwise, look for detections
         if primary_xy is not None:
-            detection_index = 0
-        elif other_detection_index is not None:
-            detection_index = other_detection_index + 1  # offset for prepended primary
+          detection_index = 0
+          secondary_candidates = self._get_candidate_detection_images()
         else:
-            detection_index = None
-            print("Object not found in any camera")
-
-        return detection_index, candidates
+          secondary_candidates, secondary_detection_index = self._look_for_object(semantic_class, debug=debug)
+          if secondary_detection_index is not None:
+            detection_index = secondary_detection_index + 1 # offset of the primary candidate
+        # Collect all of the detection candidates
+        detection_candidates.extend(secondary_candidates)
+        return detection_index, detection_candidates
 
     def _get_centroid(self, img, semantic_class, rotate, debug):
         if rotate == 0:
@@ -121,10 +132,19 @@ class YOLODetector(Detector):
         else:
             return None
 
+    def _get_candidate_detection_images(self):
+      detection_candidates = []
+      sources = self.spot.image_client.list_image_sources()
+      sources = [s for s in sources if not "depth" in s.name and "hand_image" != s.name]
+      for source in sources:
+        bosdyn_image, cv2_image = self.spot.get_image_RGB(view=source.name)
+        detection_candidates.append(DetectionCandidate(bosdyn_image, cv2_image, None))
+      return detection_candidates
+
     def _look_for_object(self, semantic_class, debug):
         sources = self.spot.image_client.list_image_sources()
 
-        candidates = []  # list of (bosdyn_image, cv2_img, xy_or_None)
+        candidates = []
         detection_index = None
 
         for source in sources:
@@ -153,7 +173,7 @@ class YOLODetector(Detector):
             if xy is None:
                 print(f"Object not found in {image_source}.")
 
-            candidates.append((image, img, xy))
+            candidates.append(DetectionCandidate(image, img, xy))
             if xy is not None and detection_index is None:
                 detection_index = len(candidates) - 1
 

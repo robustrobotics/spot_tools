@@ -30,7 +30,7 @@ from spot_skills.arm_utils import (
     open_gripper,
     stow_arm,
 )
-from spot_skills.detection_utils import Detector
+from spot_skills.detection_utils import DetectionCandidate, Detector
 from spot_skills.primitives import execute_recovery_action
 
 g_image_click = None
@@ -207,7 +207,7 @@ def object_grasp(
         else:
             image, img = spot.get_image_RGB(view=image_source)
             xy = get_user_grasp_input(spot, img)
-            candidates = [(image, img, xy)]
+            candidates = [DetectionCandidate(image, img, xy)]
             detection_index = 0
             print("Found object centroid:", xy)
 
@@ -229,10 +229,10 @@ def object_grasp(
 
     # Display all candidate images in the approval panel
     if feedback is not None:
-        annotated_imgs = [copy(img) for (_, img, _) in candidates]
+        cv2_images = [copy(c.cv2_image) for c in candidates]
 
         if detection_index is not None:
-            _, _, xy = candidates[detection_index]
+            xy = candidates[detection_index].detection_xy
             det_x = xy[0] if xy else None
             det_y = xy[1] if xy else None
         else:
@@ -240,7 +240,7 @@ def object_grasp(
             det_y = None
 
         approved, updated_xy, selected_index = feedback.bounding_box_detection_feedback(
-            annotated_imgs,
+            cv2_images,
             detection_index,
             det_x,
             det_y,
@@ -252,7 +252,7 @@ def object_grasp(
             return False
 
         # Use selected camera image and pixel (panel always sends the correct selection)
-        image, _, _ = candidates[selected_index]
+        image = candidates[selected_index].bosdyn_image
         xy = updated_xy
     else:
         if detection_index is None:
@@ -265,7 +265,8 @@ def object_grasp(
             )
             time.sleep(1)
             return False
-        image, _, xy = candidates[detection_index]
+        image = candidates[detection_index].bosdyn_image
+        xy = candidates[detection_index].detection_xy
 
     pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
     stow_arm(spot)
