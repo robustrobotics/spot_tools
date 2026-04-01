@@ -2,7 +2,6 @@ import os
 import threading
 import time
 
-import cv2
 import numpy as np
 import rclpy
 import rclpy.time
@@ -12,6 +11,10 @@ import yaml
 from cv_bridge import CvBridge
 from heracles_ros_interfaces.srv import UpdateHoldingState
 from nav_msgs.msg import Path
+from nlu_interface_rviz.msg import (
+    ManipulationApprovalRequest,
+    ManipulationApprovalResponse,
+)
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -24,7 +27,7 @@ from shapely.geometry import Point
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
-from std_msgs.msg import Bool, String
+from std_msgs.msg import String
 from visualization_msgs.msg import Marker, MarkerArray
 
 from robot_executor_interface.mid_level_planner import (
@@ -35,8 +38,6 @@ from robot_executor_interface.mid_level_planner import (
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.occupancy_grid_ros_updater import OccupancyGridROSUpdater
 from spot_tools_ros.utils import get_tf_pose, waypoints_to_path
-
-from nlu_interface_rviz.msg import ManipulationApprovalRequest, ManipulationApprovalResponse
 
 
 def load_inverse_semantic_id_map_from_label_space(fn):
@@ -79,10 +80,10 @@ def build_markers(pts, namespaces, frames, colors):
 class RosFeedbackCollector:
     def __init__(self, odom_frame: str, output_dir: str):
         self.pick_confirmation_event = threading.Event()
-        #self.pick_confirmation_response = False
+        # self.pick_confirmation_response = False
 
         self.pick_confirmation_approved = False
-        self.pick_confirmation_xy = [0,0]
+        self.pick_confirmation_xy = [0, 0]
         self.pick_confirmation_image_index = 0
 
         self.break_out_of_waiting_loop = False
@@ -96,9 +97,13 @@ class RosFeedbackCollector:
         bridge = CvBridge()
 
         request_msg = ManipulationApprovalRequest()
-        request_msg.images = [bridge.cv2_to_imgmsg(img, encoding="passthrough") for img in detection_imgs]
+        request_msg.images = [
+            bridge.cv2_to_imgmsg(img, encoding="passthrough") for img in detection_imgs
+        ]
         request_msg.has_detection = detection_index is not None
-        request_msg.detection_image_index = detection_index if detection_index is not None else 0
+        request_msg.detection_image_index = (
+            detection_index if detection_index is not None else 0
+        )
         request_msg.image_x = centroid_x if centroid_x is not None else 0
         request_msg.image_y = centroid_y if centroid_y is not None else 0
         self.detection_img_pub.publish(request_msg)
@@ -117,11 +122,15 @@ class RosFeedbackCollector:
             self.logger.info("ROBOT WAS PREEMPTED")
             self.pick_confirmation_approved = False
         else:
-            self.logger.info(f"Pick Confirmation Response Received: approved ({self.pick_confirmation_approved}), xy ({self.pick_confirmation_xy}), image_index ({self.pick_confirmation_image_index})")
+            self.logger.info(
+                f"Pick Confirmation Response Received: approved ({self.pick_confirmation_approved}), xy ({self.pick_confirmation_xy}), image_index ({self.pick_confirmation_image_index})"
+            )
 
-        return (self.pick_confirmation_approved,
-                self.pick_confirmation_xy,
-                self.pick_confirmation_image_index)
+        return (
+            self.pick_confirmation_approved,
+            self.pick_confirmation_xy,
+            self.pick_confirmation_image_index,
+        )
 
     def pick_image_feedback(self, semantic_image, mask_image):
         bridge = CvBridge()
@@ -210,17 +219,19 @@ class RosFeedbackCollector:
         )
 
         self.detection_img_pub = node.create_publisher(
-            ManipulationApprovalRequest, "~/manipulation_request", qos_profile=latching_qos
+            ManipulationApprovalRequest,
+            "~/manipulation_request",
+            qos_profile=latching_qos,
         )
 
         self.lease_takeover_publisher = node.create_publisher(String, "~/takeover", 10)
 
-        #node.create_subscription(
+        # node.create_subscription(
         #    Bool,
         #    "~/pick_confirmation",
         #    self.pick_confirmation_callback,
         #    10,
-        #)
+        # )
 
         node.create_subscription(
             ManipulationApprovalResponse,
@@ -258,14 +269,14 @@ class RosFeedbackCollector:
         return future.result().success
 
     def pick_confirmation_callback(self, msg):
-        #if msg.data:
+        # if msg.data:
         #    self.logger.info("Detection is valid. Continuing pick action!")
         #    self.pick_confirmation_response = True
-        #else:
+        # else:
         #    self.logger.warn("Detection is invalid. Discontinuing pick action.")
         #    self.pick_confirmation_response = False
 
-        #self.pick_confirmation_event.set()
+        # self.pick_confirmation_event.set()
 
         # If not approved, discontinue
         # If approved, check whether the detection is overwritten
@@ -273,11 +284,11 @@ class RosFeedbackCollector:
             self.logger.warn("Detection is invalid. Discontinuing pick action.")
             self.pick_confirmation_approved = False
         else:
-          self.pick_confirmation_approved = True
-          self.pick_confirmation_image_index = msg.image_index
-          self.pick_confirmation_xy[0] = msg.image_x
-          self.pick_confirmation_xy[1] = msg.image_y
-          self.logger.warn("Detection is valid. Continuing pick action!")
+            self.pick_confirmation_approved = True
+            self.pick_confirmation_image_index = msg.image_index
+            self.pick_confirmation_xy[0] = msg.image_x
+            self.pick_confirmation_xy[1] = msg.image_y
+            self.logger.warn("Detection is valid. Continuing pick action!")
         self.pick_confirmation_event.set()
 
     def log_lease_takeover(self, event: str):
