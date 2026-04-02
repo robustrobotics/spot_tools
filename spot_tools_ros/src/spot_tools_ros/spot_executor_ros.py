@@ -226,13 +226,6 @@ class RosFeedbackCollector:
 
         self.lease_takeover_publisher = node.create_publisher(String, "~/takeover", 10)
 
-        # node.create_subscription(
-        #    Bool,
-        #    "~/pick_confirmation",
-        #    self.pick_confirmation_callback,
-        #    10,
-        # )
-
         node.create_subscription(
             ManipulationApprovalResponse,
             "~/pick_confirmation",
