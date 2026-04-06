@@ -30,7 +30,7 @@ from spot_skills.arm_utils import (
     open_gripper,
     stow_arm,
 )
-from spot_skills.detection_utils import Detector
+from spot_skills.detection_utils import DetectionCandidate, Detector
 from spot_skills.primitives import execute_recovery_action
 
 g_image_click = None
@@ -187,17 +187,18 @@ def object_grasp(
     # Set up the detector (e.g., for YOLOWorld, this may mean updating recognized classes)
     detector.set_up_detector(semantic_class)
 
+    candidates = None
     while attempts < 2 and not success:
         attempts += 1
 
         if not user_input:
             # Try to get the centroid using the detector passed into the function.
-            xy, image, img = detector.return_centroid(
+            detection_index, candidates = detector.return_centroid(
                 image_source, semantic_class, debug=debug
             )
 
             # If the detector fails to return the centroid, then try again until max_attempts
-            if xy is None:
+            if detection_index is None:
                 continue
 
             else:
@@ -206,13 +207,15 @@ def object_grasp(
         else:
             image, img = spot.get_image_RGB(view=image_source)
             xy = get_user_grasp_input(spot, img)
+            candidates = [DetectionCandidate(image, img, xy)]
+            detection_index = 0
             print("Found object centroid:", xy)
 
-    if xy is None:
+    if candidates is None:
         if feedback is not None:
             feedback.print(
                 "INFO",
-                "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input.",
+                "Failed to capture any camera images. Please check the detector or user input.",
             )
         execute_recovery_action(
             spot,
@@ -223,27 +226,47 @@ def object_grasp(
         )
         time.sleep(1)
         return False
-        # execute_recovery_action(spot, recover_arm=True)
-        # spot.sit()
-        # raise Exception(
-        #     "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input."
-        # )
 
-    # If xy is not None, then display the annotated image
+    # Display all candidate images in the approval panel
+    if feedback is not None:
+        cv2_images = [copy(c.cv2_image) for c in candidates]
+
+        if detection_index is not None:
+            xy = candidates[detection_index].detection_xy
+            det_x = xy[0] if xy else None
+            det_y = xy[1] if xy else None
+        else:
+            det_x = None
+            det_y = None
+
+        approved, updated_xy, selected_index = feedback.bounding_box_detection_feedback(
+            cv2_images,
+            detection_index,
+            det_x,
+            det_y,
+            semantic_class,
+        )
+
+        if approved is not None and not approved:
+            feedback.print("INFO", "User requested abort.")
+            return False
+
+        # Use selected camera image and pixel (panel always sends the correct selection)
+        image = candidates[selected_index].bosdyn_image
+        xy = updated_xy
     else:
-        if feedback is not None:
-            annotated_img = copy(img)
-
-            response = feedback.bounding_box_detection_feedback(
-                annotated_img,
-                xy[0],
-                xy[1],
-                semantic_class,
+        if detection_index is None:
+            execute_recovery_action(
+                spot,
+                recover_arm=False,
+                relative_pose=math_helpers.SE2Pose(
+                    x=0.0, y=0.0, angle=np.random.choice([-0.5, 0.5])
+                ),
             )
-
-            if response is not None and not response:
-                feedback.print("INFO", "User requested abort.")
-                return False
+            time.sleep(1)
+            return False
+        image = candidates[detection_index].bosdyn_image
+        xy = candidates[detection_index].detection_xy
 
     pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
     stow_arm(spot)
