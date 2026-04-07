@@ -13,7 +13,7 @@ import std_msgs.msg
 import tf2_ros
 from bosdyn.api import image_pb2
 from bosdyn.client.image import ImageClient, build_image_request
-from bosdyn.client.math_helpers import SE3Pose, Quat
+from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.robot_state import RobotStateClient
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -175,7 +175,10 @@ def _collate_transforms(msgs):
     for stamp, transforms, feet_pos in msgs:
         if feet_pos is not None:
             for name, pos in feet_pos.items():
-                transform_map["body"][f"foot_{name}"] = (stamp, SE3Pose(pos.x, pos.y, pos.z, Quat()).to_proto())
+                transform_map["body"][f"foot_{name}"] = (
+                    stamp,
+                    SE3Pose(pos.x, pos.y, pos.z, Quat()).to_proto(),
+                )
 
         for frame in transforms.child_to_parent_edge_map:
             transform = transforms.child_to_parent_edge_map.get(frame)
@@ -183,7 +186,6 @@ def _collate_transforms(msgs):
             if frame == "" or parent_frame == "":
                 continue
 
-            pose = transform.parent_tform_child
             transform_map[parent_frame][frame] = (stamp, transform.parent_tform_child)
 
     return transform_map
@@ -332,7 +334,9 @@ class SpotClientNode(Node):
             err = f"Invalid parent '{self._parent_frame}'. Must be in {allowed_parents}"
             self.get_logger().error(err)
 
-        excluded_frames = self._get_param("excluded_frames", EXCLUDED).string_array_value
+        excluded_frames = self._get_param(
+            "excluded_frames", EXCLUDED
+        ).string_array_value
         self.get_logger().info(f"Dropping frames matching {excluded_frames}")
         self._excluded_matcher = _compile_regex(excluded_frames)
 
@@ -355,7 +359,9 @@ class SpotClientNode(Node):
 
         tf_group = MutuallyExclusiveCallbackGroup()
         tf_pub_period_s = self._get_param("tf_pub_period_s", 0.01).double_value
-        self._tf_timer = self.create_timer(tf_pub_period_s, self._publish_transforms, callback_group=tf_group)
+        self._tf_timer = self.create_timer(
+            tf_pub_period_s, self._publish_transforms, callback_group=tf_group
+        )
 
         cam_poll_period_s = self._get_param("camera_poll_period_s", 0.05).double_value
         self._camera_timer = self.create_timer(cam_poll_period_s, self._camera_callback)
@@ -446,7 +452,9 @@ class SpotClientNode(Node):
                     parent_frame, frame = frame, parent_frame
 
                 is_static = self._is_tf_static(frame, parent_frame)
-                if is_static and not _check_seen(self._static_seen, parent_frame, frame):
+                if is_static and not _check_seen(
+                    self._static_seen, parent_frame, frame
+                ):
                     continue
 
                 if not is_static and not _check_seen(dynamic_seen, parent_frame, frame):
@@ -460,7 +468,9 @@ class SpotClientNode(Node):
 
                 if is_static:
                     new_static = True
-                    self.get_logger().info(f"New static TF {parent_frame}_T_{frame} found")
+                    self.get_logger().info(
+                        f"New static TF {parent_frame}_T_{frame} found"
+                    )
                     self._static_tfs.append(msg)
                 else:
                     dynamic_tfs.append(msg)
