@@ -340,6 +340,19 @@ def object_grasp(
         )
         feedback.print("INFO", f"POST-LOOP STATE: {current_state}")
 
+    # If the robot was not successful, send it back to the location it started the skill at
+    if not success:
+        execute_recovery_action(
+            spot,
+            recover_arm=True,
+            relative_pose=math_helpers.SE2Pose(
+                x=np.random.uniform(-1, -0.5), y=0.0, angle=0.0
+            ),
+        )
+        if debug:
+            return success, debug_images
+        return success
+
     close_cmd = RobotCommandBuilder.claw_gripper_close_command(
         build_on_command=None,
         max_acc=None,
@@ -357,24 +370,19 @@ def object_grasp(
     spot.command_client.robot_command(carry_cmd)
 
     # Wait for the carry command to finish
-    time.sleep(0.75)
+    time.sleep(1)
 
     print("Force stowing arm!")
     # stow_arm(spot)
     force_stow_arm(manipulation_api_client, robot_state_client, spot.command_client)
     time.sleep(1)
 
-    print("Finished grasp.")
+    carry_cmd = RobotCommandBuilder.arm_carry_command()
+    spot.command_client.robot_command(carry_cmd)
 
-    # If the robot was not successful, send it back to the location it started the skill at
-    if not success:
-        execute_recovery_action(
-            spot,
-            recover_arm=False,
-            relative_pose=math_helpers.SE2Pose(
-                x=np.random.uniform(-1, -0.5), y=0.0, angle=0.0
-            ),
-        )
+    # Wait for the carry command to finish
+    time.sleep(1)
+    print("Finished grasp.")
 
     if debug:
         return success, debug_images
