@@ -15,6 +15,7 @@ from bosdyn.api import image_pb2
 from bosdyn.client.image import ImageClient, build_image_request
 from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.robot_state import RobotStateClient
+from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -352,6 +353,7 @@ class SpotClientNode(Node):
         self._tf_queue = queue.Queue(queue_size)
         self._dynamic_pub = tf2_ros.TransformBroadcaster(self)
         self._static_pub = tf2_ros.StaticTransformBroadcaster(self)
+        self._odom_pub = self.create_publisher(Odometry, "odom", 10)
         self._joint_pub = self.create_publisher(JointState, "joint_states", 10)
 
         self._static_tfs = []
@@ -540,6 +542,38 @@ class SpotClientNode(Node):
                 f"TF queue is full! Dropping TF @ {stamp.nanoseconds} [ns]"
             )
 
+        self._publish_odom(stamp, pos_state)
+        self._publish_joints(stamp, pos_state)
+
+    def _publish_odom(self, stamp, state):
+        edge = state.transforms_snapshot.child_to_parent_edge_map.get("vision")
+        pose = edge.parent_tform_child
+        pose = SE3Pose.from_proto(pose).inverse().to_proto()
+
+        msg = Odometry()
+        msg.header.stamp = stamp.to_msg()
+        msg.header.frame_id = _prefix_frame(self._tf_prefix, "odom")
+        msg.child_frame_id = _prefix_frame(self._tf_prefix, "body")
+
+        msg.pose.pose.position.x = pose.position.x
+        msg.pose.pose.position.y = pose.position.y
+        msg.pose.pose.position.z = pose.position.z
+        msg.pose.pose.orientation.x = pose.rotation.x
+        msg.pose.pose.orientation.y = pose.rotation.y
+        msg.pose.pose.orientation.z = pose.rotation.z
+        msg.pose.pose.orientation.w = pose.rotation.w
+        msg.pose.covariance[0] = -1.0
+
+        msg.twist.twist.linear.x = state.velocity_of_body_in_vision.linear.x
+        msg.twist.twist.linear.y = state.velocity_of_body_in_vision.linear.y
+        msg.twist.twist.linear.z = state.velocity_of_body_in_vision.linear.z
+        msg.twist.twist.angular.x = state.velocity_of_body_in_vision.angular.x
+        msg.twist.twist.angular.y = state.velocity_of_body_in_vision.angular.y
+        msg.twist.twist.angular.z = state.velocity_of_body_in_vision.angular.z
+        msg.twist.covariance[0] = -1.0
+        self._odom_pub.publish(msg)
+
+    def _publish_joints(self, stamp, pos_state):
         msg = JointState()
         msg.header.stamp = stamp.to_msg()
         for joint in pos_state.joint_states:
