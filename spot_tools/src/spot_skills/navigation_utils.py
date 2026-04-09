@@ -60,13 +60,30 @@ def navigate_to_absolute_pose(
     )
     vel_limit = geometry_pb2.SE2VelocityLimit(max_vel=max_vel_se2)
     params.vel_limit.CopyFrom(vel_limit)
-    robot_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
-        goal_x=waypoint.x,
-        goal_y=waypoint.y,
-        goal_heading=waypoint.angle,
-        frame_name=frame_name,
-        params=params,
-    )
+
+    state = spot.get_state()
+    manipulator_state = state.manipulator_state
+
+    gripper_holding = manipulator_state.is_gripper_holding_item
+
+    if gripper_holding:
+        arm_joint_freeze_command = RobotCommandBuilder.arm_joint_freeze_command()
+        robot_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
+            goal_x=waypoint.x,
+            goal_y=waypoint.y,
+            goal_heading=waypoint.angle,
+            frame_name=frame_name,
+            params=params,
+            build_on_command=arm_joint_freeze_command,
+        )
+    else:
+        robot_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
+            goal_x=waypoint.x,
+            goal_y=waypoint.y,
+            goal_heading=waypoint.angle,
+            frame_name=frame_name,
+            params=params,
+        )
     end_time = 10.0
     cmd_id = robot_command_client.robot_command(
         lease=None, command=robot_cmd, end_time_secs=time.time() + end_time

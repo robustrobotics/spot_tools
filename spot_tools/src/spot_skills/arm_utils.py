@@ -40,7 +40,9 @@ def move_hand_to_relative_pose(spot, body_tform_goal: math_helpers.SE3Pose) -> N
         2.0,
     )
     # Send the request.
-    cmd_id = robot_command_client.robot_command(cmd)
+    full_cmd = RobotCommandBuilder.build_synchro_command(cmd)
+    cmd_id = robot_command_client.robot_command(full_cmd)
+
     # Wait until the arm arrives at the goal.
     block_until_arm_arrives(robot_command_client, cmd_id, 2.0)
 

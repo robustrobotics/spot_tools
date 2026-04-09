@@ -275,7 +275,7 @@ class SpotExecutor:
         success = object_grasp(
             self.spot_interface,
             self.detector,
-            image_source="hand_color_image",
+            image_source="frontleft_fisheye_image",
             user_input=False,
             semantic_class=command.object_class,
             feedback=feedback,
