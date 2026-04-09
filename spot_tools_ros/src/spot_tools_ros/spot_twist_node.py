@@ -11,8 +11,6 @@ class SpotTwistBridge(Node):
     def __init__(self):
         super().__init__("spot_twist_bridge")
 
-        ###
-        # Connectivity parameters
         self.declare_parameter("spot_ip", "")
         self.declare_parameter("bosdyn_client_username", "")
         self.declare_parameter("bosdyn_client_password", "")
@@ -22,11 +20,6 @@ class SpotTwistBridge(Node):
         assert bdai_username != ""
         bdai_password = self.get_parameter("bosdyn_client_password").value
         assert bdai_password != ""
-
-        # Twist receiver params
-        # self.declare_parameter("follower_lookahead", 0.0)
-        # follower_lookahead = self.get_parameter("follower_lookahead").value
-        # assert follower_lookahead > 0
 
         self.get_logger().info("About to initialize Spot")
         self.get_logger().info(f"{bdai_username=}, {bdai_password=}, {spot_ip=}")
