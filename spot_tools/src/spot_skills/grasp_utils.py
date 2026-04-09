@@ -27,6 +27,7 @@ from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arr
 
 from spot_skills.arm_utils import (
     close_gripper,
+    move_hand_to_relative_pose,
     open_gripper,
     stow_arm,
 )
@@ -113,34 +114,12 @@ def object_place(spot, semantic_class="bag", position=None):
         return True
 
     time.sleep(0.25)
-    # arm_to_carry(spot)
-    # stow_arm(spot)
-    # arm_to_drop(spot)
 
-    # odom_T_task = get_root_T_ground_body(
-    #    robot_state=spot.get_state(), root_frame_name=ODOM_FRAME_NAME
-    # )
-    # wr1_T_tool = math_helpers.SE3Pose(
-    #    0.23589, 0, -0.03943, math_helpers.Quat.from_pitch(-np.pi / 2)
-    # )
-    # force_dir_rt_task = math_helpers.Vec3(0, 0, -1)  # adjust downward force here
-    # robot_cmd = apply_force_at_current_position(
-    #    force_dir_rt_task_in=force_dir_rt_task,
-    #    force_magnitude=8,
-    #    robot_state=spot.get_state(),
-    #    root_frame_name=ODOM_FRAME_NAME,
-    #    root_T_task=odom_T_task,
-    #    wr1_T_tool_nom=wr1_T_tool,
-    # )
-
-    # Execute the impedance command
-    # cmd_id = spot.command_client.robot_command(robot_cmd)
-    # spot.robot.logger.info("Impedance command issued")
-    # block_until_arm_arrives(spot.command_client, cmd_id, 10.0)
-    # input("Did impedance work")
+    carry_cmd = RobotCommandBuilder.arm_carry_command()
+    spot.command_client.robot_command(carry_cmd)
+    time.sleep(1)
 
     open_gripper(spot)
-    # drop_object(spot)
     stow_arm(spot)
     close_gripper(spot)
     execute_recovery_action(
@@ -167,6 +146,7 @@ def object_grasp(
     grasp_constraint=None,
     debug=False,
     feedback=None,
+    carry_high=True,
 ):
     debug_images = []
 
@@ -364,24 +344,23 @@ def object_grasp(
     time.sleep(0.25)
 
     # Move the arm to a carry position.
-    print("")
-    print("Grasp finished, search for a person...")
+    print("Grasp finished, carrying object.")
     carry_cmd = RobotCommandBuilder.arm_carry_command()
     spot.command_client.robot_command(carry_cmd)
-
-    # Wait for the carry command to finish
     time.sleep(1)
 
     print("Force stowing arm!")
-    # stow_arm(spot)
     force_stow_arm(manipulation_api_client, robot_state_client, spot.command_client)
     time.sleep(1)
 
-    carry_cmd = RobotCommandBuilder.arm_carry_command()
-    spot.command_client.robot_command(carry_cmd)
+    if carry_high:
+        print("Carrying high")
+        body_tform_goal = math_helpers.SE3Pose(
+            x=0.6, y=0.0, z=0.75, rot=math_helpers.Quat()
+        )
+        move_hand_to_relative_pose(spot, body_tform_goal)
+        time.sleep(1)
 
-    # Wait for the carry command to finish
-    time.sleep(1)
     print("Finished grasp.")
 
     if debug:
