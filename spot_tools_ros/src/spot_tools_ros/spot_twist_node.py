@@ -45,6 +45,9 @@ class SpotTwistBridge(Node):
         # msg.linear.x  -> forward/back  (m/s)
         # msg.linear.y  -> left/right    (m/s)
         # msg.angular.z -> rotation      (rad/s)
+        self.get_logger().info(
+            f"Setting twist for spot: {[msg.linear.x, msg.linear.y, msg.angular.z]}"
+        )
         self.spot_interface.set_twist(msg.linear.x, msg.linear.y, msg.angular.z)
 
 
