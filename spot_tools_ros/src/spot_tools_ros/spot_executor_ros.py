@@ -242,7 +242,7 @@ class RosFeedbackCollector:
         self.logger.info(f"Logging to: {self.output_dir}")
         if not os.path.exists(self.output_dir):
             self.logger.info(f"Making {self.output_dir}")
-            os.mkdir(self.output_dir)
+            os.makedirs(self.output_dir)
         log_fn = os.path.join(self.output_dir, "lease_log.txt")
         with open(log_fn, "w") as fo:
             fo.write("time,event\n")
