@@ -9,15 +9,25 @@ from bosdyn.client.robot_command import BehaviorFaultError
 from robot_executor_interface.action_descriptions import (
     Follow,
     Gaze,
+    MoveRelative,
     Pick,
     Place,
+    StandSit,
+    Stop,
+    Strafe,
+    TurnRelative,
 )
 from scipy.spatial.transform import Rotation
 
 from spot_skills.arm_utils import gaze_at_vision_pose
 from spot_skills.grasp_utils import object_grasp, object_place, stow_arm
+from bosdyn.client import math_helpers
 from spot_skills.navigation_utils import (
+    MAX_LINEAR_VEL,
+    MAX_ROTATION_VEL,
     follow_trajectory_continuous,
+    navigate_to_absolute_pose,
+    navigate_to_relative_pose,
     turn_to_point,
 )
 
@@ -232,6 +242,21 @@ class SpotExecutor:
                     elif type(command) is Place:
                         success = self.execute_place(command, feedback)
 
+                    elif type(command) is MoveRelative:
+                        success = self.execute_move_relative(command, feedback)
+
+                    elif type(command) is TurnRelative:
+                        success = self.execute_turn_relative(command, feedback)
+
+                    elif type(command) is Strafe:
+                        success = self.execute_strafe(command, feedback)
+
+                    elif type(command) is Stop:
+                        success = self.execute_stop(command, feedback)
+
+                    elif type(command) is StandSit:
+                        success = self.execute_stand_sit(command, feedback)
+
                     else:
                         raise Exception(
                             f"SpotExecutor received unknown command type {type(command)}"
@@ -360,3 +385,56 @@ class SpotExecutor:
                 feedback=feedback,
             )
         return ret
+
+    def execute_move_relative(self, command, feedback):
+        feedback.print("INFO", f"Moving {command.distance_m}m forward")
+        body_tform_goal = math_helpers.SE2Pose(
+            x=command.distance_m, y=0, angle=0
+        )
+        navigate_to_relative_pose(self.spot_interface, body_tform_goal)
+        time.sleep(abs(command.distance_m) / MAX_LINEAR_VEL + 2)
+        feedback.print("INFO", "Finished `move_relative` command")
+        return True
+
+    def execute_turn_relative(self, command, feedback):
+        feedback.print("INFO", f"Turning {command.angle_deg} degrees")
+        angle_rad = -np.deg2rad(command.angle_deg)  # BD SE2Pose: positive=CW=right, so negate for positive=CCW=left
+        body_tform_goal = math_helpers.SE2Pose(x=0, y=0, angle=angle_rad)
+        navigate_to_relative_pose(self.spot_interface, body_tform_goal)
+        time.sleep(abs(angle_rad) / MAX_ROTATION_VEL + 2)
+        feedback.print("INFO", "Finished `turn_relative` command")
+        return True
+
+    def execute_strafe(self, command, feedback):
+        feedback.print("INFO", f"Strafing {command.distance_m}m")
+        body_tform_goal = math_helpers.SE2Pose(
+            x=0, y=command.distance_m, angle=0
+        )
+        navigate_to_relative_pose(self.spot_interface, body_tform_goal)
+        time.sleep(abs(command.distance_m) / MAX_LINEAR_VEL + 2)
+        feedback.print("INFO", "Finished `strafe` command")
+        return True
+
+    def execute_stop(self, command, feedback):
+        feedback.print("INFO", "Stopping robot")
+        self.keep_going = False
+        feedback.break_out_of_waiting_loop = True
+        current_pose = self.spot_interface.get_pose()
+        waypoint = math_helpers.SE2Pose(
+            x=current_pose[0], y=current_pose[1], angle=current_pose[2]
+        )
+        navigate_to_absolute_pose(self.spot_interface, waypoint)
+        time.sleep(1.0)
+        feedback.print("INFO", "Robot stopped")
+        return True
+
+    def execute_stand_sit(self, command, feedback):
+        if command.action not in ("stand", "sit"):
+            raise ValueError(f"Unknown StandSit action: {command.action!r}")
+        feedback.print("INFO", f"Executing {command.action}")
+        if command.action == "stand":
+            self.spot_interface.stand()
+        else:
+            self.spot_interface.sit()
+        feedback.print("INFO", f"Finished `{command.action}` command")
+        return True

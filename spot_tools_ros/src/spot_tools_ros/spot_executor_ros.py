@@ -30,11 +30,13 @@ from spot_skills.detection_utils import YOLODetector
 from std_msgs.msg import String
 from visualization_msgs.msg import Marker, MarkerArray
 
+from bosdyn.client import math_helpers
 from robot_executor_interface.mid_level_planner import (
     IdentityPlanner,
     MidLevelPlanner,
     OccupancyMap,
 )
+from spot_skills.navigation_utils import navigate_to_absolute_pose
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.occupancy_grid_ros_updater import OccupancyGridROSUpdater
 from spot_tools_ros.utils import get_tf_pose, waypoints_to_path
@@ -510,10 +512,19 @@ class SpotExecutorRos(Node):
         )
         self.spot_executor.initialize_lease_manager(self.feedback_collector)
 
+        self.paused = False
+
         self.action_sequence_sub = self.create_subscription(
             ActionSequenceMsg,
             "~/action_sequence_subscriber",
             self.process_action_sequence,
+            10,
+        )
+
+        self.pause_sub = self.create_subscription(
+            Bool,
+            "~/pause",
+            self.pause_callback,
             10,
         )
 
@@ -524,6 +535,34 @@ class SpotExecutorRos(Node):
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
 
+    def pause_callback(self, msg):
+        if msg.data:
+            self.get_logger().info("PAUSE received — stopping robot and holding position")
+            self.paused = True
+            self.status_str = "Paused"
+
+            # Signal the action sequence to stop (non-blocking)
+            self.spot_executor.keep_going = False
+            self.feedback_collector.break_out_of_waiting_loop = True
+
+            # Command robot to hold current pose (stay standing)
+            try:
+                current_pose = self.spot_interface.get_pose()
+                waypoint = math_helpers.SE2Pose(
+                    x=current_pose[0],
+                    y=current_pose[1],
+                    angle=current_pose[2],
+                )
+                navigate_to_absolute_pose(self.spot_interface, waypoint)
+            except Exception as e:
+                self.get_logger().error(f"Failed to hold position on pause: {e}")
+
+        else:
+            self.get_logger().info("RESUME received — accepting commands")
+            self.paused = False
+            self.feedback_collector.break_out_of_waiting_loop = False
+            self.status_str = "Idle"
+
     def hb_callback(self):
         msg = NodeInfoMsg()
         msg.nickname = "spot_executor"
@@ -533,6 +572,13 @@ class SpotExecutorRos(Node):
         self.heartbeat_pub.publish(msg)
 
     def process_action_sequence(self, msg):
+        if self.paused:
+            self.get_logger().warn(
+                "Received action sequence while paused — ignoring. "
+                "Publish False to ~/pause to resume."
+            )
+            return
+
         def process_sequence():
             self.status_str = "Processing action sequence"
             self.get_logger().info("Starting action sequence")

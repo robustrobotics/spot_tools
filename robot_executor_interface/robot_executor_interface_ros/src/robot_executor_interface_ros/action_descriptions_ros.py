@@ -11,8 +11,13 @@ from robot_executor_interface.action_descriptions import (
     ActionSequence,
     Follow,
     Gaze,
+    MoveRelative,
     Pick,
     Place,
+    StandSit,
+    Stop,
+    Strafe,
+    TurnRelative,
 )
 from spot_tools_ros.utils import path_to_waypoints, waypoints_to_path
 
@@ -64,6 +69,16 @@ def from_msg(msg):
                 actions.append(place_from_msg(a))
             case a.GAZE:
                 actions.append(gaze_from_msg(a))
+            case a.MOVE_RELATIVE:
+                actions.append(MoveRelative(distance_m=a.scalar_value))
+            case a.TURN_RELATIVE:
+                actions.append(TurnRelative(angle_deg=a.scalar_value))
+            case a.STRAFE:
+                actions.append(Strafe(distance_m=a.scalar_value))
+            case a.STOP:
+                actions.append(Stop())
+            case a.STAND_SIT:
+                actions.append(StandSit(action=a.stand_sit_action))
             case _:
                 raise Exception(f"Received invalid action type {a.action_type}")
     return ActionSequence(
@@ -338,4 +353,170 @@ def _(action: Place, marker_ns):
     m.color.b = 1.0
     m.points = [pt1, pt2]
 
+    return [m]
+
+
+# --- Direct navigation commands ---
+
+
+@to_msg.register
+def _(action: MoveRelative):
+    msg = ActionMsg()
+    msg.action_type = msg.MOVE_RELATIVE
+    msg.scalar_value = action.distance_m
+    return msg
+
+
+@to_viz_msg.register
+def _(action: MoveRelative, marker_ns):
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.ARROW
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.1  # shaft diameter
+    m.scale.y = 0.15  # head diameter
+    m.color.a = 1.0
+    m.color.r = 0.0
+    m.color.g = 1.0
+    m.color.b = 1.0
+    pt1 = Point()
+    pt1.x = 0.0
+    pt1.y = 0.0
+    pt1.z = 0.0
+    pt2 = Point()
+    pt2.x = action.distance_m
+    pt2.y = 0.0
+    pt2.z = 0.0
+    m.points = [pt1, pt2]
+    return [m]
+
+
+@to_msg.register
+def _(action: TurnRelative):
+    msg = ActionMsg()
+    msg.action_type = msg.TURN_RELATIVE
+    msg.scalar_value = action.angle_deg
+    return msg
+
+
+@to_viz_msg.register
+def _(action: TurnRelative, marker_ns):
+    # Create a cone to visualize rotation
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.CYLINDER
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.5  # radius
+    m.scale.y = 0.5
+    m.scale.z = 0.1  # height
+    m.color.a = 0.3
+    m.color.r = 1.0
+    m.color.g = 0.5
+    m.color.b = 0.0
+    return [m]
+
+
+@to_msg.register
+def _(action: Strafe):
+    msg = ActionMsg()
+    msg.action_type = msg.STRAFE
+    msg.scalar_value = action.distance_m
+    return msg
+
+
+@to_viz_msg.register
+def _(action: Strafe, marker_ns):
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.ARROW
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.1  # shaft diameter
+    m.scale.y = 0.15  # head diameter
+    m.color.a = 1.0
+    m.color.r = 1.0
+    m.color.g = 1.0
+    m.color.b = 0.0
+    pt1 = Point()
+    pt1.x = 0.0
+    pt1.y = 0.0
+    pt1.z = 0.0
+    pt2 = Point()
+    pt2.x = 0.0
+    pt2.y = action.distance_m
+    pt2.z = 0.0
+    m.points = [pt1, pt2]
+    return [m]
+
+
+@to_msg.register
+def _(action: Stop):
+    msg = ActionMsg()
+    msg.action_type = msg.STOP
+    return msg
+
+
+@to_viz_msg.register
+def _(action: Stop, marker_ns):
+    # Red X marker to indicate stop
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.CUBE
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.3
+    m.scale.y = 0.3
+    m.scale.z = 0.3
+    m.color.a = 0.8
+    m.color.r = 1.0
+    m.color.g = 0.0
+    m.color.b = 0.0
+    return [m]
+
+
+@to_msg.register
+def _(action: StandSit):
+    msg = ActionMsg()
+    msg.action_type = msg.STAND_SIT
+    msg.stand_sit_action = action.action
+    return msg
+
+
+@to_viz_msg.register
+def _(action: StandSit, marker_ns):
+    # Green sphere for stand, blue sphere for sit
+    m = Marker()
+    m.header.frame_id = "body"
+    m.header.stamp = gtm()
+    m.ns = marker_ns
+    m.id = 0
+    m.type = m.SPHERE
+    m.action = m.ADD
+    m.pose.orientation.w = 1.0
+    m.scale.x = 0.2
+    m.scale.y = 0.2
+    m.scale.z = 0.2
+    m.color.a = 0.8
+    if action.action == "stand":
+        m.color.r = 0.0
+        m.color.g = 1.0
+        m.color.b = 0.0
+    else:  # sit
+        m.color.r = 0.0
+        m.color.g = 0.0
+        m.color.b = 1.0
     return [m]

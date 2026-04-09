@@ -6,6 +6,11 @@ string FOLLOW="FOLLOW"
 string GAZE="GAZE"
 string PICK="PICK"
 string PLACE="PLACE"
+string MOVE_RELATIVE="MOVE_RELATIVE"
+string TURN_RELATIVE="TURN_RELATIVE"
+string STRAFE="STRAFE"
+string STOP="STOP"
+string STAND_SIT="STAND_SIT"
 
 string action_type
 
@@ -29,3 +34,9 @@ string object_id
 # Definition for PLACE
 string place_frame
 # Should drop the object for now.
+
+# Definition for MOVE_RELATIVE, TURN_RELATIVE, STRAFE
+float64 scalar_value
+
+# Definition for STAND_SIT
+string stand_sit_action

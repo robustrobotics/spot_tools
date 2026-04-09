@@ -28,8 +28,9 @@ jobs:
         run: pip install pre-commit && cd ${{ github.workspace }}/spot_tools_repo && pre-commit run --all-files
       - name: Install Spot Tools
         run: |
+            pip install ${{ github.workspace }}/spot_tools_repo/robot_executor_interface
+            pip install ${{ github.workspace }}/spot_tools_repo/robot_executor_interface/robot_executor_interface_ros
             pip install ${{ github.workspace }}/spot_tools_repo/spot_tools
             pip install ${{ github.workspace }}/spot_tools_repo/spot_tools_ros
-      #- name: Run test script
-      #  run: cd ${{ github.workspace }}/ouroboros_repo && pytest --ignore=third_party
-      #- run: echo "🍏 This job's status is ${{ job.status }}."
+      - name: Run tests
+        run: cd ${{ github.workspace }}/spot_tools_repo && pytest spot_tools/tests spot_tools_ros/tests robot_executor_interface/robot_executor_interface_ros/tests -v
