@@ -40,38 +40,11 @@ def move_hand_to_relative_pose(spot, body_tform_goal: math_helpers.SE3Pose) -> N
         2.0,
     )
     # Send the request.
-    cmd_id = robot_command_client.robot_command(cmd)
+    full_cmd = RobotCommandBuilder.build_synchro_command(cmd)
+    cmd_id = robot_command_client.robot_command(full_cmd)
+
     # Wait until the arm arrives at the goal.
     block_until_arm_arrives(robot_command_client, cmd_id, 2.0)
-
-
-def move_hand_to_relative_pose_and_freeze(spot, body_tform_goal: math_helpers.SE3Pose) -> None:
-    """
-    Move the spot hand.
-
-    The target is specified relative to the robot's body, but converted to ODOM frame
-    so the hand remains fixed in the world as the robot moves.
-    """
-
-    robot_state_client = spot.robot.ensure_client(RobotStateClient.default_service_name)
-    command_client = spot.robot.ensure_client(RobotCommandClient.default_service_name)
-
-    transforms = robot_state_client.get_robot_state().kinematic_state.transforms_snapshot
-
-    odom_tform_body = get_a_tform_b(transforms, ODOM_FRAME_NAME, BODY_FRAME_NAME)
-
-    # Convert body-relative goal into odom frame
-    odom_tform_goal = odom_tform_body * body_tform_goal
-
-    arm_command = RobotCommandBuilder.arm_pose_command_from_pose(
-        odom_tform_goal.to_proto(),
-        ODOM_FRAME_NAME,
-        seconds=2,
-    )
-
-    cmd_id = command_client.robot_command(arm_command)
-
-    block_until_arm_arrives(command_client, cmd_id, timeout_sec=5)
 
 
 def gaze_at_relative_pose(

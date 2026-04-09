@@ -356,9 +356,9 @@ def object_grasp(
     if carry_high:
         print("Carrying high")
         body_tform_goal = math_helpers.SE3Pose(
-            x=0.6, y=0.0, z=0.75, rot=math_helpers.Quat()
+            x=0.6, y=0.0, z=0.6, rot=math_helpers.Quat()
         )
-        move_hand_to_relative_pose_and_freeze(spot, body_tform_goal)
+        move_hand_to_relative_pose(spot, body_tform_goal)
         time.sleep(1)
 
     print("Finished grasp.")
