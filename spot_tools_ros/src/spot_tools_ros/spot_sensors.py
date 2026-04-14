@@ -48,9 +48,10 @@ JOINT_NAMES = {
     "arm0.f1x": "arm_gripper",
 }
 
-
+FRAMES_TO_SKIP = ["odom"]
+#FRAME_REMAPS = ["odom:kinematic", "vision:spot_odom", "body:spot_body"]
 FRAME_REMAPS = ["odom:kinematic", "vision:odom"]
-EXCLUDED = [".*flat_body.*", ".*feet_center.*", ".*wr1", ".*foot.*"]
+EXCLUDED = [".*flat_body.*", ".*feet_center.*", ".*wr1", ".*foot.*", "vision"]
 STATIC_IDS = [
     "body",
     "frontright.*",
@@ -443,6 +444,10 @@ class SpotClientNode(Node):
         dynamic_seen = {}
         transform_map = _collate_transforms(curr_tfs)
         for original_parent, children in transform_map.items():
+            #self.get_logger().warning(f"Original parent: {original_parent}")
+            if original_parent in FRAMES_TO_SKIP:
+                continue
+            #self.get_logger().warning(f"Not skipping")
             for frame, stamped_pose in children.items():
                 parent_frame = original_parent
                 stamp, pose = stamped_pose

@@ -6,6 +6,12 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from spot_executor.spot import Spot
 
+def clip(x, lower, upper):
+    if x < lower:
+        return lower
+    if x > upper:
+        return upper
+    return x
 
 class SpotTwistBridge(Node):
     def __init__(self):
@@ -41,7 +47,13 @@ class SpotTwistBridge(Node):
         self.get_logger().info(
             f"Setting twist for spot: {[msg.linear.x, msg.linear.y, msg.angular.z]}"
         )
-        self.spot_interface.set_twist(msg.linear.x, msg.linear.y, msg.angular.z)
+        vx = clip(msg.linear.x, -0.5, 0.5)
+        vy = clip(msg.linear.x, -0.5, 0.5)
+        omega_z = clip(msg.linear.x, -0.3, 0.3)
+        self.get_logger().info(
+            f"Clipped values: {[vx, vy, omega_z]}"
+        )
+        self.spot_interface.set_twist(vx, vy, omega_z)
 
 
 def main(args=None):
