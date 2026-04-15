@@ -52,14 +52,14 @@ class SpotTwistBridge(Node):
         # msg.twist.linear.y  -> left/right    (m/s)
         # msg.twist.angular.z -> rotation      (rad/s)
         self.get_logger().info(
-            f"Setting twist for spot: {[msg.linear.x, msg.linear.y, msg.angular.z]}"
+            f"Setting twist for spot: {[msg.twist.linear.x, msg.twist.linear.y, msg.twist.angular.z]}"
         )
         assert msg.header.frame_id == self.body_frame, (
             "Currently Spot only accepts messages in its body frame"
         )
-        vx = clip(msg.twist.linear.x, -0.5, 0.5)
-        vy = clip(msg.twist.linear.x, -0.5, 0.5)
-        omega_z = clip(msg.twist.linear.x, -0.3, 0.3)
+        vx = clip(msg.twist.linear.x, -0.3, 0.3)
+        vy = clip(msg.twist.linear.x, -0.3, 0.3)
+        omega_z = clip(msg.twist.angular.z, -0.1, 0.1)
         self.get_logger().info(f"Clipped values: {[vx, vy, omega_z]}")
         self.spot_interface.set_twist(vx, vy, omega_z)
 
