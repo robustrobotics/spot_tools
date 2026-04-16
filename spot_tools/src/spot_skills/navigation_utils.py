@@ -122,7 +122,9 @@ def follow_trajectory_continuous(
     rate = 10
     # TODO: reactive loop, yeild out the loop to get info
     while 1:
-        if time.time() - t0 > timeout:
+        curr_time = time.time()
+        feedback.print("INFO", f"Timeout progress {curr_time - t0} / {timeout}")
+        if curr_time - t0 > timeout:
             # TODO: I think we need to tell Spot to stop?
             # TODO: Also, we should probably have a finer-grained
             # check about making progress
