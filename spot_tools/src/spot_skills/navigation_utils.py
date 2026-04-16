@@ -148,7 +148,9 @@ def follow_trajectory_continuous(
             # TODO: I think we need to tell Spot to stop?
             # TODO: Also, we should probably have a finer-grained
             # check about making progress
+            feedback.print("INFO", "follow_trajectory_continuous timeout")
             return False
+
         tform_body_in_vision = spot.get_pose()
         distance_from_end = np.linalg.norm(
             end_pt - np.array([tform_body_in_vision[0], tform_body_in_vision[1]])
@@ -167,6 +169,7 @@ def follow_trajectory_continuous(
         current_point = shapely.Point(tform_body_in_vision[0], tform_body_in_vision[1])
         progress_distance = shapely.line_locate_point(path, current_point)
         progress_point = shapely.line_interpolate_point(path, progress_distance)
+
         # 2. get line point at lookahead
         target_distance = progress_distance + lookahead_distance
         target_point = shapely.line_interpolate_point(path, target_distance)

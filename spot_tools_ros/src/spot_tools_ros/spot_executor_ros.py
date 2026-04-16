@@ -118,7 +118,7 @@ class RosFeedbackCollector:
             file_handler.setLevel(logging_level)
 
             # Create a formatter and add it to the handler
-            formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+            formatter = logging.Formatter("[%(asctime)s] - %(levelname)s - %(message)s")
             file_handler.setFormatter(formatter)
 
             # Add the handler to the logger
