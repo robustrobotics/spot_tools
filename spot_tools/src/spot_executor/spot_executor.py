@@ -62,6 +62,12 @@ class LeaseManager:
                 self.owner = leases[0].lease_owner
                 self.owner_name = self.owner.client_name
 
+                # If someone else owns the lease, the current plan is invalid
+                # since the robot may be moved.
+                if not self.owner_name.startswith("understanding"):
+                    if self.feedback is not None:
+                        self.feedback.plan_valid = False
+
                 # If nobody owns the lease, then the owner string is empty.
                 # We should try to take the lease back in that case.
                 if self.owner_name == "":
@@ -115,7 +121,7 @@ class LeaseManager:
                     if self.feedback is not None:
                         self.feedback.break_out_of_waiting_loop = False
                     self.taking_back_lease = False
-                time.sleep(0.5)
+                time.sleep(0.1)
 
         self.monitoring_thread = threading.Thread(target=monitor_lease, daemon=False)
         self.monitoring_thread.start()
@@ -214,6 +220,7 @@ class SpotExecutor:
                 feedback.print("INFO", command)
 
                 success = False
+                feedback.plan_valid = True
                 try:
                     if type(command) is Follow:
                         success = self.execute_follow(command, feedback)

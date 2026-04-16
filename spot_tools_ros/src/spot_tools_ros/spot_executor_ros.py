@@ -87,6 +87,7 @@ class RosFeedbackCollector:
         self.pick_confirmation_image_index = 0
 
         self.break_out_of_waiting_loop = False
+        self.plan_valid = True
         self.odom_frame = odom_frame
 
         self.output_dir = output_dir
@@ -555,6 +556,7 @@ class SpotExecutorRos(Node):
             self.spot_executor.terminate_sequence(self.feedback_collector)
 
         self.feedback_collector.break_out_of_waiting_loop = False
+        self.feedback_collector.plan_valid = True
         self.background_thread = threading.Thread(target=process_sequence, daemon=False)
         self.background_thread.start()
 

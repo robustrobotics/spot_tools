@@ -143,7 +143,6 @@ def follow_trajectory_continuous(
                 return False
 
             path = shapely.LineString(waypoints_list[:, :2])
-            continue
 
         if time.time() - t0 > timeout:
             # TODO: I think we need to tell Spot to stop?
@@ -186,6 +185,10 @@ def follow_trajectory_continuous(
             x=target_point.x, y=target_point.y, angle=yaw_angle
         )
         feedback.print("INFO", f"Navigating to waypoint {current_waypoint}")
+
+        if feedback is not None and not feedback.plan_valid:
+            feedback.print("INFO", "Plan invalidated by lease change, exiting follow")
+            return False
 
         navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
         time.sleep(1 / rate)
