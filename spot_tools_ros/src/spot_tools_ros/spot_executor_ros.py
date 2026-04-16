@@ -97,6 +97,8 @@ class RosFeedbackCollector:
         if log_to_file_level != "":
             os.makedirs(self.output_dir, exist_ok=True)
             self.str_log_file = os.path.join(self.output_dir, "str_log.txt")
+            with open(self.str_log_file, "w") as f:
+                f.write("time - level - message\n")
 
             match log_to_file_level:
                 case "DEBUG":
