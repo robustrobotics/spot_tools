@@ -1,5 +1,6 @@
 import threading
 import time
+from copy import deepcopy
 
 import numpy as np
 import skimage as ski
@@ -25,6 +26,7 @@ from spot_skills.navigation_utils import (
 def transform_command_frame(tf_trans, tf_q, command, feedback=None):
     # command is Nx3 numpy array
 
+    command = deepcopy(command)
     R = Rotation.from_quat([tf_q.x, tf_q.y, tf_q.z, tf_q.w])
     _, _, yaw = R.as_euler("xyz", degrees=False)
 
