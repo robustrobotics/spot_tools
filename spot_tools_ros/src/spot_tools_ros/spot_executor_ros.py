@@ -245,7 +245,18 @@ class RosFeedbackCollector:
 
         # TODO(multy): quick logic to log everything we print in the executor
         if self.log_to_file_level != "":
-            getattr(self.file_logger, level.lower())(str(string))
+            match level:
+                case "DEBUG":
+                    file_logger_fn = self.file_logger.debug
+                case "INFO":
+                    file_logger_fn = self.file_logger.info
+                case "WARNING":
+                    file_logger_fn = self.file_logger.warning
+                case "ERROR":
+                    file_logger_fn = self.file_logger.error
+                case _:
+                    raise ValueError(f"Invalid log level {level}")
+            file_logger_fn(str(string))
 
     def feedback_viz_2(self, y):
         pass

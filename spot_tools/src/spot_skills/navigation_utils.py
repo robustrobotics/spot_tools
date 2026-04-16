@@ -130,7 +130,7 @@ def follow_trajectory_continuous(
             # check about making progress
             feedback.print("INFO", "follow_trajectory_continuous timeout")
             return False
-        
+
         # if mid_level_planner is not None:
         # update path every (couple?) loop
         mlp_success, planning_output = mid_level_planner.plan_path(
