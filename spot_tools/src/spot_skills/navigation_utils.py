@@ -122,6 +122,15 @@ def follow_trajectory_continuous(
     rate = 10
     # TODO: reactive loop, yeild out the loop to get info
     while 1:
+        curr_time = time.time()
+        feedback.print("INFO", f"Timeout progress {curr_time - t0} / {timeout}")
+        if curr_time - t0 > timeout:
+            # TODO: I think we need to tell Spot to stop?
+            # TODO: Also, we should probably have a finer-grained
+            # check about making progress
+            feedback.print("INFO", "follow_trajectory_continuous timeout")
+            return False
+
         # if mid_level_planner is not None:
         # update path every (couple?) loop
         mlp_success, planning_output = mid_level_planner.plan_path(
@@ -130,25 +139,25 @@ def follow_trajectory_continuous(
         path = planning_output.path_shapely
         path_wp = planning_output.path_waypoints_metric
         target_point_metric = planning_output.target_point_metric
+        target_point_global_path_metric = (
+            planning_output.global_path_target_point_metric
+        )
 
         if feedback is not None and target_point_metric is not None:
             feedback.print("INFO", f"target_point_metric: {target_point_metric}")
-            feedback.path_follow_MLP_feedback(path_wp, target_point_metric)
+            feedback.path_follow_MLP_feedback(
+                path_wp,
+                target_point_metric,
+                target_point_global_path_metric,
+                waypoints_list[-1],
+            )
 
         if not mlp_success:
             feedback.print(
                 "INFO", "Mid-level planner failed, following high-level path directly"
             )
-            if time.time() - t0 > timeout:
-                return False
-
             path = shapely.LineString(waypoints_list[:, :2])
 
-        if time.time() - t0 > timeout:
-            # TODO: I think we need to tell Spot to stop?
-            # TODO: Also, we should probably have a finer-grained
-            # check about making progress
-            return False
         tform_body_in_vision = spot.get_pose()
         distance_from_end = np.linalg.norm(
             end_pt - np.array([tform_body_in_vision[0], tform_body_in_vision[1]])
@@ -167,6 +176,7 @@ def follow_trajectory_continuous(
         current_point = shapely.Point(tform_body_in_vision[0], tform_body_in_vision[1])
         progress_distance = shapely.line_locate_point(path, current_point)
         progress_point = shapely.line_interpolate_point(path, progress_distance)
+
         # 2. get line point at lookahead
         target_distance = progress_distance + lookahead_distance
         target_point = shapely.line_interpolate_point(path, target_distance)
