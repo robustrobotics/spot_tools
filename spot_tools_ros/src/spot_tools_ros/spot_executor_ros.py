@@ -375,6 +375,7 @@ class SpotExecutorRos(Node):
         self.declare_parameter("lookahead_distance", 50)
         self.declare_parameter("occupancy_inflation_radius", 0.5)
         self.declare_parameter("use_fake_path_plan", False)
+        self.declare_parameter("combine_follow_commands", False)
         self.declare_parameter("use_cost_map", False)
         self.declare_parameter("cost_map_safe_distance", 0.5)
         self.declare_parameter("cost_map_nearest_obstacle_cost", 5.0)
@@ -386,6 +387,7 @@ class SpotExecutorRos(Node):
         ).value
         assert occupancy_inflation_radius > 0
         use_fake_path_plan = self.get_parameter("use_fake_path_plan").value
+        combine_follow_commands = self.get_parameter("combine_follow_commands").value
         use_cost_map = self.get_parameter("use_cost_map").value
         cost_map_safe_distance = self.get_parameter("cost_map_safe_distance").value
         cost_map_nearest_obstacle_cost = self.get_parameter(
@@ -507,6 +509,7 @@ class SpotExecutorRos(Node):
             goal_tolerance,
             self.feedback_collector,
             use_fake_path_plan,
+            combine_follow_commands,
         )
         self.spot_executor.initialize_lease_manager(self.feedback_collector)
 
