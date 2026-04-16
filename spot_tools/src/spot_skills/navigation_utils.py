@@ -143,7 +143,6 @@ def follow_trajectory_continuous(
                 return False
 
             path = shapely.LineString(waypoints_list[:, :2])
-            continue
 
         if time.time() - t0 > timeout:
             # TODO: I think we need to tell Spot to stop?

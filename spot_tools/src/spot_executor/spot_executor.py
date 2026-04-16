@@ -121,7 +121,7 @@ class LeaseManager:
                     if self.feedback is not None:
                         self.feedback.break_out_of_waiting_loop = False
                     self.taking_back_lease = False
-                time.sleep(0.5)
+                time.sleep(0.1)
 
         self.monitoring_thread = threading.Thread(target=monitor_lease, daemon=False)
         self.monitoring_thread.start()
