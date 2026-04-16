@@ -321,7 +321,10 @@ class MidLevelPlanner:
                 self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in a_star_path_grid
             ]
             a_star_path_metric = np.array(a_star_path_metric).reshape(-1, 4)
-            a_star_path_metric = a_star_path_metric[:, :2]
+            a_star_path_metric = a_star_path_metric[:, :2].reshape(-1, 2)
+            # TODO(multy) temp fix for visualization if a star only output one point 
+            # in fact, this is probably reaching a local min we plan can't go farther. 
+            a_star_path_metric = np.vstack((self.robot_pose[:, :2], a_star_path_metric))
             a_star_path_execute = a_star_path_metric
             output.path_shapely = shapely.LineString(a_star_path_execute)
             output.path_waypoints_metric = a_star_path_metric
