@@ -146,7 +146,7 @@ def follow_trajectory_continuous(
 
         if not mlp_success:
             feedback.print(
-                "WARNING", "Mid-level planner failed, following high-level path directly"
+                "INFO", "Mid-level planner failed, following high-level path directly"
             )
             path = shapely.LineString(waypoints_list[:, :2])
 
