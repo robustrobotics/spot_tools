@@ -190,14 +190,38 @@ class RosFeedbackCollector:
         frames = [self.odom_frame] * 2
         self.progress_point_pub.publish(build_markers(pts, namespaces, frames, colors))
 
-    def path_follow_MLP_feedback(self, path, target_point_metric):
+    def path_follow_MLP_feedback(
+        self,
+        path,
+        target_point_metric,
+        target_point_global_traj_metric,
+        subgoal_target_point_metric,
+    ):
         self.mlp_path_publisher.publish(waypoints_to_path(self.odom_frame, path))
+        if (
+            target_point_metric is None
+            or target_point_global_traj_metric is None
+            or subgoal_target_point_metric is None
+        ):
+            return
         target_point_metric_flattened = Point([p[0] for p in target_point_metric[:3]])
+        target_point_global_traj_metric_flattened = Point(
+            [p[0] for p in target_point_global_traj_metric[:3]]
+        )
+        subgoal_target_point_metric_flattened = Point(subgoal_target_point_metric[:3])
 
-        pts = [target_point_metric_flattened]
-        namespaces = ["projected target point"]
-        colors = [[1, 0, 1]]
-        frames = [self.odom_frame]
+        pts = [
+            target_point_global_traj_metric_flattened,
+            target_point_metric_flattened,
+            subgoal_target_point_metric_flattened,
+        ]
+        namespaces = [
+            "projected target point",
+            "actual target point",
+            "subgoal target point",
+        ]
+        colors = [[1, 0, 1], [0, 1, 1], [0, 0, 1]]
+        frames = [self.odom_frame] * 3
         self.mlp_target_publisher.publish(
             build_markers(pts, namespaces, frames, colors)
         )

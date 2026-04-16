@@ -279,9 +279,7 @@ class FakeSpot:
             self.pose = pose
 
     def get_state(self):
-        raise NotImplementedError(
-            "get_state not implemented for FakeSpot (what is it supposed to return?)"
-        )
+        return self.state_client.get_robot_state()
 
     def get_image_RGB(self, view="hand_color_image", show=False):
         return self.get_image(view=view, show=show)

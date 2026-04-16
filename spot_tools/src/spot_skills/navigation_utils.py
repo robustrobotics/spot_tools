@@ -139,10 +139,18 @@ def follow_trajectory_continuous(
         path = planning_output.path_shapely
         path_wp = planning_output.path_waypoints_metric
         target_point_metric = planning_output.target_point_metric
+        target_point_global_path_metric = (
+            planning_output.global_path_target_point_metric
+        )
 
         if feedback is not None and target_point_metric is not None:
             feedback.print("INFO", f"target_point_metric: {target_point_metric}")
-            feedback.path_follow_MLP_feedback(path_wp, target_point_metric)
+            feedback.path_follow_MLP_feedback(
+                path_wp,
+                target_point_metric,
+                target_point_global_path_metric,
+                waypoints_list[-1],
+            )
 
         if not mlp_success:
             feedback.print(

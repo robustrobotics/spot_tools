@@ -191,6 +191,7 @@ class MidLevelPlannerOutput:
     target_point_metric: np.ndarray
     path_shapely: shapely.LineString
     path_waypoints_metric: list
+    global_path_target_point_metric: np.ndarray
 
 
 class MidLevelPlanner:
@@ -304,6 +305,9 @@ class MidLevelPlanner:
                 ),
                 path_shapely=shapely.LineString(high_level_path_metric[:, :2]),
                 path_waypoints_metric=[],
+                global_path_target_point_metric=self.grid_cell_to_global_pose(
+                    target_point_grid
+                ),
             )
 
             # plan using a_star
@@ -550,5 +554,6 @@ class IdentityPlanner:
             target_point_metric=None,
             path_shapely=shapely.LineString(high_level_path_metric[:, :2]),
             path_waypoints_metric=None,
+            global_path_target_point_metric=None,
         )
         return True, output
