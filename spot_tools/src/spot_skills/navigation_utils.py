@@ -122,6 +122,13 @@ def follow_trajectory_continuous(
     rate = 10
     # TODO: reactive loop, yeild out the loop to get info
     while 1:
+        if time.time() - t0 > timeout:
+            # TODO: I think we need to tell Spot to stop?
+            # TODO: Also, we should probably have a finer-grained
+            # check about making progress
+            feedback.print("INFO", "follow_trajectory_continuous timeout")
+            return False
+        
         # if mid_level_planner is not None:
         # update path every (couple?) loop
         mlp_success, planning_output = mid_level_planner.plan_path(
@@ -137,19 +144,9 @@ def follow_trajectory_continuous(
 
         if not mlp_success:
             feedback.print(
-                "INFO", "Mid-level planner failed, following high-level path directly"
+                "WARNING", "Mid-level planner failed, following high-level path directly"
             )
-            if time.time() - t0 > timeout:
-                return False
-
             path = shapely.LineString(waypoints_list[:, :2])
-
-        if time.time() - t0 > timeout:
-            # TODO: I think we need to tell Spot to stop?
-            # TODO: Also, we should probably have a finer-grained
-            # check about making progress
-            feedback.print("INFO", "follow_trajectory_continuous timeout")
-            return False
 
         tform_body_in_vision = spot.get_pose()
         distance_from_end = np.linalg.norm(
