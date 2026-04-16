@@ -95,6 +95,7 @@ class RosFeedbackCollector:
         self.log_to_file_level = log_to_file_level
 
         if log_to_file_level != "":
+            os.makedirs(self.output_dir, exist_ok=True)
             self.str_log_file = os.path.join(self.output_dir, "str_log.txt")
 
             match log_to_file_level:
@@ -321,7 +322,7 @@ class RosFeedbackCollector:
         self.logger.info(f"Logging to: {self.output_dir}")
         if not os.path.exists(self.output_dir):
             self.logger.info(f"Making {self.output_dir}")
-            os.makedirs(self.output_dir)
+            os.makedirs(self.output_dir, exist_ok=True)
         log_fn = os.path.join(self.output_dir, "lease_log.txt")
         with open(log_fn, "w") as fo:
             fo.write("time,event\n")
