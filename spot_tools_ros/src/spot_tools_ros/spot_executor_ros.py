@@ -1,3 +1,4 @@
+import logging
 import os
 import threading
 import time
@@ -78,7 +79,7 @@ def build_markers(pts, namespaces, frames, colors):
 
 
 class RosFeedbackCollector:
-    def __init__(self, odom_frame: str, output_dir: str):
+    def __init__(self, odom_frame: str, output_dir: str, log_to_file_level):
         self.pick_confirmation_event = threading.Event()
         # self.pick_confirmation_response = False
 
@@ -91,6 +92,37 @@ class RosFeedbackCollector:
         self.odom_frame = odom_frame
 
         self.output_dir = output_dir
+        self.log_to_file_level = log_to_file_level
+
+        if log_to_file_level != "":
+            self.str_log_file = os.path.join(self.output_dir, "str_log.txt")
+
+            match log_to_file_level:
+                case "DEBUG":
+                    logging_level = logging.DEBUG
+                case "INFO":
+                    logging_level = logging.INFO
+                case "WARNING":
+                    logging_level = logging.WARNING
+                case "ERROR":
+                    logging_level = logging.ERROR
+                case _:
+                    raise ValueError(f"Invalid log level {log_to_file_level}")
+
+            # Create a custom logger
+            self.file_logger = logging.getLogger(__name__)
+            self.file_logger.setLevel(logging_level)
+
+            # Create a file handler
+            file_handler = logging.FileHandler(self.str_log_file)
+            file_handler.setLevel(logging_level)
+
+            # Create a formatter and add it to the handler
+            formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+            file_handler.setFormatter(formatter)
+
+            # Add the handler to the logger
+            self.file_logger.addHandler(file_handler)
 
     def bounding_box_detection_feedback(
         self,
@@ -177,15 +209,23 @@ class RosFeedbackCollector:
         match level:
             case "DEBUG":
                 log_fn = self.logger.debug
+                file_logger_fn = self.file_logger.debug
             case "INFO":
                 log_fn = self.logger.info
+                file_logger_fn = self.file_logger.info
             case "WARNING":
                 log_fn = self.logger.warning
+                file_logger_fn = self.file_logger.warning
             case "ERROR":
                 log_fn = self.logger.error
+                file_logger_fn = self.file_logger.error
             case _:
                 raise ValueError(f"Invalid log level {level}")
         log_fn(str(string))
+
+        # TODO(multy): quick logic to log everything we print in the executor
+        if self.log_to_file_level != "":
+            file_logger_fn(str(string))
 
     def feedback_viz_2(self, y):
         pass
@@ -368,7 +408,13 @@ class SpotExecutorRos(Node):
         output_dir = self.get_parameter("output_dir").value
         assert output_dir != ""
 
-        self.feedback_collector = RosFeedbackCollector(self.odom_frame, output_dir)
+        # TODO(multy): quick way to log everything feedback print to log file
+        self.declare_parameter("log_to_file", "")
+        log_to_file = self.get_parameter("log_to_file").value
+
+        self.feedback_collector = RosFeedbackCollector(
+            self.odom_frame, output_dir, log_to_file
+        )
         self.feedback_collector.register_publishers(self)
 
         self.tf_buffer = tf2_ros.Buffer()
