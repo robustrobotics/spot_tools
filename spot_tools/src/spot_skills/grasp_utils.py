@@ -187,7 +187,7 @@ def object_grasp(
         else:
             image, img = spot.get_image_RGB(view=image_source)
             xy = get_user_grasp_input(spot, img)
-            candidates = [DetectionCandidate(image, img, xy)]
+            candidates = [DetectionCandidate(image, img, xy, image_source)]
             detection_index = 0
             print("Found object centroid:", xy)
 
@@ -210,6 +210,7 @@ def object_grasp(
     # Display all candidate images in the approval panel
     if feedback is not None:
         cv2_images = [copy(c.cv2_image) for c in candidates]
+        source_names = [c.source_name for c in candidates]
 
         if detection_index is not None:
             xy = candidates[detection_index].detection_xy
@@ -221,6 +222,7 @@ def object_grasp(
 
         approved, updated_xy, selected_index = feedback.bounding_box_detection_feedback(
             cv2_images,
+            source_names,
             detection_index,
             det_x,
             det_y,

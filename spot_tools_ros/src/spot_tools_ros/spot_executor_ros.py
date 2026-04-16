@@ -92,7 +92,7 @@ class RosFeedbackCollector:
         self.output_dir = output_dir
 
     def bounding_box_detection_feedback(
-        self, detection_imgs, detection_index, centroid_x, centroid_y, semantic_class
+        self, detection_imgs, source_names, detection_index, centroid_x, centroid_y, semantic_class
     ):
         bridge = CvBridge()
 
@@ -100,6 +100,7 @@ class RosFeedbackCollector:
         request_msg.images = [
             bridge.cv2_to_imgmsg(img, encoding="passthrough") for img in detection_imgs
         ]
+        request_msg.image_source_names = source_names
         request_msg.has_detection = detection_index is not None
         request_msg.detection_image_index = (
             detection_index if detection_index is not None else 0
