@@ -92,7 +92,13 @@ class RosFeedbackCollector:
         self.output_dir = output_dir
 
     def bounding_box_detection_feedback(
-        self, detection_imgs, source_names, detection_index, centroid_x, centroid_y, semantic_class
+        self,
+        detection_imgs,
+        source_names,
+        detection_index,
+        centroid_x,
+        centroid_y,
+        semantic_class,
     ):
         bridge = CvBridge()
 

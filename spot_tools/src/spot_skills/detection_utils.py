@@ -63,7 +63,9 @@ class YOLODetector(Detector):
             primary_cv2_image, semantic_class, rotate=0, debug=debug
         )
         detection_candidates.append(
-            DetectionCandidate(primary_bosdyn_image, primary_cv2_image, primary_xy, img_source)
+            DetectionCandidate(
+                primary_bosdyn_image, primary_cv2_image, primary_xy, img_source
+            )
         )
 
         # If primary image has a detection, just get the images from the other image sources; Otherwise, look for detections
