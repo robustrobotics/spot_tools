@@ -138,6 +138,7 @@ class SpotExecutor:
         goal_tolerance=2.8,
         feedback=None,
         use_fake_path_planner=False,
+        combine_follow_commands=False,
     ):
         self.debug = False
         self.spot_interface = spot_interface
@@ -149,11 +150,55 @@ class SpotExecutor:
         self.processing_action_sequence = False
         self.mid_level_planner = planner
         self.use_fake_path_planner = use_fake_path_planner
+        self.combine_follow_commands = combine_follow_commands
 
         self.lease_manager = None
 
     def initialize_lease_manager(self, feedback):
         self.lease_manager = LeaseManager(self.spot_interface, feedback)
+
+    def _merge_consecutive_follows(self, actions, feedback=None):
+        """Merge consecutive Follow commands that share the same frame into one.
+
+        Consecutive Follow commands with different frames are kept as separate
+        merged groups — a frame boundary acts as a natural split point.
+        """
+        merged = []
+        i = 0
+        while i < len(actions):
+            if type(actions[i]) is not Follow:
+                merged.append(actions[i])
+                i += 1
+                continue
+
+            # Collect a run of consecutive Follow commands with the same frame
+            group = [actions[i]]
+            j = i + 1
+            while (
+                j < len(actions)
+                and type(actions[j]) is Follow
+                and actions[j].frame == actions[i].frame
+            ):
+                group.append(actions[j])
+                j += 1
+
+            if len(group) == 1:
+                merged.append(group[0])
+            else:
+                combined_path = np.concatenate([f.path2d for f in group], axis=0)
+                combined = Follow(frame=group[0].frame, path2d=combined_path)
+                if feedback is not None:
+                    feedback.print(
+                        "INFO",
+                        f"Merged {len(group)} consecutive Follow commands "
+                        f"(frame='{group[0].frame}') into one with "
+                        f"{len(combined_path)} waypoints.",
+                    )
+                merged.append(combined)
+
+            i = j
+
+        return merged
 
     def terminate_sequence(self, feedback):
         # Tell the actions sequence to break
@@ -180,12 +225,22 @@ class SpotExecutor:
             for command in sequence.actions:
                 feedback.print("INFO", command)
 
+            if self.combine_follow_commands:
+                actions = self._merge_consecutive_follows(sequence.actions, feedback)
+                feedback.print(
+                    "INFO",
+                    f"combine_follow_commands enabled: reduced {len(sequence.actions)} "
+                    f"actions to {len(actions)} after merging consecutive Follow commands.",
+                )
+            else:
+                actions = sequence.actions
+
             self.spot_interface.robot.time_sync.wait_for_sync()
             self.spot_interface.take_lease()
 
             ix = 0
             inner_loop_attempts = 0
-            while ix < len(sequence.actions):
+            while ix < len(actions):
                 # If the lease manager is actively taking back the lease and getting the
                 # robot to stand back up, we don't want to send it any commands. It will break.
                 if (
@@ -207,14 +262,14 @@ class SpotExecutor:
                     time.sleep(0.5)
                     continue
 
-                command = sequence.actions[ix]
+                command = actions[ix]
 
                 if not self.keep_going:
                     feedback.print("INFO", "Action sequence was pre-empted.")
                     break
                 pick_next = False
-                if ix < len(sequence.actions) - 1:
-                    pick_next = type(sequence.actions[ix + 1]) is Pick
+                if ix < len(actions) - 1:
+                    pick_next = type(actions[ix + 1]) is Pick
                 feedback.print("INFO", "\n")
                 feedback.print("INFO", "Spot executor executing command: ")
                 feedback.print("INFO", command)
