@@ -187,6 +187,10 @@ def follow_trajectory_continuous(
         )
         feedback.print("INFO", f"Navigating to waypoint {current_waypoint}")
 
+        if feedback is not None and not feedback.plan_valid:
+            feedback.print("INFO", "Plan invalidated by lease change, exiting follow")
+            return False
+
         navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
         time.sleep(1 / rate)
     return True
