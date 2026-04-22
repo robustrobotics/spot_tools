@@ -2,6 +2,7 @@ import threading
 import time
 from dataclasses import dataclass
 from importlib.resources import as_file, files
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -279,8 +280,10 @@ class FakeSpot:
             self.pose = pose
 
     def get_state(self):
-        raise NotImplementedError(
-            "get_state not implemented for FakeSpot (what is it supposed to return?)"
+        return SimpleNamespace(
+            manipulator_state=SimpleNamespace(is_gripper_holding_item=False),
+            kinematic_state=SimpleNamespace(transforms_snapshot=FrameTreeSnapshot()),
+            behavior_fault_state=SimpleNamespace(faults=[]),
         )
 
     def get_image_RGB(self, view="hand_color_image", show=False):
