@@ -28,7 +28,7 @@ from shapely.geometry import Point
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
 
 from robot_executor_interface.mid_level_planner import (
@@ -386,6 +386,8 @@ class SpotExecutorRos(Node):
         super().__init__("spot_executor_ros")
         self.debug = False
         self.background_thread = None
+        self._current_plan_id = None
+        self._plan_id_lock = threading.Lock()
 
         # Connectivity parameters
         self.declare_parameter("spot_ip", "")
@@ -612,6 +614,16 @@ class SpotExecutorRos(Node):
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
 
+        # External pause/stop control: allow other nodes (e.g. goal_manager) to
+        # pause/resume or hard-stop the current plan.
+        self.pause_sub = self.create_subscription(
+            Bool, "~/pause", self.handle_pause, 10
+        )
+        self.resume_sub = self.create_subscription(
+            Bool, "~/resume", self.handle_resume, 10
+        )
+        self.stop_sub = self.create_subscription(Bool, "~/stop", self.handle_stop, 10)
+
     def hb_callback(self):
         msg = NodeInfoMsg()
         msg.nickname = "spot_executor"
@@ -620,20 +632,58 @@ class SpotExecutorRos(Node):
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
 
-    def process_action_sequence(self, msg):
-        def process_sequence():
-            self.status_str = "Processing action sequence"
-            self.get_logger().info("Starting action sequence")
-            sequence = from_msg(msg)
+    def handle_pause(self, msg: Bool):
+        if msg.data:
+            self.get_logger().info("Received external pause request.")
+            self.spot_executor.set_paused(True, self.feedback_collector)
 
-            self.spot_executor.process_action_sequence(
-                sequence, self.feedback_collector
-            )
-            self.get_logger().info("Finished execution action sequence.")
-            self.status_str = "Idle"
+    def handle_resume(self, msg: Bool):
+        if msg.data:
+            self.get_logger().info("Received external resume request.")
+            self.spot_executor.set_paused(False, self.feedback_collector)
 
+    def handle_stop(self, msg: Bool):
+        # Best-effort hard stop of the current action sequence, if any.
         if self.background_thread is not None and self.background_thread.is_alive():
+            self.get_logger().info(
+                "Received external stop request; terminating current plan."
+            )
             self.spot_executor.terminate_sequence(self.feedback_collector)
+
+    def process_action_sequence(self, msg):
+        # Plan-repair preemption: only accept a new plan when plan_id is different
+        with self._plan_id_lock:
+            if (
+                self._current_plan_id is not None
+                and msg.plan_id == self._current_plan_id
+            ):
+                self.get_logger().info(
+                    f"Ignoring duplicate plan (plan_id={msg.plan_id}), already executing"
+                )
+                return
+            if self.background_thread is not None and self.background_thread.is_alive():
+                self.get_logger().info(
+                    f"Preempting current plan (plan_id={self._current_plan_id}) with new plan (plan_id={msg.plan_id})"
+                )
+                self.spot_executor.terminate_sequence(self.feedback_collector)
+            self._current_plan_id = msg.plan_id
+
+        def process_sequence():
+            try:
+                self.status_str = "Processing action sequence"
+                self.get_logger().info("Starting action sequence")
+                sequence = from_msg(msg)
+
+                self.spot_executor.process_action_sequence(
+                    sequence, self.feedback_collector
+                )
+
+                self.get_logger().info("Finished execution action sequence.")
+            finally:
+                with self._plan_id_lock:
+                    if self._current_plan_id == msg.plan_id:
+                        self._current_plan_id = None
+                self.status_str = "Idle"
 
         self.feedback_collector.break_out_of_waiting_loop = False
         self.feedback_collector.plan_valid = True
