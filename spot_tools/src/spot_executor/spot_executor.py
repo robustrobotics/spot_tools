@@ -148,22 +148,63 @@ class SpotExecutor:
         self.goal_tolerance = goal_tolerance
         self.detector = detector
         self.keep_going = True
+        self.paused = False
         self.processing_action_sequence = False
         self.mid_level_planner = planner
         self.use_fake_path_planner = use_fake_path_planner
+        self._pause_lock = threading.Lock()
 
         self.lease_manager = None
 
     def initialize_lease_manager(self, feedback):
         self.lease_manager = LeaseManager(self.spot_interface, feedback)
 
-    def terminate_sequence(self, feedback):
-        # Tell the actions sequence to break
-        self.keep_going = False
+    def set_paused(self, value: bool, feedback):
+        with self._pause_lock:
+            self.paused = value
 
-        # Blocking the thread so that it terminates cleanly by
-        # terminating the pick action and waiting for processing to end
+        if value:
+            feedback.print(
+                "INFO", "Pausing current action sequence; commanding Spot to stop."
+            )
+            try:
+                if hasattr(self.spot_interface, "set_vel"):
+                    self.spot_interface.set_vel(np.zeros(3), np.zeros(3))
+                if hasattr(self.spot_interface, "stand"):
+                    self.spot_interface.stand()
+            except Exception as ex:
+                feedback.print(
+                    "WARN",
+                    f"Failed to stop/stand Spot on pause; robot may still be moving: {ex}",
+                )
+        else:
+            feedback.print("INFO", "Resuming current action sequence.")
+
+    def terminate_sequence(self, feedback):
+        # Tell the action sequence loop to break
+        self.keep_going = False
+        with self._pause_lock:
+            self.paused = False
+
+        # Ask any blocking feedback waits to exit
         feedback.break_out_of_waiting_loop = True
+
+        # Try to bring the robot to an immediate, safe stop
+        try:
+            # FakeSpot / sim: zero out velocity if supported
+            if hasattr(self.spot_interface, "set_vel"):
+                self.spot_interface.set_vel(np.zeros(3), np.zeros(3))
+
+            # Real Spot: command a stand to hold position and cancel walking if API is available
+            if hasattr(self.spot_interface, "stand"):
+                self.spot_interface.stand()
+        except Exception as ex:
+            # Hard stop is best-effort; failures here shouldn't block termination,
+            # but we must not swallow this silently -- the robot may still be moving.
+            feedback.print(
+                "WARN",
+                f"Failed to bring Spot to a hard stop during termination: {ex}",
+            )
 
         # Block until action sequence is done executing
         while self.processing_action_sequence:
@@ -176,6 +217,8 @@ class SpotExecutor:
     def process_action_sequence(self, sequence, feedback):
         self.processing_action_sequence = True
         self.keep_going = True
+        with self._pause_lock:
+            self.paused = False
 
         try:
             feedback.print("INFO", "Would like to execute: ")
@@ -188,6 +231,15 @@ class SpotExecutor:
             ix = 0
             inner_loop_attempts = 0
             while ix < len(sequence.actions):
+                # Honor pause requests between actions
+                while True:
+                    with self._pause_lock:
+                        is_paused = self.paused
+                    if not is_paused or not self.keep_going:
+                        break
+                    feedback.print("INFO", "Action sequence paused.")
+                    time.sleep(0.1)
+
                 # If the lease manager is actively taking back the lease and getting the
                 # robot to stand back up, we don't want to send it any commands. It will break.
                 if (
@@ -375,5 +427,7 @@ class SpotExecutor:
                 timeout,
                 self.mid_level_planner,
                 feedback=feedback,
+                cancel_cb=lambda: self.keep_going,
+                pause_cb=lambda: self.paused,
             )
         return ret
