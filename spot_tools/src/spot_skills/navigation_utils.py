@@ -101,6 +101,8 @@ def follow_trajectory_continuous(
     frame_name=VISION_FRAME_NAME,
     stairs=False,
     feedback=None,
+    cancel_cb=None,
+    pause_cb=None,
 ) -> bool:
     """
     Follows a trajectory by commanding the robot to move to each waypoint in the specified frame.
@@ -122,6 +124,31 @@ def follow_trajectory_continuous(
     rate = 10
     # TODO: reactive loop, yeild out the loop to get info
     while 1:
+        # Pause support: stop motion but keep this loop alive so we can resume.
+        if pause_cb is not None and pause_cb():
+            if hasattr(spot, "stand"):
+                try:
+                    spot.stand()
+                except Exception as ex:
+                    feedback.print("WARN", f"Failed to stand Spot while pausing: {ex}")
+            # Stay here until unpaused or cancelled. Track how long we were
+            # paused so it doesn't count against the follow timeout below.
+            pause_start = time.time()
+            while pause_cb() and (cancel_cb is None or cancel_cb()):
+                time.sleep(1 / rate)
+            t0 += time.time() - pause_start
+
+        if cancel_cb is not None and not cancel_cb():
+            # External caller requested cancellation; try to stop motion and exit early.
+            if hasattr(spot, "stand"):
+                try:
+                    spot.stand()
+                except Exception as ex:
+                    feedback.print(
+                        "WARN", f"Failed to stand Spot while cancelling: {ex}"
+                    )
+            return False
+
         curr_time = time.time()
         feedback.print("INFO", f"Timeout progress {curr_time - t0} / {timeout}")
         if curr_time - t0 > timeout:
@@ -201,6 +228,18 @@ def follow_trajectory_continuous(
             return False
 
         navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
+
+        # Check cancel immediately after sending command so we stop without waiting for sleep
+        if cancel_cb is not None and not cancel_cb():
+            if hasattr(spot, "stand"):
+                try:
+                    spot.stand()
+                except Exception as ex:
+                    feedback.print(
+                        "WARN", f"Failed to stand Spot while cancelling: {ex}"
+                    )
+            return False
+
         time.sleep(1 / rate)
     return True
 
