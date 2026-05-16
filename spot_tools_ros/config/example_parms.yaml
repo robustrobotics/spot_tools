@@ -21,6 +21,7 @@
         lookahead_distance: 50            # grid cells
         occupancy_inflation_radius: 0.2   # meters
         use_fake_path_plan: false
+        combine_follow_commands: false  # set to true to merge consecutive Follow commands into one
         # cost map: penalizes paths near obstacles (adds proximity cost to A* g_cost)
         use_cost_map: false
         cost_map_safe_distance: 1.0       # meters; cells within this distance incur extra cost
