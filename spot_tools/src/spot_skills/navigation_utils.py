@@ -130,7 +130,9 @@ def follow_trajectory_continuous(
                 try:
                     spot.stand()
                 except Exception as ex:
-                    feedback.print("WARN", f"Failed to stand Spot while pausing: {ex}")
+                    feedback.print(
+                        "WARNING", f"Failed to stand Spot while pausing: {ex}"
+                    )
             # Stay here until unpaused or cancelled. Track how long we were
             # paused so it doesn't count against the follow timeout below.
             pause_start = time.time()
@@ -145,7 +147,7 @@ def follow_trajectory_continuous(
                     spot.stand()
                 except Exception as ex:
                     feedback.print(
-                        "WARN", f"Failed to stand Spot while cancelling: {ex}"
+                        "WARNING", f"Failed to stand Spot while cancelling: {ex}"
                     )
             return False
 
@@ -236,7 +238,7 @@ def follow_trajectory_continuous(
                     spot.stand()
                 except Exception as ex:
                     feedback.print(
-                        "WARN", f"Failed to stand Spot while cancelling: {ex}"
+                        "WARNING", f"Failed to stand Spot while cancelling: {ex}"
                     )
             return False
 

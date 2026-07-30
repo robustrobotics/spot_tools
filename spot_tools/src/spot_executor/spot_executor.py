@@ -116,7 +116,7 @@ class LeaseManager:
                         else:
                             if self.feedback is not None:
                                 self.feedback.print(
-                                    "WARN",
+                                    "WARNING",
                                     "LEASE MANAGER THREAD: Could not clear all behavior faults, cannot stand.",
                                 )
                     time.sleep(1)
@@ -174,7 +174,7 @@ class SpotExecutor:
                     self.spot_interface.stand()
             except Exception as ex:
                 feedback.print(
-                    "WARN",
+                    "WARNING",
                     f"Failed to stop/stand Spot on pause; robot may still be moving: {ex}",
                 )
         else:
@@ -202,7 +202,7 @@ class SpotExecutor:
             # Hard stop is best-effort; failures here shouldn't block termination,
             # but we must not swallow this silently -- the robot may still be moving.
             feedback.print(
-                "WARN",
+                "WARNING",
                 f"Failed to bring Spot to a hard stop during termination: {ex}",
             )
 
