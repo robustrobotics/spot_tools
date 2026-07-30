@@ -18,6 +18,7 @@ from scipy.spatial.transform import Rotation
 from spot_skills.arm_utils import gaze_at_vision_pose
 from spot_skills.grasp_utils import object_grasp, object_place, stow_arm
 from spot_skills.navigation_utils import (
+    command_zero_velocity,
     follow_trajectory_continuous,
     turn_to_point,
 )
@@ -168,8 +169,7 @@ class SpotExecutor:
                 "INFO", "Pausing current action sequence; commanding Spot to stop."
             )
             try:
-                if hasattr(self.spot_interface, "set_vel"):
-                    self.spot_interface.set_vel(np.zeros(3), np.zeros(3))
+                command_zero_velocity(self.spot_interface, feedback)
                 if hasattr(self.spot_interface, "stand"):
                     self.spot_interface.stand()
             except Exception as ex:
@@ -191,11 +191,11 @@ class SpotExecutor:
 
         # Try to bring the robot to an immediate, safe stop
         try:
-            # FakeSpot / sim: zero out velocity if supported
-            if hasattr(self.spot_interface, "set_vel"):
-                self.spot_interface.set_vel(np.zeros(3), np.zeros(3))
+            # Zero velocity through whichever interface this Spot exposes
+            # (set_vel on FakeSpot, set_twist on the real robot)
+            command_zero_velocity(self.spot_interface, feedback)
 
-            # Real Spot: command a stand to hold position and cancel walking if API is available
+            # Command a stand to hold position and cancel walking if API is available
             if hasattr(self.spot_interface, "stand"):
                 self.spot_interface.stand()
         except Exception as ex:

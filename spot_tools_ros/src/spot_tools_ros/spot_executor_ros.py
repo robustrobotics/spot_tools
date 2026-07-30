@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import time
+import traceback
 
 import numpy as np
 import rclpy
@@ -651,6 +652,23 @@ class SpotExecutorRos(Node):
             self.spot_executor.terminate_sequence(self.feedback_collector)
 
     def process_action_sequence(self, msg):
+        # An exception escaping a subscription callback tears down the rclpy
+        # executor and kills the node. Plan repair means many preemptions in a
+        # row, so one bad plan must degrade rather than end the run.
+        try:
+            self._process_action_sequence(msg)
+        except Exception:
+            self.status_str = "Idle"
+            with self._plan_id_lock:
+                if self._current_plan_id == getattr(msg, "plan_id", None):
+                    self._current_plan_id = None
+            self.get_logger().error(
+                "Failed to handle incoming plan "
+                f"(plan_id={getattr(msg, 'plan_id', '<unknown>')}); node staying up:\n"
+                f"{traceback.format_exc()}"
+            )
+
+    def _process_action_sequence(self, msg):
         # Plan-repair preemption: only accept a new plan when plan_id is different
         with self._plan_id_lock:
             if (
@@ -679,6 +697,13 @@ class SpotExecutorRos(Node):
                 )
 
                 self.get_logger().info("Finished execution action sequence.")
+            except Exception:
+                # Same reasoning as above: report and let the node keep serving
+                # plans instead of leaving a dead executor thread behind.
+                self.get_logger().error(
+                    f"Action sequence (plan_id={msg.plan_id}) aborted:\n"
+                    f"{traceback.format_exc()}"
+                )
             finally:
                 with self._plan_id_lock:
                     if self._current_plan_id == msg.plan_id:

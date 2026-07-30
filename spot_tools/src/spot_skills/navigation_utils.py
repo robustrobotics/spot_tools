@@ -21,6 +21,34 @@ MAX_LINEAR_VEL = 0.75
 MAX_ROTATION_VEL = 0.65
 
 
+def command_zero_velocity(spot, feedback=None) -> bool:
+    """Ask Spot to stop moving, via whichever velocity interface it exposes.
+
+    FakeSpot implements set_vel(v_linear, v_angular); the real Spot implements
+    set_twist(vx, vy, v_rot). The two are disjoint, so callers must not probe
+    for just one of them -- doing that silently no-ops on the interface that
+    lacks it, which is how a stop can appear to work in sim and do nothing on
+    hardware.
+
+    Returns True if a zero-velocity command was issued. False means neither
+    interface was available, so the caller cannot assume the robot has been
+    asked to stop and must rely on stand() alone.
+    """
+    if hasattr(spot, "set_vel"):
+        spot.set_vel(np.zeros(3), np.zeros(3))
+        return True
+    if hasattr(spot, "set_twist"):
+        spot.set_twist(0.0, 0.0, 0.0)
+        return True
+    if feedback is not None:
+        feedback.print(
+            "WARNING",
+            "Spot interface exposes neither set_vel nor set_twist; cannot command "
+            "zero velocity, falling back to stand() alone to stop the robot.",
+        )
+    return False
+
+
 def navigate_to_relative_pose(
     spot,
     body_tform_goal: math_helpers.SE2Pose,
