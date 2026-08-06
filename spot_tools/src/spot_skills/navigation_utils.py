@@ -21,6 +21,34 @@ MAX_LINEAR_VEL = 0.75
 MAX_ROTATION_VEL = 0.65
 
 
+def command_zero_velocity(spot, feedback=None) -> bool:
+    """Ask Spot to stop moving, via whichever velocity interface it exposes.
+
+    FakeSpot implements set_vel(v_linear, v_angular); the real Spot implements
+    set_twist(vx, vy, v_rot). The two are disjoint, so callers must not probe
+    for just one of them -- doing that silently no-ops on the interface that
+    lacks it, which is how a stop can appear to work in sim and do nothing on
+    hardware.
+
+    Returns True if a zero-velocity command was issued. False means neither
+    interface was available, so the caller cannot assume the robot has been
+    asked to stop and must rely on stand() alone.
+    """
+    if hasattr(spot, "set_vel"):
+        spot.set_vel(np.zeros(3), np.zeros(3))
+        return True
+    if hasattr(spot, "set_twist"):
+        spot.set_twist(0.0, 0.0, 0.0)
+        return True
+    if feedback is not None:
+        feedback.print(
+            "WARNING",
+            "Spot interface exposes neither set_vel nor set_twist; cannot command "
+            "zero velocity, falling back to stand() alone to stop the robot.",
+        )
+    return False
+
+
 def navigate_to_relative_pose(
     spot,
     body_tform_goal: math_helpers.SE2Pose,
@@ -101,6 +129,8 @@ def follow_trajectory_continuous(
     frame_name=VISION_FRAME_NAME,
     stairs=False,
     feedback=None,
+    cancel_cb=None,
+    pause_cb=None,
 ) -> bool:
     """
     Follows a trajectory by commanding the robot to move to each waypoint in the specified frame.
@@ -122,6 +152,33 @@ def follow_trajectory_continuous(
     rate = 10
     # TODO: reactive loop, yeild out the loop to get info
     while 1:
+        # Pause support: stop motion but keep this loop alive so we can resume.
+        if pause_cb is not None and pause_cb():
+            if hasattr(spot, "stand"):
+                try:
+                    spot.stand()
+                except Exception as ex:
+                    feedback.print(
+                        "WARNING", f"Failed to stand Spot while pausing: {ex}"
+                    )
+            # Stay here until unpaused or cancelled. Track how long we were
+            # paused so it doesn't count against the follow timeout below.
+            pause_start = time.time()
+            while pause_cb() and (cancel_cb is None or cancel_cb()):
+                time.sleep(1 / rate)
+            t0 += time.time() - pause_start
+
+        if cancel_cb is not None and not cancel_cb():
+            # External caller requested cancellation; try to stop motion and exit early.
+            if hasattr(spot, "stand"):
+                try:
+                    spot.stand()
+                except Exception as ex:
+                    feedback.print(
+                        "WARNING", f"Failed to stand Spot while cancelling: {ex}"
+                    )
+            return False
+
         curr_time = time.time()
         feedback.print("INFO", f"Timeout progress {curr_time - t0} / {timeout}")
         if curr_time - t0 > timeout:
@@ -201,6 +258,18 @@ def follow_trajectory_continuous(
             return False
 
         navigate_to_absolute_pose(spot, current_waypoint, frame_name, stairs=stairs)
+
+        # Check cancel immediately after sending command so we stop without waiting for sleep
+        if cancel_cb is not None and not cancel_cb():
+            if hasattr(spot, "stand"):
+                try:
+                    spot.stand()
+                except Exception as ex:
+                    feedback.print(
+                        "WARNING", f"Failed to stand Spot while cancelling: {ex}"
+                    )
+            return False
+
         time.sleep(1 / rate)
     return True
 

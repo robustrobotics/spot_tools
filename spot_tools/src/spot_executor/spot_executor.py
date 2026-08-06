@@ -18,6 +18,7 @@ from scipy.spatial.transform import Rotation
 from spot_skills.arm_utils import gaze_at_vision_pose
 from spot_skills.grasp_utils import object_grasp, object_place, stow_arm
 from spot_skills.navigation_utils import (
+    command_zero_velocity,
     follow_trajectory_continuous,
     turn_to_point,
 )
@@ -116,7 +117,7 @@ class LeaseManager:
                         else:
                             if self.feedback is not None:
                                 self.feedback.print(
-                                    "WARN",
+                                    "WARNING",
                                     "LEASE MANAGER THREAD: Could not clear all behavior faults, cannot stand.",
                                 )
                     time.sleep(1)
@@ -148,22 +149,92 @@ class SpotExecutor:
         self.goal_tolerance = goal_tolerance
         self.detector = detector
         self.keep_going = True
+        self.paused = False
         self.processing_action_sequence = False
         self.mid_level_planner = planner
         self.use_fake_path_planner = use_fake_path_planner
+        self._pause_lock = threading.Lock()
 
         self.lease_manager = None
 
     def initialize_lease_manager(self, feedback):
         self.lease_manager = LeaseManager(self.spot_interface, feedback)
 
-    def terminate_sequence(self, feedback):
-        # Tell the actions sequence to break
-        self.keep_going = False
+    def _reclaim_lease_for_stop(self, feedback):
+        """Take the body lease back so a stop command is actually accepted.
 
-        # Blocking the thread so that it terminates cleanly by
-        # terminating the pick action and waiting for processing to end
+        Another client -- the tablet, a teleop node, a previous run -- may hold
+        the lease, and Spot rejects our RobotCommand with LeaseUseError until we
+        own it, which means the stop silently does nothing and the robot keeps
+        walking. take() is the same forceful reclaim that
+        process_action_sequence and the lease manager thread already perform; on
+        the preemption path process_action_sequence takes the lease moments
+        later anyway, so this only moves the reclaim ahead of the stop that
+        depends on it.
+        """
+        if not hasattr(self.spot_interface, "take_lease"):
+            return
+
+        try:
+            self.spot_interface.take_lease()
+        except Exception as ex:
+            # Best-effort: if we can't reclaim, the caller's stop attempt will
+            # fail too, but it should still report that rather than abort here.
+            feedback.print(
+                "WARNING",
+                f"Could not take the lease back before stopping Spot: {ex}",
+            )
+
+    def set_paused(self, value: bool, feedback):
+        with self._pause_lock:
+            self.paused = value
+
+        if value:
+            feedback.print(
+                "INFO", "Pausing current action sequence; commanding Spot to stop."
+            )
+            try:
+                self._reclaim_lease_for_stop(feedback)
+                command_zero_velocity(self.spot_interface, feedback)
+                if hasattr(self.spot_interface, "stand"):
+                    self.spot_interface.stand()
+            except Exception as ex:
+                feedback.print(
+                    "WARNING",
+                    f"Failed to stop/stand Spot on pause; robot may still be moving: {ex}",
+                )
+        else:
+            feedback.print("INFO", "Resuming current action sequence.")
+
+    def terminate_sequence(self, feedback):
+        # Tell the action sequence loop to break
+        self.keep_going = False
+        with self._pause_lock:
+            self.paused = False
+
+        # Ask any blocking feedback waits to exit
         feedback.break_out_of_waiting_loop = True
+
+        # Try to bring the robot to an immediate, safe stop
+        try:
+            # Reclaim authority first -- without the body lease the zero-velocity
+            # command below is rejected and Spot keeps executing the old plan.
+            self._reclaim_lease_for_stop(feedback)
+
+            # Zero velocity through whichever interface this Spot exposes
+            # (set_vel on FakeSpot, set_twist on the real robot)
+            command_zero_velocity(self.spot_interface, feedback)
+
+            # Command a stand to hold position and cancel walking if API is available
+            if hasattr(self.spot_interface, "stand"):
+                self.spot_interface.stand()
+        except Exception as ex:
+            # Hard stop is best-effort; failures here shouldn't block termination,
+            # but we must not swallow this silently -- the robot may still be moving.
+            feedback.print(
+                "WARNING",
+                f"Failed to bring Spot to a hard stop during termination: {ex}",
+            )
 
         # Block until action sequence is done executing
         while self.processing_action_sequence:
@@ -176,6 +247,8 @@ class SpotExecutor:
     def process_action_sequence(self, sequence, feedback):
         self.processing_action_sequence = True
         self.keep_going = True
+        with self._pause_lock:
+            self.paused = False
 
         try:
             feedback.print("INFO", "Would like to execute: ")
@@ -188,6 +261,15 @@ class SpotExecutor:
             ix = 0
             inner_loop_attempts = 0
             while ix < len(sequence.actions):
+                # Honor pause requests between actions
+                while True:
+                    with self._pause_lock:
+                        is_paused = self.paused
+                    if not is_paused or not self.keep_going:
+                        break
+                    feedback.print("INFO", "Action sequence paused.")
+                    time.sleep(0.1)
+
                 # If the lease manager is actively taking back the lease and getting the
                 # robot to stand back up, we don't want to send it any commands. It will break.
                 if (
@@ -375,5 +457,7 @@ class SpotExecutor:
                 timeout,
                 self.mid_level_planner,
                 feedback=feedback,
+                cancel_cb=lambda: self.keep_going,
+                pause_cb=lambda: self.paused,
             )
         return ret
