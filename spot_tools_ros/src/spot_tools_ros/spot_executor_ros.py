@@ -234,18 +234,24 @@ class RosFeedbackCollector:
         pass
 
     def print(self, level, string):
+        # rclpy keys its logging context on CallerId -- (function, file, line) --
+        # and refuses to log a second severity from a call site it has already
+        # seen. Binding log_fn and calling it from one shared line made every
+        # level share a call site, so the first WARNING after an INFO raised
+        # "Logger severity cannot be changed between calls." Each severity needs
+        # its own line.
+        message = str(string)
         match level:
             case "DEBUG":
-                log_fn = self.logger.debug
+                self.logger.debug(message)
             case "INFO":
-                log_fn = self.logger.info
+                self.logger.info(message)
             case "WARNING":
-                log_fn = self.logger.warning
+                self.logger.warning(message)
             case "ERROR":
-                log_fn = self.logger.error
+                self.logger.error(message)
             case _:
                 raise ValueError(f"Invalid log level {level}")
-        log_fn(str(string))
 
         # TODO(multy): quick logic to log everything we print in the executor
         if self.log_to_file_level != "":

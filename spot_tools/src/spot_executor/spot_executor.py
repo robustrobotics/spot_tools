@@ -160,6 +160,31 @@ class SpotExecutor:
     def initialize_lease_manager(self, feedback):
         self.lease_manager = LeaseManager(self.spot_interface, feedback)
 
+    def _reclaim_lease_for_stop(self, feedback):
+        """Take the body lease back so a stop command is actually accepted.
+
+        Another client -- the tablet, a teleop node, a previous run -- may hold
+        the lease, and Spot rejects our RobotCommand with LeaseUseError until we
+        own it, which means the stop silently does nothing and the robot keeps
+        walking. take() is the same forceful reclaim that
+        process_action_sequence and the lease manager thread already perform; on
+        the preemption path process_action_sequence takes the lease moments
+        later anyway, so this only moves the reclaim ahead of the stop that
+        depends on it.
+        """
+        if not hasattr(self.spot_interface, "take_lease"):
+            return
+
+        try:
+            self.spot_interface.take_lease()
+        except Exception as ex:
+            # Best-effort: if we can't reclaim, the caller's stop attempt will
+            # fail too, but it should still report that rather than abort here.
+            feedback.print(
+                "WARNING",
+                f"Could not take the lease back before stopping Spot: {ex}",
+            )
+
     def set_paused(self, value: bool, feedback):
         with self._pause_lock:
             self.paused = value
@@ -169,6 +194,7 @@ class SpotExecutor:
                 "INFO", "Pausing current action sequence; commanding Spot to stop."
             )
             try:
+                self._reclaim_lease_for_stop(feedback)
                 command_zero_velocity(self.spot_interface, feedback)
                 if hasattr(self.spot_interface, "stand"):
                     self.spot_interface.stand()
@@ -191,6 +217,10 @@ class SpotExecutor:
 
         # Try to bring the robot to an immediate, safe stop
         try:
+            # Reclaim authority first -- without the body lease the zero-velocity
+            # command below is rejected and Spot keeps executing the old plan.
+            self._reclaim_lease_for_stop(feedback)
+
             # Zero velocity through whichever interface this Spot exposes
             # (set_vel on FakeSpot, set_twist on the real robot)
             command_zero_velocity(self.spot_interface, feedback)
