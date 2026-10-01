@@ -398,8 +398,12 @@ class SpotExecutor:
         success = object_place(self.spot_interface, semantic_class=command.object_class)
 
         if success:
-            # Update object holding state
-            feedback.set_robot_holding_state(False, command.object_id.upper())
+            # Update object holding state. Record the object where the plan put
+            # it, not where the robot stands; the map is corrected if a later
+            # observation disagrees.
+            feedback.set_robot_holding_state(
+                False, command.object_id.upper(), position=command.object_point
+            )
 
         feedback.print("INFO", "Finished `place` command")
         return success

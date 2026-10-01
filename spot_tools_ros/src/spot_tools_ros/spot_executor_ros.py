@@ -11,6 +11,7 @@ import spot_executor as se
 import tf2_ros
 import yaml
 from cv_bridge import CvBridge
+from geometry_msgs.msg import Point as PointMsg
 from heracles_ros_interfaces.srv import UpdateHoldingState
 from nav_msgs.msg import Path
 from nlu_interface_rviz.msg import (
@@ -336,10 +337,21 @@ class RosFeedbackCollector:
         with open(log_fn, "w") as fo:
             fo.write("time,event\n")
 
-    def set_robot_holding_state(self, is_holding: bool, object_id: str, timeout=5):
+    def set_robot_holding_state(
+        self, is_holding: bool, object_id: str, position=None, timeout=5
+    ):
         req = UpdateHoldingState.Request()
         req.is_holding = is_holding
         req.id = object_id
+        if position is not None:
+            # Where the object was put down, in the map frame. Without it the
+            # state updater falls back to the robot's own position.
+            req.has_position = True
+            req.position = PointMsg(
+                x=float(position[0]),
+                y=float(position[1]),
+                z=float(position[2]) if len(position) > 2 else 0.0,
+            )
 
         if not self.holding_client.wait_for_service(timeout_sec=0.5):
             self.logger.warning("UpdateHoldingState service not available")
