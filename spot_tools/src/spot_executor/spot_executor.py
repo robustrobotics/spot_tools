@@ -328,6 +328,11 @@ class SpotExecutor:
                             f"SpotExecutor received unknown command type {type(command)}"
                         )
                     if success or inner_loop_attempts > 1:
+                        # Final attempt for this action: report how it ended,
+                        # so mission progress is known whatever planned it.
+                        report = getattr(feedback, "report_action_done", None)
+                        if report is not None:
+                            report(sequence, command, success)
                         ix += 1
                         inner_loop_attempts = 0
                     else:

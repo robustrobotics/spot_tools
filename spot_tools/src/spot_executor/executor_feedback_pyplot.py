@@ -82,6 +82,12 @@ class FeedbackCollector:
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
+    def report_action_done(self, sequence, command, success):
+        print(
+            f"[ACTION DONE] {type(command).__name__} "
+            f"{getattr(command, 'object_id', '')} success={success}"
+        )
+
     def set_robot_holding_state(
         self, is_holding: bool, object_id: str, position=None, timeout=5
     ):

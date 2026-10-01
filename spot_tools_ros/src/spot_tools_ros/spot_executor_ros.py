@@ -23,7 +23,8 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
-from robot_executor_msgs.msg import ActionSequenceMsg
+from robot_executor_interface.action_descriptions import Follow, Gaze, Pick, Place
+from robot_executor_msgs.msg import ActionDoneMsg, ActionMsg, ActionSequenceMsg
 from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
 from shapely.geometry import Point
@@ -274,6 +275,7 @@ class RosFeedbackCollector:
 
     def register_publishers(self, node):
         self.logger = node.get_logger()
+        self._clock = node.get_clock()
 
         # ROS 2 transient local QoS for "latching" behavior
         latching_qos = QoSProfile(
@@ -327,6 +329,12 @@ class RosFeedbackCollector:
             UpdateHoldingState, "update_holding_state"
         )
 
+        # Fleet-wide, like the plan itself: the planner reads every robot's
+        # progress from here.
+        self.action_done_pub = node.create_publisher(
+            ActionDoneMsg, "/action_done", 10
+        )
+
         # TODO(aaron): Once we switch logging to python logger,
         # should move into init
         self.logger.info(f"Logging to: {self.output_dir}")
@@ -336,6 +344,37 @@ class RosFeedbackCollector:
         log_fn = os.path.join(self.output_dir, "lease_log.txt")
         with open(log_fn, "w") as fo:
             fo.write("time,event\n")
+
+    def report_action_done(self, sequence, command, success):
+        msg = ActionDoneMsg()
+        msg.header.stamp = self._clock.now().to_msg()
+        msg.plan_id = sequence.plan_id or ""
+        msg.robot_name = sequence.robot_name or ""
+        msg.success = bool(success)
+        msg.object_id = str(getattr(command, "object_id", "") or "")
+        if isinstance(command, Follow):
+            msg.action_type = ActionMsg.FOLLOW
+            points = command.path2d
+        elif isinstance(command, Gaze):
+            msg.action_type = ActionMsg.GAZE
+            points = []
+        elif isinstance(command, Pick):
+            msg.action_type = ActionMsg.PICK
+            points = []
+        elif isinstance(command, Place):
+            msg.action_type = ActionMsg.PLACE
+            points = [command.object_point]
+        else:
+            return
+        msg.points = [
+            PointMsg(
+                x=float(p[0]),
+                y=float(p[1]),
+                z=float(p[2]) if len(p) > 2 else 0.0,
+            )
+            for p in points
+        ]
+        self.action_done_pub.publish(msg)
 
     def set_robot_holding_state(
         self, is_holding: bool, object_id: str, position=None, timeout=5
