@@ -179,6 +179,11 @@ class SpotExecutor:
                 "WARNING", f"Failed to stop Spot; robot may still be moving: {ex}"
             )
 
+    def interrupted(self):
+        """True once the running plan is paused or terminated."""
+        with self._pause_lock:
+            return self.paused or not self.keep_going
+
     def set_paused(self, value: bool, feedback):
         # The goal manager pauses every robot of the last plan, including ones
         # that have finished it. Stopping an idle Spot would take the lease
@@ -348,6 +353,7 @@ class SpotExecutor:
             user_input=False,
             semantic_class=command.object_class,
             feedback=feedback,
+            should_stop=self.interrupted,
         )
 
         if self.debug:
@@ -373,7 +379,11 @@ class SpotExecutor:
 
     def execute_place(self, command, feedback):
         feedback.print("INFO", "Executing `place` command")
-        success = object_place(self.spot_interface, semantic_class=command.object_class)
+        success = object_place(
+            self.spot_interface,
+            semantic_class=command.object_class,
+            should_stop=self.interrupted,
+        )
 
         if success:
             # Update object holding state. Record the object where the plan put
