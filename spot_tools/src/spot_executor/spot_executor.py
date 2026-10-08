@@ -186,6 +186,13 @@ class SpotExecutor:
             )
 
     def set_paused(self, value: bool, feedback):
+        # The goal manager pauses every robot of the last plan, including ones
+        # that have finished it. Stopping an idle Spot would take the lease
+        # from whoever holds it (e.g. an operator's tablet), so do nothing.
+        if value and not self.processing_action_sequence:
+            feedback.print("INFO", "Pause requested, but no plan is running.")
+            return
+
         with self._pause_lock:
             self.paused = value
 
