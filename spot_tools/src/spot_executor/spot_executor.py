@@ -18,7 +18,6 @@ from scipy.spatial.transform import Rotation
 from spot_skills.arm_utils import gaze_at_vision_pose
 from spot_skills.grasp_utils import object_grasp, object_place, stow_arm
 from spot_skills.navigation_utils import (
-    command_zero_velocity,
     follow_trajectory_continuous,
     turn_to_point,
 )
@@ -160,29 +159,24 @@ class SpotExecutor:
     def initialize_lease_manager(self, feedback):
         self.lease_manager = LeaseManager(self.spot_interface, feedback)
 
-    def _reclaim_lease_for_stop(self, feedback):
-        """Take the body lease back so a stop command is actually accepted.
+    def _stop_robot(self, feedback):
+        """Halt Spot where it is, without powering it on or standing it up.
 
-        Another client -- the tablet, a teleop node, a previous run -- may hold
-        the lease, and Spot rejects our RobotCommand with LeaseUseError until we
-        own it, which means the stop silently does nothing and the robot keeps
-        walking. take() is the same forceful reclaim that
-        process_action_sequence and the lease manager thread already perform; on
-        the preemption path process_action_sequence takes the lease moments
-        later anyway, so this only moves the reclaim ahead of the stop that
-        depends on it.
+        If someone else holds the lease (e.g. an operator on the tablet), they
+        are in control and our plan is not moving the robot, so leave it alone.
         """
-        if not hasattr(self.spot_interface, "take_lease"):
-            return
-
-        try:
-            self.spot_interface.take_lease()
-        except Exception as ex:
-            # Best-effort: if we can't reclaim, the caller's stop attempt will
-            # fail too, but it should still report that rather than abort here.
+        lease = self.lease_manager
+        if lease is not None and not lease.owner_name.startswith("understanding"):
             feedback.print(
-                "WARNING",
-                f"Could not take the lease back before stopping Spot: {ex}",
+                "INFO",
+                f"Not stopping Spot: the lease is held by '{lease.owner_name}'.",
+            )
+            return
+        try:
+            self.spot_interface.stop()
+        except Exception as ex:
+            feedback.print(
+                "WARNING", f"Failed to stop Spot; robot may still be moving: {ex}"
             )
 
     def set_paused(self, value: bool, feedback):
@@ -200,16 +194,7 @@ class SpotExecutor:
             feedback.print(
                 "INFO", "Pausing current action sequence; commanding Spot to stop."
             )
-            try:
-                self._reclaim_lease_for_stop(feedback)
-                command_zero_velocity(self.spot_interface, feedback)
-                if hasattr(self.spot_interface, "stand"):
-                    self.spot_interface.stand()
-            except Exception as ex:
-                feedback.print(
-                    "WARNING",
-                    f"Failed to stop/stand Spot on pause; robot may still be moving: {ex}",
-                )
+            self._stop_robot(feedback)
         else:
             feedback.print("INFO", "Resuming current action sequence.")
 
@@ -222,26 +207,7 @@ class SpotExecutor:
         # Ask any blocking feedback waits to exit
         feedback.break_out_of_waiting_loop = True
 
-        # Try to bring the robot to an immediate, safe stop
-        try:
-            # Reclaim authority first -- without the body lease the zero-velocity
-            # command below is rejected and Spot keeps executing the old plan.
-            self._reclaim_lease_for_stop(feedback)
-
-            # Zero velocity through whichever interface this Spot exposes
-            # (set_vel on FakeSpot, set_twist on the real robot)
-            command_zero_velocity(self.spot_interface, feedback)
-
-            # Command a stand to hold position and cancel walking if API is available
-            if hasattr(self.spot_interface, "stand"):
-                self.spot_interface.stand()
-        except Exception as ex:
-            # Hard stop is best-effort; failures here shouldn't block termination,
-            # but we must not swallow this silently -- the robot may still be moving.
-            feedback.print(
-                "WARNING",
-                f"Failed to bring Spot to a hard stop during termination: {ex}",
-            )
+        self._stop_robot(feedback)
 
         # Block until action sequence is done executing
         while self.processing_action_sequence:

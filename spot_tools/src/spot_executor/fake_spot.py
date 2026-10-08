@@ -282,6 +282,9 @@ class FakeSpot:
             self.cmd_vel_linear = v_linear
             self.cmd_vel_angular = v_angular
 
+    def stop(self):
+        self.set_vel(np.zeros(3), np.zeros(3))
+
     def get_pose(self):
         with self.pose_lock:
             return self.pose

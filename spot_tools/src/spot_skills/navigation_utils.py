@@ -154,13 +154,10 @@ def follow_trajectory_continuous(
     while 1:
         # Pause support: stop motion but keep this loop alive so we can resume.
         if pause_cb is not None and pause_cb():
-            if hasattr(spot, "stand"):
-                try:
-                    spot.stand()
-                except Exception as ex:
-                    feedback.print(
-                        "WARNING", f"Failed to stand Spot while pausing: {ex}"
-                    )
+            try:
+                spot.stop()
+            except Exception as ex:
+                feedback.print("WARNING", f"Failed to stop Spot while pausing: {ex}")
             # Stay here until unpaused or cancelled. Track how long we were
             # paused so it doesn't count against the follow timeout below.
             pause_start = time.time()
@@ -170,13 +167,10 @@ def follow_trajectory_continuous(
 
         if cancel_cb is not None and not cancel_cb():
             # External caller requested cancellation; try to stop motion and exit early.
-            if hasattr(spot, "stand"):
-                try:
-                    spot.stand()
-                except Exception as ex:
-                    feedback.print(
-                        "WARNING", f"Failed to stand Spot while cancelling: {ex}"
-                    )
+            try:
+                spot.stop()
+            except Exception as ex:
+                feedback.print("WARNING", f"Failed to stop Spot while cancelling: {ex}")
             return False
 
         curr_time = time.time()
@@ -261,13 +255,10 @@ def follow_trajectory_continuous(
 
         # Check cancel immediately after sending command so we stop without waiting for sleep
         if cancel_cb is not None and not cancel_cb():
-            if hasattr(spot, "stand"):
-                try:
-                    spot.stand()
-                except Exception as ex:
-                    feedback.print(
-                        "WARNING", f"Failed to stand Spot while cancelling: {ex}"
-                    )
+            try:
+                spot.stop()
+            except Exception as ex:
+                feedback.print("WARNING", f"Failed to stop Spot while cancelling: {ex}")
             return False
 
         time.sleep(1 / rate)
