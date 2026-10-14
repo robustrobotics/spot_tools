@@ -23,7 +23,6 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
-from robot_executor_interface.action_descriptions import Follow, Gaze, Pick, Place
 from robot_executor_msgs.msg import ActionDoneMsg, ActionMsg, ActionSequenceMsg
 from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
@@ -34,6 +33,7 @@ from spot_skills.detection_utils import YOLODetector
 from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
 
+from robot_executor_interface.action_descriptions import Follow, Gaze, Pick, Place
 from robot_executor_interface.mid_level_planner import (
     IdentityPlanner,
     MidLevelPlanner,
@@ -331,9 +331,7 @@ class RosFeedbackCollector:
 
         # Fleet-wide, like the plan itself: the planner reads every robot's
         # progress from here.
-        self.action_done_pub = node.create_publisher(
-            ActionDoneMsg, "/action_done", 10
-        )
+        self.action_done_pub = node.create_publisher(ActionDoneMsg, "/action_done", 10)
 
         # TODO(aaron): Once we switch logging to python logger,
         # should move into init
