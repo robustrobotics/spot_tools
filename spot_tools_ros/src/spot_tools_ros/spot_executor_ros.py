@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import time
+import traceback
 
 import numpy as np
 import rclpy
@@ -10,6 +11,7 @@ import spot_executor as se
 import tf2_ros
 import yaml
 from cv_bridge import CvBridge
+from geometry_msgs.msg import Point as PointMsg
 from heracles_ros_interfaces.srv import UpdateHoldingState
 from nav_msgs.msg import Path
 from nlu_interface_rviz.msg import (
@@ -21,16 +23,17 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
-from robot_executor_msgs.msg import ActionSequenceMsg
+from robot_executor_msgs.msg import ActionDoneMsg, ActionMsg, ActionSequenceMsg
 from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import Image
 from shapely.geometry import Point
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
 from spot_skills.detection_utils import YOLODetector
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
 
+from robot_executor_interface.action_descriptions import Follow, Gaze, Pick, Place
 from robot_executor_interface.mid_level_planner import (
     IdentityPlanner,
     MidLevelPlanner,
@@ -233,18 +236,24 @@ class RosFeedbackCollector:
         pass
 
     def print(self, level, string):
+        # rclpy keys its logging context on CallerId -- (function, file, line) --
+        # and refuses to log a second severity from a call site it has already
+        # seen. Binding log_fn and calling it from one shared line made every
+        # level share a call site, so the first WARNING after an INFO raised
+        # "Logger severity cannot be changed between calls." Each severity needs
+        # its own line.
+        message = str(string)
         match level:
             case "DEBUG":
-                log_fn = self.logger.debug
+                self.logger.debug(message)
             case "INFO":
-                log_fn = self.logger.info
+                self.logger.info(message)
             case "WARNING":
-                log_fn = self.logger.warning
+                self.logger.warning(message)
             case "ERROR":
-                log_fn = self.logger.error
+                self.logger.error(message)
             case _:
                 raise ValueError(f"Invalid log level {level}")
-        log_fn(str(string))
 
         # TODO(multy): quick logic to log everything we print in the executor
         if self.log_to_file_level != "":
@@ -266,6 +275,7 @@ class RosFeedbackCollector:
 
     def register_publishers(self, node):
         self.logger = node.get_logger()
+        self._clock = node.get_clock()
 
         # ROS 2 transient local QoS for "latching" behavior
         latching_qos = QoSProfile(
@@ -319,6 +329,10 @@ class RosFeedbackCollector:
             UpdateHoldingState, "update_holding_state"
         )
 
+        # Fleet-wide, like the plan itself: the planner reads every robot's
+        # progress from here.
+        self.action_done_pub = node.create_publisher(ActionDoneMsg, "/action_done", 10)
+
         # TODO(aaron): Once we switch logging to python logger,
         # should move into init
         self.logger.info(f"Logging to: {self.output_dir}")
@@ -329,10 +343,52 @@ class RosFeedbackCollector:
         with open(log_fn, "w") as fo:
             fo.write("time,event\n")
 
-    def set_robot_holding_state(self, is_holding: bool, object_id: str, timeout=5):
+    def report_action_done(self, sequence, command, success):
+        msg = ActionDoneMsg()
+        msg.header.stamp = self._clock.now().to_msg()
+        msg.plan_id = sequence.plan_id or ""
+        msg.robot_name = sequence.robot_name or ""
+        msg.success = bool(success)
+        msg.object_id = str(getattr(command, "object_id", "") or "")
+        if isinstance(command, Follow):
+            msg.action_type = ActionMsg.FOLLOW
+            points = command.path2d
+        elif isinstance(command, Gaze):
+            msg.action_type = ActionMsg.GAZE
+            points = []
+        elif isinstance(command, Pick):
+            msg.action_type = ActionMsg.PICK
+            points = []
+        elif isinstance(command, Place):
+            msg.action_type = ActionMsg.PLACE
+            points = [command.object_point]
+        else:
+            return
+        msg.points = [
+            PointMsg(
+                x=float(p[0]),
+                y=float(p[1]),
+                z=float(p[2]) if len(p) > 2 else 0.0,
+            )
+            for p in points
+        ]
+        self.action_done_pub.publish(msg)
+
+    def set_robot_holding_state(
+        self, is_holding: bool, object_id: str, position=None, timeout=5
+    ):
         req = UpdateHoldingState.Request()
         req.is_holding = is_holding
         req.id = object_id
+        if position is not None:
+            # Where the object was put down, in the map frame. Without it the
+            # state updater falls back to the robot's own position.
+            req.has_position = True
+            req.position = PointMsg(
+                x=float(position[0]),
+                y=float(position[1]),
+                z=float(position[2]) if len(position) > 2 else 0.0,
+            )
 
         if not self.holding_client.wait_for_service(timeout_sec=0.5):
             self.logger.warning("UpdateHoldingState service not available")
@@ -386,6 +442,8 @@ class SpotExecutorRos(Node):
         super().__init__("spot_executor_ros")
         self.debug = False
         self.background_thread = None
+        self._current_plan_id = None
+        self._plan_id_lock = threading.Lock()
 
         # Connectivity parameters
         self.declare_parameter("spot_ip", "")
@@ -612,6 +670,16 @@ class SpotExecutorRos(Node):
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
 
+        # External pause/stop control: allow other nodes (e.g. goal_manager) to
+        # pause/resume or hard-stop the current plan.
+        self.pause_sub = self.create_subscription(
+            Bool, "~/pause", self.handle_pause, 10
+        )
+        self.resume_sub = self.create_subscription(
+            Bool, "~/resume", self.handle_resume, 10
+        )
+        self.stop_sub = self.create_subscription(Bool, "~/stop", self.handle_stop, 10)
+
     def hb_callback(self):
         msg = NodeInfoMsg()
         msg.nickname = "spot_executor"
@@ -620,20 +688,82 @@ class SpotExecutorRos(Node):
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
 
-    def process_action_sequence(self, msg):
-        def process_sequence():
-            self.status_str = "Processing action sequence"
-            self.get_logger().info("Starting action sequence")
-            sequence = from_msg(msg)
+    def handle_pause(self, msg: Bool):
+        if msg.data:
+            self.get_logger().info("Received external pause request.")
+            self.spot_executor.set_paused(True, self.feedback_collector)
 
-            self.spot_executor.process_action_sequence(
-                sequence, self.feedback_collector
-            )
-            self.get_logger().info("Finished execution action sequence.")
-            self.status_str = "Idle"
+    def handle_resume(self, msg: Bool):
+        if msg.data:
+            self.get_logger().info("Received external resume request.")
+            self.spot_executor.set_paused(False, self.feedback_collector)
 
+    def handle_stop(self, msg: Bool):
+        # Best-effort hard stop of the current action sequence, if any.
         if self.background_thread is not None and self.background_thread.is_alive():
+            self.get_logger().info(
+                "Received external stop request; terminating current plan."
+            )
             self.spot_executor.terminate_sequence(self.feedback_collector)
+
+    def process_action_sequence(self, msg):
+        # An exception escaping a subscription callback tears down the rclpy
+        # executor and kills the node. Plan repair means many preemptions in a
+        # row, so one bad plan must degrade rather than end the run.
+        try:
+            self._process_action_sequence(msg)
+        except Exception:
+            self.status_str = "Idle"
+            with self._plan_id_lock:
+                if self._current_plan_id == getattr(msg, "plan_id", None):
+                    self._current_plan_id = None
+            self.get_logger().error(
+                "Failed to handle incoming plan "
+                f"(plan_id={getattr(msg, 'plan_id', '<unknown>')}); node staying up:\n"
+                f"{traceback.format_exc()}"
+            )
+
+    def _process_action_sequence(self, msg):
+        # Plan-repair preemption: only accept a new plan when plan_id is different
+        with self._plan_id_lock:
+            if (
+                self._current_plan_id is not None
+                and msg.plan_id == self._current_plan_id
+            ):
+                self.get_logger().info(
+                    f"Ignoring duplicate plan (plan_id={msg.plan_id}), already executing"
+                )
+                return
+            if self.background_thread is not None and self.background_thread.is_alive():
+                self.get_logger().info(
+                    f"Preempting current plan (plan_id={self._current_plan_id}) with new plan (plan_id={msg.plan_id})"
+                )
+                self.spot_executor.terminate_sequence(self.feedback_collector)
+            self._current_plan_id = msg.plan_id
+
+        def process_sequence():
+            try:
+                self.status_str = "Processing action sequence"
+                self.get_logger().info("Starting action sequence")
+                sequence = from_msg(msg)
+
+                self.spot_executor.process_action_sequence(
+                    sequence, self.feedback_collector
+                )
+
+                self.get_logger().info("Finished execution action sequence.")
+            except Exception:
+                # Same reasoning as above: report and let the node keep serving
+                # plans instead of leaving a dead executor thread behind.
+                self.get_logger().error(
+                    f"Action sequence (plan_id={msg.plan_id}) aborted:\n"
+                    f"{traceback.format_exc()}"
+                )
+            finally:
+                with self._plan_id_lock:
+                    if self._current_plan_id == msg.plan_id:
+                        self._current_plan_id = None
+                self.status_str = "Idle"
 
         self.feedback_collector.break_out_of_waiting_loop = False
         self.feedback_collector.plan_valid = True
