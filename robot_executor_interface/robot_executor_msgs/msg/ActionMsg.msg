@@ -6,6 +6,7 @@ string FOLLOW="FOLLOW"
 string GAZE="GAZE"
 string PICK="PICK"
 string PLACE="PLACE"
+string DRAG="DRAG"
 
 string action_type
 
@@ -29,3 +30,8 @@ string object_id
 # Definition for PLACE
 string place_frame
 # Should drop the object for now.
+
+# Definition for DRAG
+# Grasp the object (same fields as PICK), then back straight up drag_distance
+# meters in drag mode and let go.
+float64 drag_distance

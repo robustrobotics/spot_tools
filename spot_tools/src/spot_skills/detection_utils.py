@@ -32,7 +32,7 @@ class YOLODetector(Detector):
             raise ValueError("YOLOWorld model path must be provided.")
 
         self.yolo_model = YOLOE(yolo_world_path)
-        custom_classes = ["", "bag", "cone", "pipe"]
+        custom_classes = ["", "bag", "cone", "pipe", "blanket"]
         self.yolo_model.set_classes(custom_classes)
         print("Set classes for YOLOWorld model.")
 

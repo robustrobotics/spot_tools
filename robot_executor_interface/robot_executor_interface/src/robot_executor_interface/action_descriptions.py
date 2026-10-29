@@ -41,3 +41,13 @@ class Place:
     robot_point: np.ndarray
     object_point: np.ndarray
     object_id: str
+
+
+@dataclass
+class Drag:
+    frame: str
+    object_class: str
+    robot_point: np.ndarray
+    object_point: np.ndarray
+    object_id: str
+    distance: float = 2.0  # meters to back straight up while dragging
