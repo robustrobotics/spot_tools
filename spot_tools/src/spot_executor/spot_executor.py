@@ -8,6 +8,7 @@ from bosdyn.api.robot_state_pb2 import BehaviorFault
 from bosdyn.client.exceptions import LeaseUseError
 from bosdyn.client.robot_command import BehaviorFaultError
 from robot_executor_interface.action_descriptions import (
+    Drag,
     Follow,
     Gaze,
     Pick,
@@ -16,7 +17,12 @@ from robot_executor_interface.action_descriptions import (
 from scipy.spatial.transform import Rotation
 
 from spot_skills.arm_utils import gaze_at_vision_pose
-from spot_skills.grasp_utils import object_grasp, object_place, stow_arm
+from spot_skills.grasp_utils import (
+    object_drag,
+    object_grasp,
+    object_place,
+    stow_arm,
+)
 from spot_skills.navigation_utils import (
     follow_trajectory_continuous,
     turn_to_point,
@@ -301,6 +307,9 @@ class SpotExecutor:
                     elif type(command) is Place:
                         success = self.execute_place(command, feedback)
 
+                    elif type(command) is Drag:
+                        success = self.execute_drag(command, feedback)
+
                     else:
                         raise Exception(
                             f"SpotExecutor received unknown command type {type(command)}"
@@ -394,6 +403,28 @@ class SpotExecutor:
             )
 
         feedback.print("INFO", "Finished `place` command")
+        return success
+
+    def execute_drag(self, command, feedback):
+        feedback.print("INFO", "Executing `drag` command")
+        success = object_grasp(
+            self.spot_interface,
+            self.detector,
+            image_source="frontleft_fisheye_image",
+            user_input=False,
+            semantic_class=command.object_class,
+            feedback=feedback,
+            should_stop=self.interrupted,
+            carry=False,
+        )
+        if success:
+            success = object_drag(
+                self.spot_interface,
+                distance=command.distance,
+                feedback=feedback,
+                should_stop=self.interrupted,
+            )
+        feedback.print("INFO", f"Finished `drag` command with return {success}")
         return success
 
     def execute_follow(self, command, feedback):

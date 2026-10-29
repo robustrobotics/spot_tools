@@ -33,7 +33,13 @@ from spot_skills.detection_utils import YOLODetector
 from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
 
-from robot_executor_interface.action_descriptions import Follow, Gaze, Pick, Place
+from robot_executor_interface.action_descriptions import (
+    Drag,
+    Follow,
+    Gaze,
+    Pick,
+    Place,
+)
 from robot_executor_interface.mid_level_planner import (
     IdentityPlanner,
     MidLevelPlanner,
@@ -362,6 +368,9 @@ class RosFeedbackCollector:
         elif isinstance(command, Place):
             msg.action_type = ActionMsg.PLACE
             points = [command.object_point]
+        elif isinstance(command, Drag):
+            msg.action_type = ActionMsg.DRAG
+            points = []
         else:
             return
         msg.points = [

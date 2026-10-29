@@ -9,6 +9,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from robot_executor_interface.action_descriptions import (
     ActionSequence,
+    Drag,
     Follow,
     Gaze,
     Pick,
@@ -64,6 +65,8 @@ def from_msg(msg):
                 actions.append(place_from_msg(a))
             case a.GAZE:
                 actions.append(gaze_from_msg(a))
+            case a.DRAG:
+                actions.append(drag_from_msg(a))
             case _:
                 raise Exception(f"Received invalid action type {a.action_type}")
     return ActionSequence(
@@ -338,4 +341,51 @@ def _(action: Place, marker_ns):
     m.color.b = 1.0
     m.points = [pt1, pt2]
 
+    return [m]
+
+
+def drag_from_msg(msg):
+    pick = pick_from_msg(msg)
+    return Drag(
+        frame=pick.frame,
+        object_class=pick.object_class,
+        robot_point=pick.robot_point,
+        object_point=pick.object_point,
+        object_id=pick.object_id,
+        distance=msg.drag_distance,
+    )
+
+
+@to_msg.register
+def _(action: Drag):
+    msg = to_msg(
+        Pick(
+            frame=action.frame,
+            object_class=action.object_class,
+            robot_point=action.robot_point,
+            object_point=action.object_point,
+            object_id=action.object_id,
+        )
+    )
+    msg.action_type = msg.DRAG
+    msg.pick_frame = action.frame
+    msg.drag_distance = float(action.distance)
+    return msg
+
+
+@to_viz_msg.register
+def _(action: Drag, marker_ns):
+    (m,) = to_viz_msg(
+        Pick(
+            frame=action.frame,
+            object_class=action.object_class,
+            robot_point=action.robot_point,
+            object_point=action.object_point,
+            object_id=action.object_id,
+        ),
+        marker_ns,
+    )
+    # Orange, to tell it apart from a pick.
+    m.color.r = 1.0
+    m.color.g = 0.5
     return [m]
