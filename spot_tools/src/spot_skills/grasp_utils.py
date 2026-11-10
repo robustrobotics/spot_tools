@@ -14,12 +14,19 @@ import bosdyn.client.util
 import cv2
 import numpy as np
 from bosdyn.api import (
+    arm_command_pb2,
+    basic_command_pb2,
     geometry_pb2,
     manipulation_api_pb2,
+    robot_command_pb2,
     robot_state_pb2,
+    synchronized_command_pb2,
 )
+from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
 from bosdyn.client.frame_helpers import (
+    BODY_FRAME_NAME,
     VISION_FRAME_NAME,
+    get_se2_a_tform_b,
     get_vision_tform_body,
     math_helpers,
 )
@@ -143,6 +150,121 @@ def object_place(spot, semantic_class="bag", position=None, should_stop=lambda: 
     return True
 
 
+def set_grasp_override(spot, override_request):
+    request = manipulation_api_pb2.ApiGraspOverrideRequest(
+        api_grasp_override=manipulation_api_pb2.ApiGraspOverride(
+            override_request=override_request
+        )
+    )
+    spot.manipulation_api_client.grasp_override_command(request)
+    wait_until_grasp_state_updates(request, spot.state_client)
+
+
+def object_drag(
+    spot,
+    distance=2.0,
+    max_speed=0.5,
+    timeout=30.0,
+    feedback=None,
+    should_stop=lambda: False,
+):
+    """Back straight up `distance` meters in drag mode, then let go.
+
+    The gripper must already hold the object with the hand in front of the
+    body, e.g. after object_grasp(carry=False). should_stop() halts the drag
+    and leaves the object in the gripper. Returns True if the robot backed up
+    the full distance without losing its grip.
+    """
+
+    def log(msg):
+        print(msg)
+        if feedback is not None:
+            feedback.print("INFO", msg)
+
+    if spot.is_fake:
+        execute_recovery_action(
+            spot,
+            recover_arm=False,
+            relative_pose=math_helpers.SE2Pose(x=-distance, y=0.0, angle=0.0),
+        )
+        return True
+
+    # A thin object (tarp, cloth) lets the claw close almost fully, so the
+    # robot may not believe it is holding anything. Drag refuses to run then
+    # (STATUS_OTHER_FAILURE), so tell it explicitly.
+    set_grasp_override(spot, manipulation_api_pb2.ApiGraspOverride.OVERRIDE_HOLDING)
+
+    transforms = spot.get_state().kinematic_state.transforms_snapshot
+    vision_tform_goal = get_se2_a_tform_b(
+        transforms, VISION_FRAME_NAME, BODY_FRAME_NAME
+    ) * math_helpers.SE2Pose(x=-distance, y=0.0, angle=0.0)
+
+    params = RobotCommandBuilder.mobility_params(
+        locomotion_hint=spot_command_pb2.LocomotionHint.HINT_AUTO
+    )
+    params.vel_limit.CopyFrom(
+        geometry_pb2.SE2VelocityLimit(
+            max_vel=geometry_pb2.SE2Velocity(
+                linear=geometry_pb2.Vec2(x=max_speed, y=max_speed), angular=0.5
+            )
+        )
+    )
+    drag_cmd = robot_command_pb2.RobotCommand(
+        synchronized_command=synchronized_command_pb2.SynchronizedCommand.Request(
+            arm_command=arm_command_pb2.ArmCommand.Request(
+                arm_drag_command=basic_command_pb2.ArmDragCommand.Request()
+            )
+        )
+    )
+    cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
+        goal_x=vision_tform_goal.x,
+        goal_y=vision_tform_goal.y,
+        goal_heading=vision_tform_goal.angle,
+        frame_name=VISION_FRAME_NAME,
+        params=params,
+        build_on_command=drag_cmd,
+    )
+    cmd_id = spot.command_client.robot_command(cmd, end_time_secs=time.time() + timeout)
+    log(f"Dragging: backing up {distance} m")
+
+    DragFeedback = basic_command_pb2.ArmDragCommand.Feedback
+    AT_GOAL = basic_command_pb2.SE2TrajectoryCommand.Feedback.STATUS_AT_GOAL
+    success = False
+    t0 = time.time()
+    while True:
+        if should_stop():
+            # The executor stops the robot; keep hold of the object.
+            log("Drag interrupted.")
+            return False
+        if time.time() - t0 > timeout:
+            log("Drag timed out.")
+            break
+
+        sync_fb = spot.command_client.robot_command_feedback(
+            cmd_id
+        ).feedback.synchronized_feedback
+        drag_status = sync_fb.arm_command_feedback.arm_drag_feedback.status
+        if drag_status in (
+            DragFeedback.STATUS_GRASP_FAILED,
+            DragFeedback.STATUS_OTHER_FAILURE,
+        ):
+            log(f"Drag failed: {DragFeedback.Status.Name(drag_status)}")
+            spot.stop()
+            break
+        traj_status = sync_fb.mobility_command_feedback.se2_trajectory_feedback.status
+        if traj_status == AT_GOAL:
+            success = True
+            break
+        time.sleep(0.1)
+
+    log(f"Drag finished (success={success}), releasing.")
+    open_gripper(spot)
+    set_grasp_override(spot, manipulation_api_pb2.ApiGraspOverride.OVERRIDE_NOT_HOLDING)
+    stow_arm(spot)
+    close_gripper(spot)
+    return success
+
+
 def object_grasp(
     spot,
     detector,
@@ -154,8 +276,13 @@ def object_grasp(
     feedback=None,
     carry_high=True,
     should_stop=lambda: False,
+    carry=True,
 ):
-    """Pick an object. should_stop() aborts the grasp; the robot then stays put."""
+    """Pick an object. should_stop() aborts the grasp; the robot then stays put.
+
+    carry=False leaves the hand where it grasped (in front of the body), which
+    is what object_drag needs.
+    """
     debug_images = []
 
     """Using the Boston Dynamics API to command Spot's arm"""
@@ -359,6 +486,10 @@ def object_grasp(
     )
     spot.command_client.robot_command(close_cmd)
     time.sleep(0.25)
+
+    if not carry:
+        print("Finished grasp, holding in place.")
+        return (success, debug_images) if debug else success
 
     # Move the arm to a carry position.
     print("Grasp finished, carrying object.")

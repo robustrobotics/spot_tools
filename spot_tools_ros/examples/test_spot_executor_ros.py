@@ -70,6 +70,18 @@ class Tester(Node):
         #     "id0", "spot", [follow_cmd, pick_cmd]
         # )
 
+        # Drag test: stand Spot facing the blanket, pick the grasp point in rviz,
+        # and it backs straight up `distance` meters before letting go.
+        # drag_cmd = Drag(
+        #     "hamilton/odom",
+        #     "blanket",
+        #     np.array([0.0, 0, 0]),
+        #     np.array([1.0, 0, 0]),
+        #     "",
+        #     distance=2.0,
+        # )
+        # seq = ActionSequence("id0", "spot", [drag_cmd])
+
         publisher.publish(to_msg(seq))
         viz_publisher.publish(to_viz_msg(seq, "planner_ns"))
 
