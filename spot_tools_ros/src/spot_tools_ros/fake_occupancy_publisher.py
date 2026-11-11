@@ -209,6 +209,33 @@ def create_random_map(
     return grid
 
 
+def create_L_shape_hallway_map(width=200, height=200, resolution=0.12):
+    """
+    Create an L-shaped hallway map.
+    The hallway is ~3m wide (scaled by resolution).
+    All cells outside the two hallway corridors are walls (100).
+    """
+    grid = np.full((height, width), 100, dtype=np.int8)
+
+    hallway_width = max(1, round(3.0 / resolution))
+    margin = max(10, int(0.1 * min(width, height)))
+
+    # Column extent of the vertical arm (left side of the L)
+    col_start = margin + 10
+    col_end = col_start + hallway_width
+
+    # Row where the corner bends into the horizontal arm
+    corner_row = height // 2
+
+    # Vertical arm: top of map down to corner
+    grid[margin : corner_row + hallway_width, col_start:col_end] = 0
+
+    # Horizontal arm: from corner to right side of map
+    grid[corner_row : corner_row + hallway_width, col_start : width - margin] = 0
+
+    return grid
+
+
 def main():
     parser = argparse.ArgumentParser(description="Fake occupancy publisher")
     parser.add_argument("--robot_name", type=str, default="hamilton", help="Robot name")
@@ -228,13 +255,25 @@ def main():
     parser.add_argument(
         "--publish_rate", type=float, default=10.0, help="Publish rate in Hz"
     )
+    parser.add_argument(
+        "--scenario",
+        type=str,
+        default="random",
+        choices=["random", "L_shape_hallway"],
+        help="Scenario type: %(choices)s",
+    )
     args = parser.parse_args()
     rclpy.init()
 
     # Create or load occupancy map
-    occupancy_map = create_random_map(
-        width=200, height=200, n_obstacles=args.num_obstacles
-    )
+    if args.scenario == "L_shape_hallway":
+        occupancy_map = create_L_shape_hallway_map(
+            width=200, height=200, resolution=args.resolution
+        )
+    else:
+        occupancy_map = create_random_map(
+            width=200, height=200, n_obstacles=args.num_obstacles
+        )
     # Or: occupancy_map = np.load("path/to/map.npy")
 
     node = FakeOccupancyPublisher(

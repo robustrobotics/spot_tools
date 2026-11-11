@@ -1,8 +1,9 @@
+import logging
 import os
 import threading
 import time
+import traceback
 
-import cv2
 import numpy as np
 import rclpy
 import rclpy.time
@@ -10,30 +11,36 @@ import spot_executor as se
 import tf2_ros
 import yaml
 from cv_bridge import CvBridge
+from geometry_msgs.msg import Point as PointMsg
 from heracles_ros_interfaces.srv import UpdateHoldingState
 from nav_msgs.msg import Path
+from nlu_interface_rviz.msg import (
+    ManipulationApprovalRequest,
+    ManipulationApprovalResponse,
+)
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
-from robot_executor_msgs.msg import ActionSequenceMsg
+from robot_executor_msgs.msg import ActionDoneMsg, ActionMsg, ActionSequenceMsg
 from ros_system_monitor_msgs.msg import NodeInfoMsg
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 from shapely.geometry import Point
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
+from spot_skills.approval import ApprovalDecision
+from spot_skills.depth_utils import encode_depth_png, encode_jpeg
 from spot_skills.detection_utils import YOLODetector
 from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
 
-from bosdyn.client import math_helpers
+from robot_executor_interface.action_descriptions import Follow, Gaze, Pick, Place
 from robot_executor_interface.mid_level_planner import (
     IdentityPlanner,
     MidLevelPlanner,
     OccupancyMap,
 )
-from spot_skills.navigation_utils import navigate_to_absolute_pose
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.occupancy_grid_ros_updater import OccupancyGridROSUpdater
 from spot_tools_ros.utils import get_tf_pose, waypoints_to_path
@@ -77,44 +84,137 @@ def build_markers(pts, namespaces, frames, colors):
 
 
 class RosFeedbackCollector:
-    def __init__(self, odom_frame: str, output_dir: str):
+    def __init__(self, odom_frame: str, output_dir: str, log_to_file_level):
         self.pick_confirmation_event = threading.Event()
-        self.pick_confirmation_response = False
+        # self.pick_confirmation_response = False
+
+        self.pick_confirmation_approved = False
+        self.pick_confirmation_xy = [0, 0]
+        self.pick_confirmation_image_index = 0
+        self.pick_confirmation_walk_to = False
+        self.pick_confirmation_stand_xy = None
 
         self.break_out_of_waiting_loop = False
+        self.plan_valid = True
         self.odom_frame = odom_frame
 
         self.output_dir = output_dir
+        self.log_to_file_level = log_to_file_level
+
+        if log_to_file_level != "":
+            os.makedirs(self.output_dir, exist_ok=True)
+            self.str_log_file = os.path.join(self.output_dir, "str_log.txt")
+            with open(self.str_log_file, "w") as f:
+                f.write("time - level - message\n")
+
+            match log_to_file_level:
+                case "DEBUG":
+                    logging_level = logging.DEBUG
+                case "INFO":
+                    logging_level = logging.INFO
+                case "WARNING":
+                    logging_level = logging.WARNING
+                case "ERROR":
+                    logging_level = logging.ERROR
+                case _:
+                    raise ValueError(f"Invalid log level {log_to_file_level}")
+
+            # Create a custom logger
+            self.file_logger = logging.getLogger(__name__)
+            self.file_logger.setLevel(logging_level)
+
+            # Create a file handler
+            file_handler = logging.FileHandler(self.str_log_file)
+            file_handler.setLevel(logging_level)
+
+            # Create a formatter and add it to the handler
+            formatter = logging.Formatter("[%(asctime)s] - %(levelname)s - %(message)s")
+            file_handler.setFormatter(formatter)
+
+            # Add the handler to the logger
+            self.file_logger.addHandler(file_handler)
+
+    # object_grasp passes depth registered to each candidate camera when set.
+    supports_depth = True
+    # ...and the camera/ground geometry behind the walk-to estimate.
+    supports_walk_preview = True
+    # JPEG candidates + PNG depth (default), or the legacy raw images that the
+    # RViz panel reads. Set from the executor parameter
+    # compress_manipulation_requests.
+    compress_manipulation_requests = True
+
+    def _manipulation_request(self, detection_imgs, depth_images):
+        request_msg = ManipulationApprovalRequest()
+        if not self.compress_manipulation_requests:
+            bridge = CvBridge()
+            request_msg.images = [
+                bridge.cv2_to_imgmsg(img, encoding="passthrough")
+                for img in detection_imgs
+            ]
+            return request_msg
+
+        # The arrays are handed over in the same channel order the raw
+        # transport labelled 8UC3, which viewers treat as BGR. cv2 encodes BGR,
+        # so the JPEG looks exactly like the raw image did.
+        request_msg.compressed_images = [
+            CompressedImage(format="jpeg", data=encode_jpeg(img))
+            for img in detection_imgs
+        ]
+        depth_images = list(depth_images or [])
+        depth_images += [None] * (len(detection_imgs) - len(depth_images))
+        for entry in depth_images[: len(detection_imgs)]:
+            if entry is None:
+                request_msg.depth_images.append(CompressedImage())
+                request_msg.depth_scales.append(0.0)
+                continue
+            depth, scale = entry
+            request_msg.depth_images.append(
+                CompressedImage(format="png", data=encode_depth_png(depth))
+            )
+            request_msg.depth_scales.append(float(scale))
+        return request_msg
+
+    @staticmethod
+    def _add_walk_preview(request_msg, count, preview):
+        """Copy walk_preview_geometry() into the flat request arrays."""
+        if not preview:
+            return
+        cameras = list(preview.get("cameras") or [])
+        cameras += [None] * (count - len(cameras))
+        for camera in cameras[:count]:
+            values = [0.0] * 11 if camera is None else [float(v) for v in camera]
+            request_msg.camera_intrinsics.extend(values[:4])
+            request_msg.camera_poses.extend(values[4:])
+        ground = preview.get("ground")
+        if ground is not None:
+            request_msg.ground_plane = [float(v) for v in (*ground[0], *ground[1])]
+        robot = preview.get("robot")
+        if robot is not None:
+            request_msg.robot_pose = [float(v) for v in robot]
+        request_msg.walk_to_standoff = float(preview.get("standoff", 0.0))
+        request_msg.walk_to_max_distance = float(preview.get("max_distance", 0.0))
 
     def bounding_box_detection_feedback(
-        self, annotated_img, centroid_x, centroid_y, semantic_class
+        self,
+        detection_imgs,
+        source_names,
+        detection_index,
+        centroid_x,
+        centroid_y,
+        semantic_class,
+        depth_images=None,
+        walk_preview=None,
     ):
-        bridge = CvBridge()
-
-        if centroid_x is not None and centroid_y is not None:
-            label = f"{semantic_class}"
-            cv2.putText(
-                annotated_img,
-                label,
-                (centroid_x - 100, centroid_y - 200),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                5,
-                (0, 0, 225),
-                20,
-            )
-
-            # Label the centroid
-            cv2.drawMarker(
-                annotated_img,
-                (centroid_x, centroid_y),
-                (0, 0, 255),
-                markerType=cv2.MARKER_TILTED_CROSS,
-                markerSize=200,
-                thickness=30,
-            )
-
-        annotated_img_msg = bridge.cv2_to_imgmsg(annotated_img, encoding="passthrough")
-        self.annotated_img_pub.publish(annotated_img_msg)
+        request_msg = self._manipulation_request(detection_imgs, depth_images)
+        self._add_walk_preview(request_msg, len(detection_imgs), walk_preview)
+        request_msg.image_source_names = source_names
+        request_msg.has_detection = detection_index is not None
+        request_msg.detection_image_index = (
+            detection_index if detection_index is not None else 0
+        )
+        request_msg.image_x = centroid_x if centroid_x is not None else 0
+        request_msg.image_y = centroid_y if centroid_y is not None else 0
+        self.detection_img_pub.publish(request_msg)
 
         self.pick_confirmation_event.clear()
 
@@ -128,10 +228,24 @@ class RosFeedbackCollector:
 
         if self.break_out_of_waiting_loop:
             self.logger.info("ROBOT WAS PREEMPTED")
-            self.pick_confirmation_response = False
+            return ApprovalDecision.reject()
 
-        # This boolean determines whether the executor keeps going
-        return self.pick_confirmation_response
+        self.logger.info(
+            f"Pick Confirmation Response Received: approved ({self.pick_confirmation_approved}), "
+            f"walk_to ({self.pick_confirmation_walk_to}), xy ({self.pick_confirmation_xy}), "
+            f"image_index ({self.pick_confirmation_image_index}), "
+            f"stand_xy ({self.pick_confirmation_stand_xy})"
+        )
+        pixel = (self.pick_confirmation_xy[0], self.pick_confirmation_xy[1])
+        if self.pick_confirmation_walk_to:
+            return ApprovalDecision.walk(
+                pixel,
+                self.pick_confirmation_image_index,
+                stand_pixel=self.pick_confirmation_stand_xy,
+            )
+        if self.pick_confirmation_approved:
+            return ApprovalDecision.approve(pixel, self.pick_confirmation_image_index)
+        return ApprovalDecision.reject()
 
     def pick_image_feedback(self, semantic_image, mask_image):
         bridge = CvBridge()
@@ -151,14 +265,38 @@ class RosFeedbackCollector:
         frames = [self.odom_frame] * 2
         self.progress_point_pub.publish(build_markers(pts, namespaces, frames, colors))
 
-    def path_follow_MLP_feedback(self, path, target_point_metric):
+    def path_follow_MLP_feedback(
+        self,
+        path,
+        target_point_metric,
+        target_point_global_traj_metric,
+        subgoal_target_point_metric,
+    ):
         self.mlp_path_publisher.publish(waypoints_to_path(self.odom_frame, path))
+        if (
+            target_point_metric is None
+            or target_point_global_traj_metric is None
+            or subgoal_target_point_metric is None
+        ):
+            return
         target_point_metric_flattened = Point([p[0] for p in target_point_metric[:3]])
+        target_point_global_traj_metric_flattened = Point(
+            [p[0] for p in target_point_global_traj_metric[:3]]
+        )
+        subgoal_target_point_metric_flattened = Point(subgoal_target_point_metric[:3])
 
-        pts = [target_point_metric_flattened]
-        namespaces = ["projected target point"]
-        colors = [[1, 0, 1]]
-        frames = [self.odom_frame]
+        pts = [
+            target_point_global_traj_metric_flattened,
+            target_point_metric_flattened,
+            subgoal_target_point_metric_flattened,
+        ]
+        namespaces = [
+            "projected target point",
+            "actual target point",
+            "subgoal target point",
+        ]
+        colors = [[1, 0, 1], [0, 1, 1], [0, 0, 1]]
+        frames = [self.odom_frame] * 3
         self.mlp_target_publisher.publish(
             build_markers(pts, namespaces, frames, colors)
         )
@@ -167,24 +305,46 @@ class RosFeedbackCollector:
         pass
 
     def print(self, level, string):
+        # rclpy keys its logging context on CallerId -- (function, file, line) --
+        # and refuses to log a second severity from a call site it has already
+        # seen. Binding log_fn and calling it from one shared line made every
+        # level share a call site, so the first WARNING after an INFO raised
+        # "Logger severity cannot be changed between calls." Each severity needs
+        # its own line.
+        message = str(string)
         match level:
             case "DEBUG":
-                log_fn = self.logger.debug
+                self.logger.debug(message)
             case "INFO":
-                log_fn = self.logger.info
+                self.logger.info(message)
             case "WARNING":
-                log_fn = self.logger.warning
+                self.logger.warning(message)
             case "ERROR":
-                log_fn = self.logger.error
+                self.logger.error(message)
             case _:
                 raise ValueError(f"Invalid log level {level}")
-        log_fn(str(string))
+
+        # TODO(multy): quick logic to log everything we print in the executor
+        if self.log_to_file_level != "":
+            match level:
+                case "DEBUG":
+                    file_logger_fn = self.file_logger.debug
+                case "INFO":
+                    file_logger_fn = self.file_logger.info
+                case "WARNING":
+                    file_logger_fn = self.file_logger.warning
+                case "ERROR":
+                    file_logger_fn = self.file_logger.error
+                case _:
+                    raise ValueError(f"Invalid log level {level}")
+            file_logger_fn(str(string))
 
     def feedback_viz_2(self, y):
         pass
 
     def register_publishers(self, node):
         self.logger = node.get_logger()
+        self._clock = node.get_clock()
 
         # ROS 2 transient local QoS for "latching" behavior
         latching_qos = QoSProfile(
@@ -219,14 +379,16 @@ class RosFeedbackCollector:
             MarkerArray, "~/mlp_target_publisher", qos_profile=latching_qos
         )
 
-        self.annotated_img_pub = node.create_publisher(
-            Image, "~/annotated_image", qos_profile=latching_qos
+        self.detection_img_pub = node.create_publisher(
+            ManipulationApprovalRequest,
+            "~/manipulation_request",
+            qos_profile=latching_qos,
         )
 
         self.lease_takeover_publisher = node.create_publisher(String, "~/takeover", 10)
 
         node.create_subscription(
-            Bool,
+            ManipulationApprovalResponse,
             "~/pick_confirmation",
             self.pick_confirmation_callback,
             10,
@@ -236,20 +398,70 @@ class RosFeedbackCollector:
             UpdateHoldingState, "update_holding_state"
         )
 
+        # Fleet-wide, like the plan itself: the planner reads every robot's
+        # progress from here.
+        self.action_done_pub = node.create_publisher(ActionDoneMsg, "/action_done", 10)
+
         # TODO(aaron): Once we switch logging to python logger,
         # should move into init
         self.logger.info(f"Logging to: {self.output_dir}")
         if not os.path.exists(self.output_dir):
             self.logger.info(f"Making {self.output_dir}")
-            os.mkdir(self.output_dir)
+            os.makedirs(self.output_dir, exist_ok=True)
         log_fn = os.path.join(self.output_dir, "lease_log.txt")
         with open(log_fn, "w") as fo:
             fo.write("time,event\n")
 
-    def set_robot_holding_state(self, is_holding: bool, object_id: str, timeout=5):
+    def report_action_done(self, sequence, command, success):
+        msg = ActionDoneMsg()
+        msg.header.stamp = self._clock.now().to_msg()
+        msg.plan_id = sequence.plan_id or ""
+        msg.robot_name = sequence.robot_name or ""
+        msg.success = bool(success)
+        msg.object_id = str(getattr(command, "object_id", "") or "")
+        if isinstance(command, Follow):
+            msg.action_type = ActionMsg.FOLLOW
+            points = command.path2d
+        elif isinstance(command, Gaze):
+            msg.action_type = ActionMsg.GAZE
+            points = []
+        elif isinstance(command, Pick):
+            msg.action_type = ActionMsg.PICK
+            points = []
+        elif isinstance(command, Place):
+            msg.action_type = ActionMsg.PLACE
+            points = [command.object_point]
+        else:
+            return
+        msg.points = [
+            PointMsg(
+                x=float(p[0]),
+                y=float(p[1]),
+                z=float(p[2]) if len(p) > 2 else 0.0,
+            )
+            for p in points
+        ]
+        self.action_done_pub.publish(msg)
+
+    def set_robot_holding_state(
+        self, is_holding: bool, object_id: str, position=None, timeout=5
+    ):
         req = UpdateHoldingState.Request()
         req.is_holding = is_holding
         req.id = object_id
+        if position is not None:
+            # Where the object was put down, in the map frame. Without it the
+            # state updater falls back to the robot's own position.
+            req.has_position = True
+            req.position = PointMsg(
+                x=float(position[0]),
+                y=float(position[1]),
+                z=float(position[2]) if len(position) > 2 else 0.0,
+            )
+
+        if not self.holding_client.wait_for_service(timeout_sec=0.5):
+            self.logger.warning("UpdateHoldingState service not available")
+            return False
 
         future = self.holding_client.call_async(req)
         start = time.time()
@@ -261,13 +473,36 @@ class RosFeedbackCollector:
         return future.result().success
 
     def pick_confirmation_callback(self, msg):
-        if msg.data:
-            self.logger.info("Detection is valid. Continuing pick action!")
-            self.pick_confirmation_response = True
+        # if msg.data:
+        #    self.logger.info("Detection is valid. Continuing pick action!")
+        #    self.pick_confirmation_response = True
+        # else:
+        #    self.logger.warn("Detection is invalid. Discontinuing pick action.")
+        #    self.pick_confirmation_response = False
+
+        # self.pick_confirmation_event.set()
+
+        # Three outcomes: approve (grasp here), walk_to (move closer and ask
+        # again), or neither (abandon the attempt).
+        self.pick_confirmation_walk_to = bool(msg.walk_to) and not msg.approve
+        self.pick_confirmation_stand_xy = None
+        if msg.approve:
+            self.pick_confirmation_approved = True
+            self.pick_confirmation_image_index = msg.image_index
+            self.pick_confirmation_xy[0] = msg.image_x
+            self.pick_confirmation_xy[1] = msg.image_y
+            self.logger.warn("Detection is valid. Continuing pick action!")
+        elif self.pick_confirmation_walk_to:
+            self.pick_confirmation_approved = False
+            self.pick_confirmation_image_index = msg.image_index
+            self.pick_confirmation_xy[0] = msg.image_x
+            self.pick_confirmation_xy[1] = msg.image_y
+            if msg.has_stand_point:
+                self.pick_confirmation_stand_xy = (msg.stand_x, msg.stand_y)
+            self.logger.warn("Operator asked to walk closer before picking.")
         else:
             self.logger.warn("Detection is invalid. Discontinuing pick action.")
-            self.pick_confirmation_response = False
-
+            self.pick_confirmation_approved = False
         self.pick_confirmation_event.set()
 
     def log_lease_takeover(self, event: str):
@@ -286,6 +521,8 @@ class SpotExecutorRos(Node):
         super().__init__("spot_executor_ros")
         self.debug = False
         self.background_thread = None
+        self._current_plan_id = None
+        self._plan_id_lock = threading.Lock()
 
         # Connectivity parameters
         self.declare_parameter("spot_ip", "")
@@ -314,6 +551,22 @@ class SpotExecutorRos(Node):
         self.declare_parameter("labelspace_grouping_path", "")
         self.declare_parameter("detector_model_path", "")
         detector_model_path = self.get_parameter("detector_model_path").value
+        # Distance short of an operator's walk-to point at which Spot stops to
+        # re-detect, when no explicit stand point was chosen.
+        self.declare_parameter("pick_walk_to_standoff", 1.5)
+        pick_walk_to_standoff = self.get_parameter("pick_walk_to_standoff").value
+        # JPEG + registered depth in manipulation requests (web console), or the
+        # legacy raw images the RViz approval panel expects.
+        # Longest single walk-to move (m); the ground-plane estimate is
+        # unreliable for far targets, so they are approached in steps.
+        self.declare_parameter("pick_walk_to_max_distance", 5.0)
+        pick_walk_to_max_distance = self.get_parameter(
+            "pick_walk_to_max_distance"
+        ).value
+        self.declare_parameter("compress_manipulation_requests", True)
+        compress_manipulation_requests = self.get_parameter(
+            "compress_manipulation_requests"
+        ).value
         # semantic_model_path = self.get_parameter("semantic_model_path").value
         # labelspace_path = self.get_parameter("labelspace_path").value
         # semantic_name_to_id = load_inverse_semantic_id_map_from_label_space(
@@ -342,7 +595,16 @@ class SpotExecutorRos(Node):
         output_dir = self.get_parameter("output_dir").value
         assert output_dir != ""
 
-        self.feedback_collector = RosFeedbackCollector(self.odom_frame, output_dir)
+        # TODO(multy): quick way to log everything feedback print to log file
+        self.declare_parameter("log_to_file", "")
+        log_to_file = self.get_parameter("log_to_file").value
+
+        self.feedback_collector = RosFeedbackCollector(
+            self.odom_frame, output_dir, log_to_file
+        )
+        self.feedback_collector.compress_manipulation_requests = bool(
+            compress_manipulation_requests
+        )
         self.feedback_collector.register_publishers(self)
 
         self.tf_buffer = tf2_ros.Buffer()
@@ -357,6 +619,9 @@ class SpotExecutorRos(Node):
         self.declare_parameter("lookahead_distance", 50)
         self.declare_parameter("occupancy_inflation_radius", 0.5)
         self.declare_parameter("use_fake_path_plan", False)
+        self.declare_parameter("use_cost_map", False)
+        self.declare_parameter("cost_map_safe_distance", 0.5)
+        self.declare_parameter("cost_map_nearest_obstacle_cost", 5.0)
         mid_level_planner_type = self.get_parameter("mid_level_planner_type").value
         lookahead_distance = self.get_parameter("lookahead_distance").value
         assert lookahead_distance > 0
@@ -365,7 +630,14 @@ class SpotExecutorRos(Node):
         ).value
         assert occupancy_inflation_radius > 0
         use_fake_path_plan = self.get_parameter("use_fake_path_plan").value
-        self.get_logger().info(f"{mid_level_planner_type=}, {use_fake_path_plan=}")
+        use_cost_map = self.get_parameter("use_cost_map").value
+        cost_map_safe_distance = self.get_parameter("cost_map_safe_distance").value
+        cost_map_nearest_obstacle_cost = self.get_parameter(
+            "cost_map_nearest_obstacle_cost"
+        ).value
+        self.get_logger().info(
+            f"{mid_level_planner_type=}, {use_fake_path_plan=}, {use_cost_map=}"
+        )
 
         # mid-level planner initialization
         match mid_level_planner_type:
@@ -373,6 +645,9 @@ class SpotExecutorRos(Node):
                 self.occupancy_map = OccupancyMap(
                     self.feedback_collector,
                     inflate_radius_meters=occupancy_inflation_radius,
+                    use_cost_map=use_cost_map,
+                    safe_distance=cost_map_safe_distance,
+                    nearest_obstacle_cost=cost_map_nearest_obstacle_cost,
                 )
                 self.occupancy_map_updater = OccupancyGridROSUpdater(
                     self,
@@ -476,22 +751,15 @@ class SpotExecutorRos(Node):
             goal_tolerance,
             self.feedback_collector,
             use_fake_path_plan,
+            walk_to_standoff=pick_walk_to_standoff,
+            walk_to_max_distance=pick_walk_to_max_distance,
         )
         self.spot_executor.initialize_lease_manager(self.feedback_collector)
-
-        self.paused = False
 
         self.action_sequence_sub = self.create_subscription(
             ActionSequenceMsg,
             "~/action_sequence_subscriber",
             self.process_action_sequence,
-            10,
-        )
-
-        self.pause_sub = self.create_subscription(
-            Bool,
-            "~/pause",
-            self.pause_callback,
             10,
         )
 
@@ -502,35 +770,15 @@ class SpotExecutorRos(Node):
             timer_period_s, self.hb_callback, callback_group=heartbeat_timer_group
         )
 
-    def pause_callback(self, msg):
-        if msg.data:
-            self.get_logger().info(
-                "PAUSE received — stopping robot and holding position"
-            )
-            self.paused = True
-            self.status_str = "Paused"
-
-            # Signal the action sequence to stop (non-blocking)
-            self.spot_executor.keep_going = False
-            self.feedback_collector.break_out_of_waiting_loop = True
-
-            # Command robot to hold current pose (stay standing)
-            try:
-                current_pose = self.spot_interface.get_pose()
-                waypoint = math_helpers.SE2Pose(
-                    x=current_pose[0],
-                    y=current_pose[1],
-                    angle=current_pose[2],
-                )
-                navigate_to_absolute_pose(self.spot_interface, waypoint)
-            except Exception as e:
-                self.get_logger().error(f"Failed to hold position on pause: {e}")
-
-        else:
-            self.get_logger().info("RESUME received — accepting commands")
-            self.paused = False
-            self.feedback_collector.break_out_of_waiting_loop = False
-            self.status_str = "Idle"
+        # External pause/stop control: allow other nodes (e.g. goal_manager) to
+        # pause/resume or hard-stop the current plan.
+        self.pause_sub = self.create_subscription(
+            Bool, "~/pause", self.handle_pause, 10
+        )
+        self.resume_sub = self.create_subscription(
+            Bool, "~/resume", self.handle_resume, 10
+        )
+        self.stop_sub = self.create_subscription(Bool, "~/stop", self.handle_stop, 10)
 
     def hb_callback(self):
         msg = NodeInfoMsg()
@@ -540,29 +788,85 @@ class SpotExecutorRos(Node):
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
 
-    def process_action_sequence(self, msg):
-        if self.paused:
-            self.get_logger().warn(
-                "Received action sequence while paused — ignoring. "
-                "Publish False to ~/pause to resume."
-            )
-            return
+    def handle_pause(self, msg: Bool):
+        if msg.data:
+            self.get_logger().info("Received external pause request.")
+            self.spot_executor.set_paused(True, self.feedback_collector)
 
-        def process_sequence():
-            self.status_str = "Processing action sequence"
-            self.get_logger().info("Starting action sequence")
-            sequence = from_msg(msg)
+    def handle_resume(self, msg: Bool):
+        if msg.data:
+            self.get_logger().info("Received external resume request.")
+            self.spot_executor.set_paused(False, self.feedback_collector)
 
-            self.spot_executor.process_action_sequence(
-                sequence, self.feedback_collector
-            )
-            self.get_logger().info("Finished execution action sequence.")
-            self.status_str = "Idle"
-
+    def handle_stop(self, msg: Bool):
+        # Best-effort hard stop of the current action sequence, if any.
         if self.background_thread is not None and self.background_thread.is_alive():
+            self.get_logger().info(
+                "Received external stop request; terminating current plan."
+            )
             self.spot_executor.terminate_sequence(self.feedback_collector)
 
+    def process_action_sequence(self, msg):
+        # An exception escaping a subscription callback tears down the rclpy
+        # executor and kills the node. Plan repair means many preemptions in a
+        # row, so one bad plan must degrade rather than end the run.
+        try:
+            self._process_action_sequence(msg)
+        except Exception:
+            self.status_str = "Idle"
+            with self._plan_id_lock:
+                if self._current_plan_id == getattr(msg, "plan_id", None):
+                    self._current_plan_id = None
+            self.get_logger().error(
+                "Failed to handle incoming plan "
+                f"(plan_id={getattr(msg, 'plan_id', '<unknown>')}); node staying up:\n"
+                f"{traceback.format_exc()}"
+            )
+
+    def _process_action_sequence(self, msg):
+        # Plan-repair preemption: only accept a new plan when plan_id is different
+        with self._plan_id_lock:
+            if (
+                self._current_plan_id is not None
+                and msg.plan_id == self._current_plan_id
+            ):
+                self.get_logger().info(
+                    f"Ignoring duplicate plan (plan_id={msg.plan_id}), already executing"
+                )
+                return
+            if self.background_thread is not None and self.background_thread.is_alive():
+                self.get_logger().info(
+                    f"Preempting current plan (plan_id={self._current_plan_id}) with new plan (plan_id={msg.plan_id})"
+                )
+                self.spot_executor.terminate_sequence(self.feedback_collector)
+            self._current_plan_id = msg.plan_id
+
+        def process_sequence():
+            try:
+                self.status_str = "Processing action sequence"
+                self.get_logger().info("Starting action sequence")
+                sequence = from_msg(msg)
+
+                self.spot_executor.process_action_sequence(
+                    sequence, self.feedback_collector
+                )
+
+                self.get_logger().info("Finished execution action sequence.")
+            except Exception:
+                # Same reasoning as above: report and let the node keep serving
+                # plans instead of leaving a dead executor thread behind.
+                self.get_logger().error(
+                    f"Action sequence (plan_id={msg.plan_id}) aborted:\n"
+                    f"{traceback.format_exc()}"
+                )
+            finally:
+                with self._plan_id_lock:
+                    if self._current_plan_id == msg.plan_id:
+                        self._current_plan_id = None
+                self.status_str = "Idle"
+
         self.feedback_collector.break_out_of_waiting_loop = False
+        self.feedback_collector.plan_valid = True
         self.background_thread = threading.Thread(target=process_sequence, daemon=False)
         self.background_thread.start()
 

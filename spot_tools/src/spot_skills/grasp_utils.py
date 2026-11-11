@@ -25,14 +25,17 @@ from bosdyn.client.frame_helpers import (
 )
 from bosdyn.client.robot_command import RobotCommandBuilder, block_until_arm_arrives
 
+from spot_skills.approval import ApprovalDecision
 from spot_skills.arm_utils import (
-    arm_to_drop,
     close_gripper,
+    move_hand_to_relative_pose,
     open_gripper,
     stow_arm,
 )
-from spot_skills.detection_utils import Detector
+from spot_skills.depth_utils import capture_aligned_depth
+from spot_skills.detection_utils import DetectionCandidate, Detector
 from spot_skills.primitives import execute_recovery_action
+from spot_skills.walk_to_utils import walk_preview_geometry, walk_to_pixel
 
 g_image_click = None
 g_image_display = None
@@ -107,56 +110,136 @@ def force_stow_arm(manipulation_client, state_client, command_client):
     block_until_arm_arrives(command_client, cmd_id)
 
 
-def object_place(spot, semantic_class="bag", position=None):
-    """Drop a grasped object."""
+def object_place(spot, semantic_class="bag", position=None, should_stop=lambda: False):
+    """Drop a grasped object.
+
+    should_stop() is checked between steps: once it is True the robot does not
+    move again. Returns False if it stopped before letting go of the object.
+    """
 
     if spot.is_fake:
         return True
 
     time.sleep(0.25)
-    # arm_to_carry(spot)
-    # stow_arm(spot)
-    arm_to_drop(spot)
+    if should_stop():
+        return False
 
-    # odom_T_task = get_root_T_ground_body(
-    #    robot_state=spot.get_state(), root_frame_name=ODOM_FRAME_NAME
-    # )
-    # wr1_T_tool = math_helpers.SE3Pose(
-    #    0.23589, 0, -0.03943, math_helpers.Quat.from_pitch(-np.pi / 2)
-    # )
-    # force_dir_rt_task = math_helpers.Vec3(0, 0, -1)  # adjust downward force here
-    # robot_cmd = apply_force_at_current_position(
-    #    force_dir_rt_task_in=force_dir_rt_task,
-    #    force_magnitude=8,
-    #    robot_state=spot.get_state(),
-    #    root_frame_name=ODOM_FRAME_NAME,
-    #    root_T_task=odom_T_task,
-    #    wr1_T_tool_nom=wr1_T_tool,
-    # )
-
-    # Execute the impedance command
-    # cmd_id = spot.command_client.robot_command(robot_cmd)
-    # spot.robot.logger.info("Impedance command issued")
-    # block_until_arm_arrives(spot.command_client, cmd_id, 10.0)
-    # input("Did impedance work")
+    carry_cmd = RobotCommandBuilder.arm_carry_command()
+    spot.command_client.robot_command(carry_cmd)
+    time.sleep(1)
+    if should_stop():
+        return False
 
     open_gripper(spot)
-    # drop_object(spot)
     stow_arm(spot)
     close_gripper(spot)
-    execute_recovery_action(
-        spot,
-        recover_arm=False,
-        relative_pose=math_helpers.SE2Pose(x=-1.0, y=0.0, angle=0),
-    )
-    time.sleep(1)
-    execute_recovery_action(
-        spot,
-        recover_arm=False,
-        relative_pose=math_helpers.SE2Pose(x=0.0, y=1.0, angle=0),
-    )
-    time.sleep(1)
+
+    # Step back and aside from the dropped object.
+    for step in (
+        math_helpers.SE2Pose(x=-1.0, y=0.0, angle=0),
+        math_helpers.SE2Pose(x=0.0, y=-1.0, angle=0),
+    ):
+        if should_stop():
+            break
+        execute_recovery_action(spot, recover_arm=False, relative_pose=step)
+        time.sleep(1)
     return True
+
+
+def _capture_candidates(
+    spot, detector, image_source, semantic_class, user_input, debug
+):
+    """Take images from every camera and look for the object.
+
+    Returns (detection_index, candidates). candidates is None only if no image
+    could be captured at all; detection_index is None when images exist but
+    the object was not found in any of them.
+    """
+    attempts = 0
+    candidates = None
+    detection_index = None
+    while attempts < 2:
+        attempts += 1
+
+        if not user_input:
+            # Try to get the centroid using the detector passed into the function.
+            detection_index, candidates = detector.return_centroid(
+                image_source, semantic_class, debug=debug
+            )
+
+            # If the detector fails to return the centroid, then try again until max_attempts
+            if detection_index is not None:
+                break
+
+        else:
+            image, img = spot.get_image_RGB(view=image_source)
+            xy = get_user_grasp_input(spot, img)
+            candidates = [DetectionCandidate(image, img, xy, image_source)]
+            detection_index = 0
+            print("Found object centroid:", xy)
+            break
+
+    return detection_index, candidates
+
+
+def _as_decision(result) -> ApprovalDecision:
+    """Accept the legacy (approved, xy, image_index) tuple from older feedback objects."""
+    if isinstance(result, ApprovalDecision):
+        return result
+    approved, xy, image_index = result
+    if approved is not None and not approved:
+        return ApprovalDecision.reject()
+    return ApprovalDecision.approve((xy[0], xy[1]), image_index)
+
+
+def _ask_operator(
+    spot,
+    feedback,
+    candidates,
+    detection_index,
+    semantic_class,
+    walk_to_standoff=1.5,
+    walk_to_max_distance=5.0,
+):
+    """Show every candidate image in the approval panel and wait for the answer.
+
+    Feedback objects that declare `supports_depth` also get the depth image
+    registered to each candidate camera, so the operator can see distances.
+    """
+    cv2_images = [copy(c.cv2_image) for c in candidates]
+    source_names = [c.source_name for c in candidates]
+
+    if detection_index is not None:
+        xy = candidates[detection_index].detection_xy
+        det_x = xy[0] if xy else None
+        det_y = xy[1] if xy else None
+    else:
+        det_x = None
+        det_y = None
+
+    args = (cv2_images, source_names, detection_index, det_x, det_y, semantic_class)
+    extras = {}
+    if getattr(feedback, "supports_depth", False):
+        extras["depth_images"] = capture_aligned_depth(
+            spot, source_names, log=lambda m: feedback.print("WARNING", m)
+        )
+    if getattr(feedback, "supports_walk_preview", False):
+        preview = walk_preview_geometry(spot, [c.bosdyn_image for c in candidates])
+        preview.update(standoff=walk_to_standoff, max_distance=walk_to_max_distance)
+        extras["walk_preview"] = preview
+    return _as_decision(feedback.bounding_box_detection_feedback(*args, **extras))
+
+
+def _look_around(spot):
+    """Nudge the heading so the next capture sees something different."""
+    execute_recovery_action(
+        spot,
+        recover_arm=False,
+        relative_pose=math_helpers.SE2Pose(
+            x=0.0, y=0.0, angle=np.random.choice([-0.5, 0.5])
+        ),
+    )
+    time.sleep(1)
 
 
 def object_grasp(
@@ -168,7 +251,19 @@ def object_grasp(
     grasp_constraint=None,
     debug=False,
     feedback=None,
+    carry_high=True,
+    should_stop=lambda: False,
+    walk_to_standoff=1.5,
+    walk_to_max_distance=5.0,
 ):
+    """Pick an object. should_stop() aborts the grasp; the robot then stays put.
+
+    With a feedback object the operator reviews the detection first and may
+    answer "walk to": the robot then walks toward the clicked ground/object
+    point (stopping `walk_to_standoff` meters short unless the operator chose a
+    stand point), captures new images and asks again. This repeats until the
+    operator approves or rejects, all within one grasp attempt.
+    """
     debug_images = []
 
     """Using the Boston Dynamics API to command Spot's arm"""
@@ -182,69 +277,75 @@ def object_grasp(
     robot_state_client = spot.state_client
     manipulation_api_client = spot.manipulation_api_client
 
-    attempts = 0
-    success = False
-
     # Set up the detector (e.g., for YOLOWorld, this may mean updating recognized classes)
     detector.set_up_detector(semantic_class)
 
-    while attempts < 2 and not success:
-        attempts += 1
+    while True:
+        detection_index, candidates = _capture_candidates(
+            spot, detector, image_source, semantic_class, user_input, debug
+        )
 
-        if not user_input:
-            # Try to get the centroid using the detector passed into the function.
-            xy, image, img = detector.return_centroid(
-                image_source, semantic_class, debug=debug
-            )
+        if candidates is None:
+            if feedback is not None:
+                feedback.print(
+                    "INFO",
+                    "Failed to capture any camera images. Please check the detector or user input.",
+                )
+            _look_around(spot)
+            return False
 
-            # If the detector fails to return the centroid, then try again until max_attempts
-            if xy is None:
-                continue
+        if feedback is None:
+            if detection_index is None:
+                _look_around(spot)
+                return False
+            image = candidates[detection_index].bosdyn_image
+            xy = candidates[detection_index].detection_xy
+            break
 
-            else:
-                success = True
+        # Display all candidate images in the approval panel
+        decision = _ask_operator(
+            spot,
+            feedback,
+            candidates,
+            detection_index,
+            semantic_class,
+            walk_to_standoff,
+            walk_to_max_distance,
+        )
 
-        else:
-            image, img = spot.get_image_RGB(view=image_source)
-            xy = get_user_grasp_input(spot, img)
-            print("Found object centroid:", xy)
-
-    if xy is None:
-        if feedback is not None:
+        if decision.walk_to:
+            if should_stop():
+                return False
             feedback.print(
                 "INFO",
-                "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input.",
+                f"User requested walk-to pixel {decision.pixel} in image "
+                f"{decision.image_index} ({candidates[decision.image_index].source_name}).",
             )
-        execute_recovery_action(
-            spot,
-            recover_arm=False,
-            relative_pose=math_helpers.SE2Pose(
-                x=0.0, y=0.0, angle=np.random.choice([-0.5, 0.5])
-            ),
-        )
-        time.sleep(1)
-        return False
-        # execute_recovery_action(spot, recover_arm=True)
-        # spot.sit()
-        # raise Exception(
-        #     "Failed to find an object in any cameras after 2 attempts. Please check the detector or user input."
-        # )
-
-    # If xy is not None, then display the annotated image
-    else:
-        if feedback is not None:
-            annotated_img = copy(img)
-
-            response = feedback.bounding_box_detection_feedback(
-                annotated_img,
-                xy[0],
-                xy[1],
-                semantic_class,
+            stow_arm(spot)
+            walk_to_pixel(
+                spot,
+                candidates[decision.image_index].bosdyn_image,
+                decision.pixel,
+                stand_pixel=decision.stand_pixel,
+                standoff=walk_to_standoff,
+                feedback=feedback,
+                should_stop=should_stop,
+                max_distance=walk_to_max_distance,
             )
-
-            if response is not None and not response:
-                feedback.print("INFO", "User requested abort.")
+            if should_stop():
                 return False
+            # Whether or not the walk finished, look again from where the
+            # robot now stands and let the operator decide afresh.
+            continue
+
+        if not decision.approved:
+            feedback.print("INFO", "User requested abort.")
+            return False
+
+        # Use selected camera image and pixel (panel always sends the correct selection)
+        image = candidates[decision.image_index].bosdyn_image
+        xy = decision.pixel
+        break
 
     pick_vec = geometry_pb2.Vec2(x=xy[0], y=xy[1])
     stow_arm(spot)
@@ -276,6 +377,11 @@ def object_grasp(
     success = False
     # Get feedback from the robot
     while True:
+        if should_stop():
+            if feedback is not None:
+                feedback.print("INFO", "Pick interrupted.")
+            return (False, debug_images) if debug else False
+
         current_time = time.time()
         if current_time - loop_timer > 15:
             if feedback is not None:
@@ -318,6 +424,21 @@ def object_grasp(
         )
         feedback.print("INFO", f"POST-LOOP STATE: {current_state}")
 
+    # If the robot was not successful, send it back to the location it started the skill at
+    if not success:
+        if should_stop():
+            return (False, debug_images) if debug else False
+        execute_recovery_action(
+            spot,
+            recover_arm=True,
+            relative_pose=math_helpers.SE2Pose(
+                x=np.random.uniform(-1, -0.5), y=0.0, angle=0.0
+            ),
+        )
+        if debug:
+            return success, debug_images
+        return success
+
     close_cmd = RobotCommandBuilder.claw_gripper_close_command(
         build_on_command=None,
         max_acc=None,
@@ -329,30 +450,24 @@ def object_grasp(
     time.sleep(0.25)
 
     # Move the arm to a carry position.
-    print("")
-    print("Grasp finished, search for a person...")
+    print("Grasp finished, carrying object.")
     carry_cmd = RobotCommandBuilder.arm_carry_command()
     spot.command_client.robot_command(carry_cmd)
-
-    # Wait for the carry command to finish
-    time.sleep(0.75)
+    time.sleep(1)
 
     print("Force stowing arm!")
-    # stow_arm(spot)
     force_stow_arm(manipulation_api_client, robot_state_client, spot.command_client)
     time.sleep(1)
 
-    print("Finished grasp.")
-
-    # If the robot was not successful, send it back to the location it started the skill at
-    if not success:
-        execute_recovery_action(
-            spot,
-            recover_arm=False,
-            relative_pose=math_helpers.SE2Pose(
-                x=np.random.uniform(-1, -0.5), y=0.0, angle=0.0
-            ),
+    if carry_high:
+        print("Carrying high")
+        body_tform_goal = math_helpers.SE3Pose(
+            x=0.6, y=0.0, z=0.6, rot=math_helpers.Quat()
         )
+        move_hand_to_relative_pose(spot, body_tform_goal)
+        time.sleep(1)
+
+    print("Finished grasp.")
 
     if debug:
         return success, debug_images

@@ -31,7 +31,7 @@ class Tester(Node):
         path = np.array(
             [
                 [0.0, 0],
-                [3.8, 0],
+                [2.8, 0],
                 # [3.0, 5],
                 # [5.0, 5],
             ]
@@ -47,12 +47,12 @@ class Tester(Node):
         # )
 
         pick_cmd = Pick(
-            "hamilton/odom", "bag", np.array([5.0, 5, 0]), np.array([7.0, 7, 0])
+            "hamilton/odom", "cone", np.array([5.0, 5, 0]), np.array([7.0, 7, 0]), ""
         )
 
         path = np.array(
             [
-                [3.8, 0],
+                [2.8, 0],
                 [5.8, 0],
             ]
         )
@@ -60,12 +60,15 @@ class Tester(Node):
         second_follow_cmd = Follow("hamilton/odom", path)
 
         place_cmd = Place(
-            "hamilton/odom", "bag", np.array([5.0, 5, 0]), np.array([7.0, 7, 0])
+            "hamilton/odom", "cone", np.array([5.0, 5, 0]), np.array([7.0, 7, 0]), ""
         )
 
         seq = ActionSequence(
             "id0", "spot", [follow_cmd, pick_cmd, second_follow_cmd, place_cmd]
         )
+        # seq = ActionSequence(
+        #     "id0", "spot", [follow_cmd, pick_cmd]
+        # )
 
         publisher.publish(to_msg(seq))
         viz_publisher.publish(to_viz_msg(seq, "planner_ns"))

@@ -150,12 +150,23 @@ class FakeCommandClient:
                 0
             ].pose.angle
 
-            z = self.fake_spot.get_pose()[2]
+            # Interpolate toward goal instead of teleporting
+            cur = self.fake_spot.get_pose()
+            z = cur[2]
+            dx = x - cur[0]
+            dy = y - cur[1]
+            dist = np.sqrt(dx**2 + dy**2)
+            max_step = self.fake_spot.fake_speed * 0.1  # speed * dt (10 Hz)
+            if dist > max_step:
+                ratio = max_step / dist
+                x = cur[0] + dx * ratio
+                y = cur[1] + dy * ratio
             self.fake_spot.set_pose((x, y, z, angle))
             self.fake_spot.moving = True
             self.fake_spot.last_move_command = time.time()
 
-        time.sleep(0.5)
+        # Short sleep so follow_trajectory_continuous can check cancel_cb frequently (~10 Hz)
+        time.sleep(0.1)
 
     def robot_command_feedback(self, cmd_id):
         print("Spot would return command feedback for cmd_id ", cmd_id)
@@ -230,6 +241,7 @@ class FakeSpot:
 
         self.moving = False
         self.last_move_command = time.time()
+        self.fake_speed = 4.0  # m/s for simulated movement (adjust to slow down)
 
         self.cmd_vel_linear = np.zeros(3)
         self.cmd_vel_angular = np.zeros(3)
@@ -270,6 +282,9 @@ class FakeSpot:
             self.cmd_vel_linear = v_linear
             self.cmd_vel_angular = v_angular
 
+    def stop(self):
+        self.set_vel(np.zeros(3), np.zeros(3))
+
     def get_pose(self):
         with self.pose_lock:
             return self.pose
@@ -279,9 +294,7 @@ class FakeSpot:
             self.pose = pose
 
     def get_state(self):
-        raise NotImplementedError(
-            "get_state not implemented for FakeSpot (what is it supposed to return?)"
-        )
+        return self.state_client.get_robot_state()
 
     def get_image_RGB(self, view="hand_color_image", show=False):
         return self.get_image(view=view, show=show)

@@ -4,7 +4,7 @@ import threading
 import numpy as np
 import shapely
 from attr import dataclass
-from scipy.ndimage import binary_dilation, convolve
+from scipy.ndimage import binary_dilation, convolve, distance_transform_edt
 
 
 def invert_pose(p):
@@ -34,6 +34,9 @@ class OccupancyMap:
         map_resolution=None,
         map_origin=None,
         inflate_radius_meters=0.5,
+        use_cost_map=False,
+        safe_distance=0.5,
+        nearest_obstacle_cost=5.0,
     ):
         self.feedback = feedback
         self.occupancy_map = occupancy_map
@@ -41,6 +44,10 @@ class OccupancyMap:
         self.map_origin = map_origin
         self.robot_pose = None  # <robot>/odom frame
         self.inflate_radius_meters = inflate_radius_meters
+        self.use_cost_map = use_cost_map
+        self.safe_distance = safe_distance  # meters
+        self.nearest_obstacle_cost = nearest_obstacle_cost
+        self.proximity_cost_map = None
         self.map_lock = threading.Lock()  # used for async updates
         self.last_update_time = None
 
@@ -67,6 +74,10 @@ class OccupancyMap:
             self.occupancy_map = self.inflate_obstacles(
                 self.occupancy_map, self.inflate_radius_meters
             )
+            if self.use_cost_map:
+                self.proximity_cost_map = self._compute_proximity_cost_map(
+                    self.occupancy_map
+                )
         self.feedback.print(
             "DEBUG",
             f"Occupancy map updated: shape={self.occupancy_map.shape}, resolution={self.map_resolution}, origin=\n{self.map_origin}, robot_pose=\n{self.robot_pose}",
@@ -151,12 +162,36 @@ class OccupancyMap:
 
         return inflated_grid
 
+    def _compute_proximity_cost_map(self, inflated_grid):
+        """
+        Computes a per-cell proximity cost based on Euclidean distance to the nearest obstacle.
+
+        For each free cell, if its distance to the nearest obstacle is within safe_distance,
+        a Gaussian (RBF) cost is assigned: cost = nearest_obstacle_cost * exp(-d^2 / (2*sigma^2))
+        where sigma = safe_distance_cells / 3, so cost drops to ~1% of max at the safe_distance
+        boundary. Cells beyond safe_distance get zero cost.
+
+        Returns a float32 array with the same shape as inflated_grid.
+        """
+        free_mask = inflated_grid == 0
+        dist_cells = distance_transform_edt(free_mask)  # distance in grid cells
+        safe_dist_cells = (
+            self.safe_distance / self.map_resolution
+        )  # convert safe distance to grid cells
+        sigma = safe_dist_cells / 3.0
+        raw_cost = self.nearest_obstacle_cost * np.exp(
+            -(dist_cells**2) / (2 * sigma**2)
+        )
+        proximity_cost_map = np.where(dist_cells < safe_dist_cells, raw_cost, 0.0)
+        return proximity_cost_map.astype(np.float32)
+
 
 @dataclass
 class MidLevelPlannerOutput:
     target_point_metric: np.ndarray
     path_shapely: shapely.LineString
     path_waypoints_metric: list
+    global_path_target_point_metric: np.ndarray
 
 
 class MidLevelPlanner:
@@ -270,6 +305,9 @@ class MidLevelPlanner:
                 ),
                 path_shapely=shapely.LineString(high_level_path_metric[:, :2]),
                 path_waypoints_metric=[],
+                global_path_target_point_metric=self.grid_cell_to_global_pose(
+                    target_point_grid
+                ),
             )
 
             # plan using a_star
@@ -287,7 +325,13 @@ class MidLevelPlanner:
                 self.grid_cell_to_global_pose((pt[0], pt[1])) for pt in a_star_path_grid
             ]
             a_star_path_metric = np.array(a_star_path_metric).reshape(-1, 4)
-            a_star_path_metric = a_star_path_metric[:, :2]
+            a_star_path_metric = a_star_path_metric[:, :2].reshape(-1, 2)
+            # TODO(multy) temp fix for visualization if a star only output one point
+            # in fact, this is probably reaching a local min we plan can't go farther.
+            if len(a_star_path_metric) == 1:
+                a_star_path_metric = np.vstack(
+                    (a_star_path_metric[0], a_star_path_metric)
+                )
             a_star_path_execute = a_star_path_metric
             output.path_shapely = shapely.LineString(a_star_path_execute)
             output.path_waypoints_metric = a_star_path_metric
@@ -482,7 +526,12 @@ class MidLevelPlanner:
                 if not is_valid(neighbor) or is_obstacle(neighbor):
                     continue
 
-                tentative_g_cost = g_cost[current] + 1
+                prox_cost = (
+                    self.occupancy_map_obj.proximity_cost_map[neighbor[0], neighbor[1]]
+                    if self.occupancy_map_obj.proximity_cost_map is not None
+                    else 0.0
+                )
+                tentative_g_cost = g_cost[current] + 1 + prox_cost
                 if tentative_g_cost < g_cost[neighbor]:
                     came_from[neighbor] = current
                     g_cost[neighbor] = tentative_g_cost
@@ -508,5 +557,6 @@ class IdentityPlanner:
             target_point_metric=None,
             path_shapely=shapely.LineString(high_level_path_metric[:, :2]),
             path_waypoints_metric=None,
+            global_path_target_point_metric=None,
         )
         return True, output

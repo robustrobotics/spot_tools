@@ -1,5 +1,6 @@
 import threading
 import time
+from copy import deepcopy
 
 import numpy as np
 import skimage as ski
@@ -35,6 +36,7 @@ from spot_skills.navigation_utils import (
 def transform_command_frame(tf_trans, tf_q, command, feedback=None):
     # command is Nx3 numpy array
 
+    command = deepcopy(command)
     R = Rotation.from_quat([tf_q.x, tf_q.y, tf_q.z, tf_q.w])
     _, _, yaw = R.as_euler("xyz", degrees=False)
 
@@ -71,6 +73,12 @@ class LeaseManager:
                 # owner of the full lease
                 self.owner = leases[0].lease_owner
                 self.owner_name = self.owner.client_name
+
+                # If someone else owns the lease, the current plan is invalid
+                # since the robot may be moved.
+                if not self.owner_name.startswith("understanding"):
+                    if self.feedback is not None:
+                        self.feedback.plan_valid = False
 
                 # If nobody owns the lease, then the owner string is empty.
                 # We should try to take the lease back in that case.
@@ -118,14 +126,14 @@ class LeaseManager:
                         else:
                             if self.feedback is not None:
                                 self.feedback.print(
-                                    "WARN",
+                                    "WARNING",
                                     "LEASE MANAGER THREAD: Could not clear all behavior faults, cannot stand.",
                                 )
                     time.sleep(1)
                     if self.feedback is not None:
                         self.feedback.break_out_of_waiting_loop = False
                     self.taking_back_lease = False
-                time.sleep(0.5)
+                time.sleep(0.1)
 
         self.monitoring_thread = threading.Thread(target=monitor_lease, daemon=False)
         self.monitoring_thread.start()
@@ -142,30 +150,86 @@ class SpotExecutor:
         goal_tolerance=2.8,
         feedback=None,
         use_fake_path_planner=False,
+        walk_to_standoff=1.5,
+        walk_to_max_distance=5.0,
     ):
         self.debug = False
         self.spot_interface = spot_interface
         self.transform_lookup = transform_lookup
+        # How far short of an operator's walk-to point the robot stops before
+        # re-detecting, when the operator did not choose a stand point.
+        self.walk_to_standoff = walk_to_standoff
+        # Longest single walk-to move; far targets are approached in steps.
+        self.walk_to_max_distance = walk_to_max_distance
         self.follower_lookahead = follower_lookahead
         self.goal_tolerance = goal_tolerance
         self.detector = detector
         self.keep_going = True
+        self.paused = False
         self.processing_action_sequence = False
         self.mid_level_planner = planner
         self.use_fake_path_planner = use_fake_path_planner
+        self._pause_lock = threading.Lock()
 
         self.lease_manager = None
 
     def initialize_lease_manager(self, feedback):
         self.lease_manager = LeaseManager(self.spot_interface, feedback)
 
-    def terminate_sequence(self, feedback):
-        # Tell the actions sequence to break
-        self.keep_going = False
+    def _stop_robot(self, feedback):
+        """Halt Spot where it is, without powering it on or standing it up.
 
-        # Blocking the thread so that it terminates cleanly by
-        # terminating the pick action and waiting for processing to end
+        If someone else holds the lease (e.g. an operator on the tablet), they
+        are in control and our plan is not moving the robot, so leave it alone.
+        """
+        lease = self.lease_manager
+        if lease is not None and not lease.owner_name.startswith("understanding"):
+            feedback.print(
+                "INFO",
+                f"Not stopping Spot: the lease is held by '{lease.owner_name}'.",
+            )
+            return
+        try:
+            self.spot_interface.stop()
+        except Exception as ex:
+            feedback.print(
+                "WARNING", f"Failed to stop Spot; robot may still be moving: {ex}"
+            )
+
+    def interrupted(self):
+        """True once the running plan is paused or terminated."""
+        with self._pause_lock:
+            return self.paused or not self.keep_going
+
+    def set_paused(self, value: bool, feedback):
+        # The goal manager pauses every robot of the last plan, including ones
+        # that have finished it. Stopping an idle Spot would take the lease
+        # from whoever holds it (e.g. an operator's tablet), so do nothing.
+        if value and not self.processing_action_sequence:
+            feedback.print("INFO", "Pause requested, but no plan is running.")
+            return
+
+        with self._pause_lock:
+            self.paused = value
+
+        if value:
+            feedback.print(
+                "INFO", "Pausing current action sequence; commanding Spot to stop."
+            )
+            self._stop_robot(feedback)
+        else:
+            feedback.print("INFO", "Resuming current action sequence.")
+
+    def terminate_sequence(self, feedback):
+        # Tell the action sequence loop to break
+        self.keep_going = False
+        with self._pause_lock:
+            self.paused = False
+
+        # Ask any blocking feedback waits to exit
         feedback.break_out_of_waiting_loop = True
+
+        self._stop_robot(feedback)
 
         # Block until action sequence is done executing
         while self.processing_action_sequence:
@@ -178,6 +242,8 @@ class SpotExecutor:
     def process_action_sequence(self, sequence, feedback):
         self.processing_action_sequence = True
         self.keep_going = True
+        with self._pause_lock:
+            self.paused = False
 
         try:
             feedback.print("INFO", "Would like to execute: ")
@@ -190,6 +256,15 @@ class SpotExecutor:
             ix = 0
             inner_loop_attempts = 0
             while ix < len(sequence.actions):
+                # Honor pause requests between actions
+                while True:
+                    with self._pause_lock:
+                        is_paused = self.paused
+                    if not is_paused or not self.keep_going:
+                        break
+                    feedback.print("INFO", "Action sequence paused.")
+                    time.sleep(0.1)
+
                 # If the lease manager is actively taking back the lease and getting the
                 # robot to stand back up, we don't want to send it any commands. It will break.
                 if (
@@ -224,6 +299,7 @@ class SpotExecutor:
                 feedback.print("INFO", command)
 
                 success = False
+                feedback.plan_valid = True
                 try:
                     if type(command) is Follow:
                         success = self.execute_follow(command, feedback)
@@ -262,6 +338,11 @@ class SpotExecutor:
                             f"SpotExecutor received unknown command type {type(command)}"
                         )
                     if success or inner_loop_attempts > 1:
+                        # Final attempt for this action: report how it ended,
+                        # so mission progress is known whatever planned it.
+                        report = getattr(feedback, "report_action_done", None)
+                        if report is not None:
+                            report(sequence, command, success)
                         ix += 1
                         inner_loop_attempts = 0
                     else:
@@ -300,10 +381,13 @@ class SpotExecutor:
         success = object_grasp(
             self.spot_interface,
             self.detector,
-            image_source="hand_color_image",
+            image_source="frontleft_fisheye_image",
             user_input=False,
             semantic_class=command.object_class,
             feedback=feedback,
+            should_stop=self.interrupted,
+            walk_to_standoff=self.walk_to_standoff,
+            walk_to_max_distance=self.walk_to_max_distance,
         )
 
         if self.debug:
@@ -321,7 +405,6 @@ class SpotExecutor:
 
         if success:
             # Update object holding state
-            # TODO: don't hard-code the object to hold
             feedback.set_robot_holding_state(True, command.object_id.upper())
 
         feedback.print("INFO", "Finished `pick` command")
@@ -330,11 +413,19 @@ class SpotExecutor:
 
     def execute_place(self, command, feedback):
         feedback.print("INFO", "Executing `place` command")
-        success = object_place(self.spot_interface, semantic_class=command.object_class)
+        success = object_place(
+            self.spot_interface,
+            semantic_class=command.object_class,
+            should_stop=self.interrupted,
+        )
 
         if success:
-            # Update object holding state
-            feedback.set_robot_holding_state(False, command.object_id.upper())
+            # Update object holding state. Record the object where the plan put
+            # it, not where the robot stands; the map is corrected if a later
+            # observation disagrees.
+            feedback.set_robot_holding_state(
+                False, command.object_id.upper(), position=command.object_point
+            )
 
         feedback.print("INFO", "Finished `place` command")
         return success
@@ -371,10 +462,18 @@ class SpotExecutor:
             )
             path_wp = planning_output.path_waypoints_metric
             target_point_metric = planning_output.target_point_metric
+            target_point_global_path_metric = (
+                planning_output.global_path_target_point_metric
+            )
             if not mlp_success:
                 feedback.print("INFO", "Mid-level planner failed to find a path")
             if target_point_metric is not None:
-                feedback.path_follow_MLP_feedback(path_wp, target_point_metric)
+                feedback.path_follow_MLP_feedback(
+                    path_wp,
+                    target_point_metric,
+                    target_point_global_path_metric,
+                    command_to_send[-1],
+                )
         else:
             ret = follow_trajectory_continuous(
                 self.spot_interface,
@@ -384,6 +483,8 @@ class SpotExecutor:
                 timeout,
                 self.mid_level_planner,
                 feedback=feedback,
+                cancel_cb=lambda: self.keep_going,
+                pause_cb=lambda: self.paused,
             )
         return ret
 

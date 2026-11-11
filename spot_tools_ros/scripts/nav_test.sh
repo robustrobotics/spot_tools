@@ -23,6 +23,7 @@ ADT4_SETUP=/home/swarm/dcist_ws/install/setup.zsh
 
 EXEC_TOPIC="/hamilton/omniplanner_node/compiled_plan_out"
 PAUSE_TOPIC="/hamilton/spot_executor_node/pause"
+RESUME_TOPIC="/hamilton/spot_executor_node/resume"
 MSG_TYPE="robot_executor_msgs/msg/ActionSequenceMsg"
 
 _pub() { ros2 topic pub "$EXEC_TOPIC" "$MSG_TYPE" "$1" -1; }
@@ -37,7 +38,7 @@ stand()        { _pub "{plan_id: 'test', robot_name: 'spot', actions: [{action_t
 sit()          { _pub "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'STAND_SIT', stand_sit_action: 'sit'}]}"; }
 stop()         { _pub "{plan_id: 'test', robot_name: 'spot', actions: [{action_type: 'STOP'}]}"; }
 pause()        { ros2 topic pub "$PAUSE_TOPIC" std_msgs/msg/Bool "{data: true}" -1; }
-resume()       { ros2 topic pub "$PAUSE_TOPIC" std_msgs/msg/Bool "{data: false}" -1; }
+resume()       { ros2 topic pub "$RESUME_TOPIC" std_msgs/msg/Bool "{data: true}" -1; }
 
 echo "Nav test commands loaded:"
 echo "  forward [m]      backward [m]"

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """ROS Python Package for Hydra-ROS."""
 
+import collections
 import queue
 import re
-import threading
 
 import bosdyn.client
 import bosdyn.client.util
@@ -13,8 +13,9 @@ import std_msgs.msg
 import tf2_ros
 from bosdyn.api import image_pb2
 from bosdyn.client.image import ImageClient, build_image_request
-from bosdyn.client.math_helpers import SE3Pose
+from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.robot_state import RobotStateClient
+from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -48,6 +49,8 @@ JOINT_NAMES = {
 }
 
 
+FRAME_REMAPS = ["odom:kinematic", "vision:odom"]
+EXCLUDED = [".*flat_body.*", ".*feet_center.*", ".*wr1", ".*foot.*"]
 STATIC_IDS = [
     "body",
     "frontright.*",
@@ -55,9 +58,8 @@ STATIC_IDS = [
     "left.*",
     "right.*",
     "rear.*",
+    "head",
 ]
-
-FRAME_REMAPS = ["odom:kinematic", "vision:odom"]
 
 
 def _compile_regex(filters):
@@ -167,6 +169,27 @@ def _build_transform_msg(stamp, child_frame, parent_frame, pose):
     msg.transform.rotation.z = pose.rotation.z
     msg.transform.rotation.w = pose.rotation.w
     return msg
+
+
+def _collate_transforms(msgs):
+    transform_map = collections.defaultdict(dict)
+    for stamp, transforms, feet_pos in msgs:
+        if feet_pos is not None:
+            for name, pos in feet_pos.items():
+                transform_map["body"][f"foot_{name}"] = (
+                    stamp,
+                    SE3Pose(pos.x, pos.y, pos.z, Quat()).to_proto(),
+                )
+
+        for frame in transforms.child_to_parent_edge_map:
+            transform = transforms.child_to_parent_edge_map.get(frame)
+            parent_frame = transform.parent_frame_name
+            if frame == "" or parent_frame == "":
+                continue
+
+            transform_map[parent_frame][frame] = (stamp, transform.parent_tform_child)
+
+    return transform_map
 
 
 class CameraPublisher:
@@ -290,6 +313,7 @@ class SpotClientNode(Node):
         )
 
         self._use_grayscale = self._get_param("use_grayscale", False).bool_value
+        self._include_feet_tfs = self._get_param("include_feet_tfs", False).bool_value
         self._tf_prefix = self._get_param("tf_prefix", "<ns>").string_value
         if self._tf_prefix == "<ns>":
             robot_ns = self.get_namespace()
@@ -311,23 +335,35 @@ class SpotClientNode(Node):
             err = f"Invalid parent '{self._parent_frame}'. Must be in {allowed_parents}"
             self.get_logger().error(err)
 
-        excluded_frames = self._get_param("excluded_frames", []).string_array_value
+        excluded_frames = self._get_param(
+            "excluded_frames", EXCLUDED
+        ).string_array_value
+        self.get_logger().info(f"Dropping frames matching {excluded_frames}")
         self._excluded_matcher = _compile_regex(excluded_frames)
 
         static_frames = self._get_param("static_frames", STATIC_IDS).string_array_value
+        self.get_logger().info(f"Frames matching {static_frames} are static")
         self._static_matcher = _compile_regex(static_frames)
 
         remaps = self._get_param("frame_remaps", FRAME_REMAPS).string_array_value
         self._frame_remaps = _parse_remaps(self.get_logger(), remaps)
+        self.get_logger().info(f"Remapping frames via {self._frame_remaps}")
 
-        queue_size = self._get_param("max_tf_queue_size", 10).integer_value
+        queue_size = self._get_param("max_tf_queue_size", 20).integer_value
         self._tf_queue = queue.Queue(queue_size)
         self._dynamic_pub = tf2_ros.TransformBroadcaster(self)
         self._static_pub = tf2_ros.StaticTransformBroadcaster(self)
+        self._odom_pub = self.create_publisher(Odometry, "odom", 10)
         self._joint_pub = self.create_publisher(JointState, "joint_states", 10)
 
-        self._tf_thread = threading.Thread(target=self._publish_transforms, daemon=True)
-        self._tf_thread.start()
+        self._static_tfs = []
+        self._static_seen = {}
+
+        tf_group = MutuallyExclusiveCallbackGroup()
+        tf_pub_period_s = self._get_param("tf_pub_period_s", 0.01).double_value
+        self._tf_timer = self.create_timer(
+            tf_pub_period_s, self._publish_transforms, callback_group=tf_group
+        )
 
         cam_poll_period_s = self._get_param("camera_poll_period_s", 0.05).double_value
         self._camera_timer = self.create_timer(cam_poll_period_s, self._camera_callback)
@@ -364,7 +400,6 @@ class SpotClientNode(Node):
 
         sdk = bosdyn.client.create_standard_sdk(name)
         robot = sdk.create_robot(robot_ip)
-
         if setup_logging:
             bosdyn.client.util.setup_logging()
 
@@ -373,9 +408,7 @@ class SpotClientNode(Node):
 
         while True:
             try:
-                self.get_logger().info(
-                    f"IP: {robot_ip}, Username: {username}, Password: {password}"
-                )
+                self.get_logger().info(f"IP: {robot_ip}, Username: {username}")
                 robot.authenticate(username, password)
                 break
             except Exception as e:
@@ -389,47 +422,43 @@ class SpotClientNode(Node):
     def _is_tf_static(self, child, parent):
         return self._static_matcher.match(child) and self._static_matcher.match(parent)
 
+    def _pop_tfs(self):
+        total = self._tf_queue.qsize()
+        curr_tfs = []
+        for _ in range(total):
+            try:
+                curr_tfs.append(self._tf_queue.get_nowait())
+            except queue.Empty:
+                pass
+
+        return curr_tfs
+
     def _publish_transforms(self):
-        static_tfs = []
-        static_seen = {}
-        while rclpy.ok():
-            new_static = False
-            stamp, transforms, feet_pos = self._tf_queue.get()
-            transform_map = transforms.child_to_parent_edge_map
+        curr_tfs = self._pop_tfs()
+        if not curr_tfs:
+            return
 
-            dynamic_tfs = []
-            dynamic_seen = {}
-            if feet_pos is not None:
-                for name, pos in feet_pos.items():
-                    msg = geometry_msgs.msg.TransformStamped()
-                    msg.header.stamp = stamp.to_msg()
-                    msg.header.frame_id = _prefix_frame(self._tf_prefix, "body")
-                    msg.child_frame_id = _prefix_frame(self._tf_prefix, f"foot_{name}")
-                    msg.transform.translation.x = pos.x
-                    msg.transform.translation.y = pos.y
-                    msg.transform.translation.z = pos.z
-                    dynamic_tfs.append(msg)
-
-            for frame in transform_map:
+        new_static = False
+        dynamic_tfs = []
+        dynamic_seen = {}
+        transform_map = _collate_transforms(curr_tfs)
+        for original_parent, children in transform_map.items():
+            for frame, stamped_pose in children.items():
+                parent_frame = original_parent
+                stamp, pose = stamped_pose
                 if self._excluded_matcher.match(frame):
                     continue
 
-                transform = transform_map.get(frame)
-                parent_frame = transform.parent_frame_name
-                if frame == "" or parent_frame == "":
-                    continue
-
-                pose = transform.parent_tform_child
                 if frame == self._parent_frame:
                     pose = SE3Pose.from_proto(pose).inverse().to_proto()
                     parent_frame, frame = frame, parent_frame
 
                 is_static = self._is_tf_static(frame, parent_frame)
-                # check if repeated static frame
-                if is_static and not _check_seen(static_seen, parent_frame, frame):
+                if is_static and not _check_seen(
+                    self._static_seen, parent_frame, frame
+                ):
                     continue
 
-                # check if repeated dynamic frame
                 if not is_static and not _check_seen(dynamic_seen, parent_frame, frame):
                     continue
 
@@ -442,16 +471,16 @@ class SpotClientNode(Node):
                 if is_static:
                     new_static = True
                     self.get_logger().info(
-                        f"New static TF {parent_frame}_T_{frame} @ {stamp.nanoseconds} [ns]"
+                        f"New static TF {parent_frame}_T_{frame} found"
                     )
-                    static_tfs.append(msg)
+                    self._static_tfs.append(msg)
                 else:
                     dynamic_tfs.append(msg)
 
-            if new_static:
-                self._static_pub.sendTransform(static_tfs)
+        if new_static:
+            self._static_pub.sendTransform(self._static_tfs)
 
-            self._dynamic_pub.sendTransform(dynamic_tfs)
+        self._dynamic_pub.sendTransform(dynamic_tfs)
 
     def _camera_callback(self):
         """Poll Spot for new image messages and publish."""
@@ -513,6 +542,38 @@ class SpotClientNode(Node):
                 f"TF queue is full! Dropping TF @ {stamp.nanoseconds} [ns]"
             )
 
+        self._publish_odom(stamp, pos_state)
+        self._publish_joints(stamp, pos_state)
+
+    def _publish_odom(self, stamp, state):
+        edge = state.transforms_snapshot.child_to_parent_edge_map.get("vision")
+        pose = edge.parent_tform_child
+        pose = SE3Pose.from_proto(pose).inverse().to_proto()
+
+        msg = Odometry()
+        msg.header.stamp = stamp.to_msg()
+        msg.header.frame_id = _prefix_frame(self._tf_prefix, "odom")
+        msg.child_frame_id = _prefix_frame(self._tf_prefix, "body")
+
+        msg.pose.pose.position.x = pose.position.x
+        msg.pose.pose.position.y = pose.position.y
+        msg.pose.pose.position.z = pose.position.z
+        msg.pose.pose.orientation.x = pose.rotation.x
+        msg.pose.pose.orientation.y = pose.rotation.y
+        msg.pose.pose.orientation.z = pose.rotation.z
+        msg.pose.pose.orientation.w = pose.rotation.w
+        msg.pose.covariance[0] = -1.0
+
+        msg.twist.twist.linear.x = state.velocity_of_body_in_vision.linear.x
+        msg.twist.twist.linear.y = state.velocity_of_body_in_vision.linear.y
+        msg.twist.twist.linear.z = state.velocity_of_body_in_vision.linear.z
+        msg.twist.twist.angular.x = state.velocity_of_body_in_vision.angular.x
+        msg.twist.twist.angular.y = state.velocity_of_body_in_vision.angular.y
+        msg.twist.twist.angular.z = state.velocity_of_body_in_vision.angular.z
+        msg.twist.covariance[0] = -1.0
+        self._odom_pub.publish(msg)
+
+    def _publish_joints(self, stamp, pos_state):
         msg = JointState()
         msg.header.stamp = stamp.to_msg()
         for joint in pos_state.joint_states:
@@ -539,11 +600,13 @@ def main(args=None):
         executor.add_node(node)
         try:
             executor.spin()
+        except KeyboardInterrupt:
+            pass
         finally:
             executor.shutdown()
             node.destroy_node()
     finally:
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

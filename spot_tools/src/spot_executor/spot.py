@@ -103,6 +103,22 @@ class Spot:
 
         return np.array([out_tform_body.x, out_tform_body.y, out_tform_body.angle])
 
+    def set_twist(self, vx, vy, v_rot):
+        cmd = RobotCommandBuilder.synchro_velocity_command(
+            v_x=vx,
+            v_y=vy,
+            v_rot=v_rot,
+        )
+        # Send with a short timeout so Spot stops if messages stop arriving
+        self.command_client.robot_command(
+            command=cmd,
+            end_time_secs=time.time() + 0.5,
+        )
+
+    def stop(self):
+        """Halt all motion where the robot is. Never powers on or stands up."""
+        self.command_client.robot_command(RobotCommandBuilder.stop_command())
+
     def get_image(self, view="hand_color_image", show=False):
         self.robot.logger.info("Getting an image from: %s", view)
         image_responses = self.image_client.get_image_from_sources([view])
