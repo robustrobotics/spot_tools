@@ -4,6 +4,7 @@ import time
 import numpy as np
 import skimage as ski
 from bosdyn.api.robot_state_pb2 import BehaviorFault
+from bosdyn.client import math_helpers
 from bosdyn.client.exceptions import LeaseUseError
 from bosdyn.client.robot_command import BehaviorFaultError
 from robot_executor_interface.action_descriptions import (
@@ -21,7 +22,6 @@ from scipy.spatial.transform import Rotation
 
 from spot_skills.arm_utils import gaze_at_vision_pose
 from spot_skills.grasp_utils import object_grasp, object_place, stow_arm
-from bosdyn.client import math_helpers
 from spot_skills.navigation_utils import (
     MAX_LINEAR_VEL,
     MAX_ROTATION_VEL,
@@ -389,9 +389,7 @@ class SpotExecutor:
 
     def execute_move_relative(self, command, feedback):
         feedback.print("INFO", f"Moving {command.distance_m}m forward")
-        body_tform_goal = math_helpers.SE2Pose(
-            x=command.distance_m, y=0, angle=0
-        )
+        body_tform_goal = math_helpers.SE2Pose(x=command.distance_m, y=0, angle=0)
         navigate_to_relative_pose(self.spot_interface, body_tform_goal)
         time.sleep(abs(command.distance_m) / MAX_LINEAR_VEL + 2)
         feedback.print("INFO", "Finished `move_relative` command")
@@ -399,7 +397,7 @@ class SpotExecutor:
 
     def execute_turn_relative(self, command, feedback):
         feedback.print("INFO", f"Turning {command.angle_deg} degrees")
-        angle_rad = -np.deg2rad(command.angle_deg)  # BD SE2Pose: positive=CW=right, so negate for positive=CCW=left
+        angle_rad = np.deg2rad(command.angle_deg)  # SDK rotations are CCW-positive.
         body_tform_goal = math_helpers.SE2Pose(x=0, y=0, angle=angle_rad)
         navigate_to_relative_pose(self.spot_interface, body_tform_goal)
         time.sleep(abs(angle_rad) / MAX_ROTATION_VEL + 2)
@@ -408,9 +406,7 @@ class SpotExecutor:
 
     def execute_strafe(self, command, feedback):
         feedback.print("INFO", f"Strafing {command.distance_m}m")
-        body_tform_goal = math_helpers.SE2Pose(
-            x=0, y=command.distance_m, angle=0
-        )
+        body_tform_goal = math_helpers.SE2Pose(x=0, y=command.distance_m, angle=0)
         navigate_to_relative_pose(self.spot_interface, body_tform_goal)
         time.sleep(abs(command.distance_m) / MAX_LINEAR_VEL + 2)
         feedback.print("INFO", "Finished `strafe` command")

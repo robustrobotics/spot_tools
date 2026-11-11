@@ -24,7 +24,6 @@ from robot_executor_interface.action_descriptions import (
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot_executor import SpotExecutor
 
-
 # --- Test Fixtures ---
 
 
@@ -146,3 +145,21 @@ class TestActionSequences:
         executor.process_action_sequence(seq, feedback)
         mock_nav.assert_called_once()
         fake_spot.sit.assert_called_once()
+
+
+@pytest.mark.parametrize("degrees, expected_forward", [(90, (0, 1)), (-90, (0, -1))])
+def test_turn_direction_matches_requested_body_frame_motion(
+    monkeypatch, executor, feedback, degrees, expected_forward
+):
+    def navigate(spot, goal):
+        # Apply the SDK's rotation to a forward vector, as real navigation does.
+        spot.target_forward = goal.to_rot_matrix() @ np.array([1.0, 0.0])
+
+    monkeypatch.setattr(
+        "spot_executor.spot_executor.navigate_to_relative_pose", navigate
+    )
+    monkeypatch.setattr("spot_executor.spot_executor.time.sleep", lambda *_: None)
+    assert executor.execute_turn_relative(TurnRelative(degrees), feedback)
+    np.testing.assert_allclose(
+        executor.spot_interface.target_forward, expected_forward, atol=1e-12
+    )
