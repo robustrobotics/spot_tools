@@ -5,6 +5,8 @@ Tests conversion between action dataclasses and ROS ActionMsg messages,
 verifying roundtrip serialization/deserialization.
 """
 
+from robot_executor_interface_ros.action_descriptions_ros import from_msg, to_msg
+
 from robot_executor_interface.action_descriptions import (
     ActionSequence,
     MoveRelative,
@@ -13,7 +15,6 @@ from robot_executor_interface.action_descriptions import (
     Strafe,
     TurnRelative,
 )
-from robot_executor_interface_ros.action_descriptions_ros import from_msg, to_msg
 
 
 class TestDirectNavigationSerialization:

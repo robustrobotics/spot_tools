@@ -32,9 +32,6 @@ import sys
 import time
 
 import numpy as np
-
-from spot_executor.spot import Spot
-from spot_executor.spot_executor import SpotExecutor
 from robot_executor_interface.action_descriptions import (
     ActionSequence,
     MoveRelative,
@@ -43,6 +40,9 @@ from robot_executor_interface.action_descriptions import (
     Strafe,
     TurnRelative,
 )
+
+from spot_executor.spot import Spot
+from spot_executor.spot_executor import SpotExecutor
 
 
 class TestFeedback:
