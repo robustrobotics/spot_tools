@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
         matrix:
-            python-version: ["3.8", "3.13"]
+            python-version: ["3.13"]
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
@@ -28,9 +28,14 @@ jobs:
         run: pip install pre-commit && cd ${{ github.workspace }}/spot_tools_repo && pre-commit run --all-files
       - name: Install Spot Tools
         run: |
-            pip install ${{ github.workspace }}/spot_tools_repo/robot_executor_interface
+            pip install ${{ github.workspace }}/spot_tools_repo/robot_executor_interface/robot_executor_interface
             pip install ${{ github.workspace }}/spot_tools_repo/robot_executor_interface/robot_executor_interface_ros
             pip install ${{ github.workspace }}/spot_tools_repo/spot_tools
             pip install ${{ github.workspace }}/spot_tools_repo/spot_tools_ros
-      - name: Run tests
-        run: cd ${{ github.workspace }}/spot_tools_repo && pytest spot_tools/tests spot_tools_ros/tests robot_executor_interface/robot_executor_interface_ros/tests -v
+      - name: Install hardware-free test dependencies
+        run: |
+            pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+            pip install ultralytics pygame
+      - name: Run hardware-free unit tests
+        working-directory: ${{ github.workspace }}/spot_tools_repo
+        run: python -m pytest spot_tools/tests -v

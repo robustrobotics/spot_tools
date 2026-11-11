@@ -504,7 +504,9 @@ class SpotExecutorRos(Node):
 
     def pause_callback(self, msg):
         if msg.data:
-            self.get_logger().info("PAUSE received — stopping robot and holding position")
+            self.get_logger().info(
+                "PAUSE received — stopping robot and holding position"
+            )
             self.paused = True
             self.status_str = "Paused"
 

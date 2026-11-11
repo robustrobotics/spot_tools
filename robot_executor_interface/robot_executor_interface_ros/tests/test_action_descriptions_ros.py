@@ -5,7 +5,6 @@ Tests conversion between action dataclasses and ROS ActionMsg messages,
 verifying roundtrip serialization/deserialization.
 """
 
-import pytest
 from robot_executor_interface.action_descriptions import (
     ActionSequence,
     MoveRelative,
@@ -21,9 +20,7 @@ class TestDirectNavigationSerialization:
     """Test ROS message serialization for direct navigation commands."""
 
     def test_move_relative_roundtrip(self):
-        original = ActionSequence(
-            "test", "spot", [MoveRelative(distance_m=2.5)]
-        )
+        original = ActionSequence("test", "spot", [MoveRelative(distance_m=2.5)])
         msg = to_msg(original)
         result = from_msg(msg)
         assert len(result.actions) == 1
@@ -31,17 +28,13 @@ class TestDirectNavigationSerialization:
         assert result.actions[0].distance_m == 2.5
 
     def test_move_relative_negative(self):
-        original = ActionSequence(
-            "test", "spot", [MoveRelative(distance_m=-3.0)]
-        )
+        original = ActionSequence("test", "spot", [MoveRelative(distance_m=-3.0)])
         msg = to_msg(original)
         result = from_msg(msg)
         assert result.actions[0].distance_m == -3.0
 
     def test_turn_relative_roundtrip(self):
-        original = ActionSequence(
-            "test", "spot", [TurnRelative(angle_deg=-45.0)]
-        )
+        original = ActionSequence("test", "spot", [TurnRelative(angle_deg=-45.0)])
         msg = to_msg(original)
         result = from_msg(msg)
         assert isinstance(result.actions[0], TurnRelative)
@@ -61,18 +54,14 @@ class TestDirectNavigationSerialization:
         assert isinstance(result.actions[0], Stop)
 
     def test_stand_sit_stand(self):
-        original = ActionSequence(
-            "test", "spot", [StandSit(action="stand")]
-        )
+        original = ActionSequence("test", "spot", [StandSit(action="stand")])
         msg = to_msg(original)
         result = from_msg(msg)
         assert isinstance(result.actions[0], StandSit)
         assert result.actions[0].action == "stand"
 
     def test_stand_sit_sit(self):
-        original = ActionSequence(
-            "test", "spot", [StandSit(action="sit")]
-        )
+        original = ActionSequence("test", "spot", [StandSit(action="sit")])
         msg = to_msg(original)
         result = from_msg(msg)
         assert isinstance(result.actions[0], StandSit)

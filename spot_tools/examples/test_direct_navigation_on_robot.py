@@ -87,9 +87,9 @@ def confirm(prompt):
 
 
 def run_action(executor, feedback, name, actions):
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"TEST: {name}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     seq = ActionSequence("test", "spot", actions)
     executor.process_action_sequence(seq, feedback)
 
@@ -134,7 +134,9 @@ def main():
     # --- Test 1: Move forward ---
     if confirm("Test 1: Move FORWARD 0.5m. Robot should take ~1 step forward. Ready?"):
         start = spot.get_pose()
-        run_action(executor, feedback, "Move Forward 0.5m", [MoveRelative(distance_m=0.5)])
+        run_action(
+            executor, feedback, "Move Forward 0.5m", [MoveRelative(distance_m=0.5)]
+        )
         end = spot.get_pose()
         dist = np.linalg.norm(end[:2] - start[:2])
         print(f"  Measured displacement: {dist:.2f}m (expected ~0.5m)")
@@ -142,9 +144,13 @@ def main():
         results.append(("Move Forward", passed))
 
     # --- Test 2: Move backward ---
-    if confirm("Test 2: Move BACKWARD 0.5m. Robot should return close to start. Ready?"):
+    if confirm(
+        "Test 2: Move BACKWARD 0.5m. Robot should return close to start. Ready?"
+    ):
         start = spot.get_pose()
-        run_action(executor, feedback, "Move Backward 0.5m", [MoveRelative(distance_m=-0.5)])
+        run_action(
+            executor, feedback, "Move Backward 0.5m", [MoveRelative(distance_m=-0.5)]
+        )
         end = spot.get_pose()
         dist = np.linalg.norm(end[:2] - start[:2])
         print(f"  Measured displacement: {dist:.2f}m (expected ~0.5m)")
@@ -154,7 +160,9 @@ def main():
     # --- Test 3: Turn left ---
     if confirm("Test 3: Turn LEFT 90 degrees (counter-clockwise from above). Ready?"):
         start_yaw = np.rad2deg(spot.get_pose()[2])
-        run_action(executor, feedback, "Turn Left 90deg", [TurnRelative(angle_deg=90.0)])
+        run_action(
+            executor, feedback, "Turn Left 90deg", [TurnRelative(angle_deg=90.0)]
+        )
         end_yaw = np.rad2deg(spot.get_pose()[2])
         delta = end_yaw - start_yaw
         # Normalize to [-180, 180]
@@ -164,9 +172,13 @@ def main():
         results.append(("Turn Left", passed))
 
     # --- Test 4: Turn right ---
-    if confirm("Test 4: Turn RIGHT 90 degrees (should return to original heading). Ready?"):
+    if confirm(
+        "Test 4: Turn RIGHT 90 degrees (should return to original heading). Ready?"
+    ):
         start_yaw = np.rad2deg(spot.get_pose()[2])
-        run_action(executor, feedback, "Turn Right 90deg", [TurnRelative(angle_deg=-90.0)])
+        run_action(
+            executor, feedback, "Turn Right 90deg", [TurnRelative(angle_deg=-90.0)]
+        )
         end_yaw = np.rad2deg(spot.get_pose()[2])
         delta = end_yaw - start_yaw
         delta = (delta + 180) % 360 - 180
@@ -175,7 +187,9 @@ def main():
         results.append(("Turn Right", passed))
 
     # --- Test 5: Strafe left ---
-    if confirm("Test 5: Strafe LEFT 0.5m. Robot should step sideways to its left. Ready?"):
+    if confirm(
+        "Test 5: Strafe LEFT 0.5m. Robot should step sideways to its left. Ready?"
+    ):
         start = spot.get_pose()
         run_action(executor, feedback, "Strafe Left 0.5m", [Strafe(distance_m=0.5)])
         end = spot.get_pose()
@@ -185,7 +199,9 @@ def main():
         results.append(("Strafe Left", passed))
 
     # --- Test 6: Strafe right ---
-    if confirm("Test 6: Strafe RIGHT 0.5m. Robot should return to original position. Ready?"):
+    if confirm(
+        "Test 6: Strafe RIGHT 0.5m. Robot should return to original position. Ready?"
+    ):
         start = spot.get_pose()
         run_action(executor, feedback, "Strafe Right 0.5m", [Strafe(distance_m=-0.5)])
         end = spot.get_pose()
@@ -240,9 +256,9 @@ def main():
         results.append(("L-shape Sequence", passed))
 
     # --- Summary ---
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("TEST RESULTS")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for name, passed in results:
         status = "PASS" if passed else "FAIL"
         print(f"  [{status}] {name}")

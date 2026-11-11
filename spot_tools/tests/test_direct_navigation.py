@@ -7,7 +7,6 @@ that FakeSpot doesn't implement) to verify executor dispatch and logic.
 Run with: python -m pytest spot_tools/tests/test_direct_navigation.py -v
 """
 
-from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -17,7 +16,6 @@ from robot_executor_interface.action_descriptions import (
     MoveRelative,
     StandSit,
     Stop,
-    Strafe,
     TurnRelative,
 )
 
