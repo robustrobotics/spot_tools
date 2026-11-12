@@ -148,6 +148,9 @@ class SpotExecutor:
         use_fake_path_planner=False,
         walk_to_standoff=1.5,
         walk_to_max_distance=5.0,
+        plan_progress=None,
+        plan_wait_timeout_s=900.0,
+        place_distance_warn_m=1.0,
     ):
         self.debug = False
         self.spot_interface = spot_interface
@@ -157,6 +160,9 @@ class SpotExecutor:
         self.walk_to_standoff = walk_to_standoff
         # Longest single walk-to move; far targets are approached in steps.
         self.walk_to_max_distance = walk_to_max_distance
+        # A place drops the object where the robot stands; warn when that is
+        # farther than this from the plan's place point.
+        self.place_distance_warn_m = place_distance_warn_m
         self.follower_lookahead = follower_lookahead
         self.goal_tolerance = goal_tolerance
         self.detector = detector
@@ -165,6 +171,14 @@ class SpotExecutor:
         self.processing_action_sequence = False
         self.mid_level_planner = planner
         self.use_fake_path_planner = use_fake_path_planner
+        # Precedence gate. Left None every action runs as soon as the previous
+        # one finishes, which is the behaviour every planner had before and is
+        # still what the fast-downward path gets -- it emits no ordering.
+        self.plan_progress = plan_progress
+        # How long to wait on other robots before giving up the sequence;
+        # 0 waits forever. A partner that crashed or was e-stopped never
+        # reports, and without this the robot would stand still silently.
+        self.plan_wait_timeout_s = plan_wait_timeout_s
         self._pause_lock = threading.Lock()
 
         self.lease_manager = None
@@ -251,6 +265,7 @@ class SpotExecutor:
 
             ix = 0
             inner_loop_attempts = 0
+            waiting_on, waiting_since, warned_at = None, None, None
             while ix < len(sequence.actions):
                 # Honor pause requests between actions
                 while True:
@@ -290,6 +305,43 @@ class SpotExecutor:
                 pick_next = False
                 if ix < len(sequence.actions) - 1:
                     pick_next = type(sequence.actions[ix + 1]) is Pick
+                # Wait for the tasks this one must follow, and for coalition
+                # partners to reach their own start. Polling rather than
+                # blocking so a pause, a lost lease or a preemption is still
+                # noticed while we wait -- the same reason the pause gate above
+                # polls.
+                if self.plan_progress is not None:
+                    blocked = self.plan_progress.blocked_on(
+                        sequence.plan_id, command, sequence.robot_name
+                    )
+                    if blocked:
+                        now = time.time()
+                        if waiting_on != blocked:
+                            feedback.print("INFO", f"Waiting on: {'; '.join(blocked)}")
+                            waiting_on = blocked
+                            waiting_since = waiting_since or now
+                            warned_at = now
+                        waited = now - waiting_since
+                        if (
+                            self.plan_wait_timeout_s
+                            and waited > self.plan_wait_timeout_s
+                        ):
+                            feedback.print(
+                                "ERROR",
+                                f"Gave up after waiting {waited:.0f} s on: "
+                                f"{'; '.join(blocked)}. Stopping this plan.",
+                            )
+                            break
+                        if now - warned_at > 30.0:
+                            feedback.print(
+                                "WARNING",
+                                f"Still waiting ({waited:.0f} s) on: {'; '.join(blocked)}",
+                            )
+                            warned_at = now
+                        time.sleep(0.1)
+                        continue
+                    waiting_on, waiting_since = None, None
+
                 feedback.print("INFO", "\n")
                 feedback.print("INFO", "Spot executor executing command: ")
                 feedback.print("INFO", command)
@@ -324,6 +376,34 @@ class SpotExecutor:
                         report = getattr(feedback, "report_action_done", None)
                         if report is not None:
                             report(sequence, command, success)
+                        # A failed scheduled action has not established the
+                        # task's effects. Stop this plan and leave dependents
+                        # blocked instead of reporting the task as DONE.
+                        if not success and getattr(command, "task_id", ""):
+                            feedback.print(
+                                "ERROR",
+                                f"Task {command.task_id} failed after "
+                                f"{inner_loop_attempts + 1} attempts; stopping this plan.",
+                            )
+                            self.keep_going = False
+                            self._stop_robot(feedback)
+                            break
+                        # A task spans several actions (a relocation is a pick,
+                        # a carry and a place); it is finished once the next
+                        # action belongs to a different one.
+                        if self.plan_progress is not None:
+                            task_id = getattr(command, "task_id", "")
+                            nxt = (
+                                sequence.actions[ix + 1]
+                                if ix + 1 < len(sequence.actions)
+                                else None
+                            )
+                            if task_id and (
+                                nxt is None or getattr(nxt, "task_id", "") != task_id
+                            ):
+                                self.plan_progress.announce_done(
+                                    sequence.plan_id, sequence.robot_name, task_id
+                                )
                         ix += 1
                         inner_loop_attempts = 0
                     else:
@@ -335,6 +415,13 @@ class SpotExecutor:
                     feedback.log_lease_takeover("manual_intervention")
                     # Wait until the lease manager has taken the lease back
                     time.sleep(2)
+                except Exception:
+                    # The sequence is aborted: report the action as failed, so
+                    # whatever planned it hears now rather than never.
+                    report = getattr(feedback, "report_action_done", None)
+                    if report is not None:
+                        report(sequence, command, False)
+                    raise
 
         except Exception as ex:
             self.processing_action_sequence = False
@@ -386,7 +473,7 @@ class SpotExecutor:
 
         if success:
             # Update object holding state
-            feedback.set_robot_holding_state(True, command.object_id.upper())
+            self._update_holding_state(feedback, True, command.object_id.upper())
 
         feedback.print("INFO", "Finished `pick` command")
         feedback.print("INFO", f"Pick skill success: {success}")
@@ -394,6 +481,7 @@ class SpotExecutor:
 
     def execute_place(self, command, feedback):
         feedback.print("INFO", "Executing `place` command")
+        self._check_place_distance(command, feedback)
         success = object_place(
             self.spot_interface,
             semantic_class=command.object_class,
@@ -404,12 +492,64 @@ class SpotExecutor:
             # Update object holding state. Record the object where the plan put
             # it, not where the robot stands; the map is corrected if a later
             # observation disagrees.
-            feedback.set_robot_holding_state(
-                False, command.object_id.upper(), position=command.object_point
+            self._update_holding_state(
+                feedback,
+                False,
+                command.object_id.upper(),
+                position=command.object_point,
             )
 
         feedback.print("INFO", "Finished `place` command")
         return success
+
+    def _update_holding_state(self, feedback, is_holding, object_id, position=None):
+        """Report holding to the map without affecting the action's result.
+
+        The pick or place already happened, so its success stands (and is
+        reported on /action_done) even if the holding update is lost.
+        """
+        try:
+            ok = feedback.set_robot_holding_state(
+                is_holding, object_id, position=position
+            )
+        except Exception as ex:
+            ok = False
+            feedback.print("ERROR", f"Holding update for {object_id} raised: {ex!r}")
+        if ok is False:
+            feedback.print(
+                "ERROR",
+                f"Holding update for {object_id} (is_holding={is_holding}) did not "
+                "reach the map; the action result still reports it.",
+            )
+        return ok
+
+    def _check_place_distance(self, command, feedback):
+        """Warn if the robot is far from the plan's place point.
+
+        The object is dropped where the robot stands, but the map records it
+        at command.object_point. Logging only; the place goes ahead.
+        """
+        try:
+            t, r = self.transform_lookup("<spot_vision_frame>", command.frame)
+            target = transform_command_frame(
+                t, r, np.array([[*command.object_point[:2], 0.0]], dtype=float)
+            )[0, :2]
+            robot = np.asarray(self.spot_interface.get_pose(), dtype=float)[:2]
+        except Exception as ex:
+            feedback.print(
+                "DEBUG", f"Place distance check skipped (no robot or target pose: {ex})"
+            )
+            return None
+        distance = float(np.linalg.norm(robot - target))
+        if distance > self.place_distance_warn_m:
+            feedback.print(
+                "WARNING",
+                f"Placing {command.object_id} {distance:.2f} m from the plan's place "
+                f"point {list(np.round(command.object_point[:2], 2))} "
+                f"(threshold {self.place_distance_warn_m:.2f} m); the map records it "
+                "at the place point, not where it is dropped.",
+            )
+        return distance
 
     def execute_follow(self, command, feedback):
         feedback.print("INFO", "Executing `follow` command")
@@ -426,7 +566,18 @@ class SpotExecutor:
         path_distance = np.sum(
             np.linalg.norm(np.diff(command_to_send[:, :2], axis=0), axis=1)
         )
-        timeout = path_distance * 6
+        # Count the approach to the first waypoint too, and give every path a
+        # few seconds: a one-waypoint path has zero length, so it used to time
+        # out before the follower could see the robot was already there.
+        start = np.array(self.spot_interface.get_pose()[:2])
+        path_distance += np.linalg.norm(command_to_send[0, :2] - start)
+        if len(command_to_send) == 1:
+            # A path needs two points (the follower and mid-level planners make
+            # a LineString of it); drive from where the robot is.
+            here = command_to_send[0].copy()
+            here[:2] = start
+            command_to_send = np.vstack([here, command_to_send])
+        timeout = max(path_distance * 6, 5.0)
         feedback.print(
             "INFO",
             f"Using continous follower with params:\n\tlookahead: {self.follower_lookahead}\n\tgoal tolerance: {self.goal_tolerance}\n\ttimeout: {timeout}",

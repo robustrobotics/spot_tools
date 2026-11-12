@@ -129,3 +129,24 @@ Pausing or terminating the plan interrupts a walk-to like any other motion. The
 offline tests `spot_tools/examples/test_walk_to_geometry.py` and
 `spot_tools/examples/test_object_grasp_walk_to.py` cover the geometry and the
 approval loop without a robot or the Boston Dynamics SDK. 
+## Executor tests
+
+The CI workflow runs the hardware-free executor and plan-progress tests:
+
+```bash
+python -m pytest robot_executor_interface/robot_executor_interface/tests spot_tools/test -v
+```
+
+They use fake robot interfaces and do not command hardware. ROS-specific tests
+in `spot_tools_ros/test` additionally need a sourced ROS workspace with matching
+`robot_executor_msgs`, `heracles_ros_interfaces`, and the executor's ROS dependencies.
+Run those locally after rebuilding the message packages on the base station and robots.
+
+### Holding updates over relayed links
+
+The executor retries the base station's `UpdateHoldingState` service using
+`holding_service_attempts` (default 3), `holding_service_wait_s` (3 seconds per
+attempt), and `holding_service_call_timeout_s` (5 seconds per reply). A failed
+update is logged without changing a successful pick/place result; `/action_done`
+also reports the completed action. The client uses a separate callback group so
+a preempting plan cannot block its reply while waiting for the old sequence.
