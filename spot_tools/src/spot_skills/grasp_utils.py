@@ -131,6 +131,7 @@ def object_place(spot, semantic_class="bag", position=None, should_stop=lambda: 
         return False
 
     open_gripper(spot)
+    spot.carrying_object = False
     stow_arm(spot)
     close_gripper(spot)
 
@@ -466,6 +467,8 @@ def object_grasp(
         move_hand_to_relative_pose(spot, body_tform_goal)
         time.sleep(1)
 
+    if success:
+        spot.carrying_object = True
     print("Finished grasp.")
 
     if debug:
