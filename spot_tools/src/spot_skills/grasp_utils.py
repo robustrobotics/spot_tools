@@ -91,6 +91,15 @@ def clear_holding_state(manipulation_client, state_client, timeout=3.0):
     return wait_until_grasp_state_updates(override_request, state_client, timeout)
 
 
+def raise_to_carry_high(spot, timeout=4.0):
+    """Raise the hand so a carried object is clear of the front cameras.
+
+    Returns False if the arm did not arrive within timeout seconds.
+    """
+    body_tform_goal = math_helpers.SE3Pose(x=0.6, y=0.0, z=0.8, rot=math_helpers.Quat())
+    return move_hand_to_relative_pose(spot, body_tform_goal, timeout)
+
+
 def force_stow_arm(manipulation_client, state_client, command_client):
     # grasp_override = manipulation_api_pb2.ApiGraspOverride()
     # grasp_override.override = manipulation_api_pb2.ApiGraspOverride.CARRIABLE_AND_STOWABLE
@@ -487,10 +496,7 @@ def object_grasp(
 
     if carry_high:
         print("Carrying high")
-        body_tform_goal = math_helpers.SE3Pose(
-            x=0.6, y=0.0, z=0.6, rot=math_helpers.Quat()
-        )
-        move_hand_to_relative_pose(spot, body_tform_goal)
+        raise_to_carry_high(spot)
         time.sleep(1)
 
     if success:
