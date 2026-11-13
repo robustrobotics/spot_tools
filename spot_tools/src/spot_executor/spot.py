@@ -40,6 +40,7 @@ class Spot:
         labelspace_map=None,
     ):
         self.is_fake = False
+        self.carrying_object = False
         self.verbose = verbose
         bosdyn.client.util.setup_logging(verbose)
         self.sdk = bosdyn.client.create_standard_sdk("understanding-spot")
