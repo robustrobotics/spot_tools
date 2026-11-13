@@ -41,12 +41,21 @@ g_image_click = None
 g_image_display = None
 
 
-def wait_until_grasp_state_updates(grasp_override_command, robot_state_client):
+def wait_until_grasp_state_updates(
+    grasp_override_command, robot_state_client, timeout=None
+):
+    """Wait for Spot's grasp state to match the override.
+
+    Returns False if timeout (seconds) passes first; None waits forever.
+    """
     updated = False
     has_grasp_override = grasp_override_command.HasField("api_grasp_override")
     has_carry_state_override = grasp_override_command.HasField("carry_state_override")
+    start = time.time()
 
     while not updated:
+        if timeout is not None and time.time() - start > timeout:
+            return False
         robot_state = robot_state_client.get_robot_state()
 
         grasp_state_updated = (
@@ -68,6 +77,18 @@ def wait_until_grasp_state_updates(grasp_override_command, robot_state_client):
             not has_carry_state_override or carry_state_updated
         )
         time.sleep(0.1)
+    return True
+
+
+def clear_holding_state(manipulation_client, state_client, timeout=3.0):
+    """Tell Spot the gripper is empty. Returns False if the state did not update."""
+    override_request = manipulation_api_pb2.ApiGraspOverrideRequest(
+        api_grasp_override=manipulation_api_pb2.ApiGraspOverride(
+            override_request=manipulation_api_pb2.ApiGraspOverride.OVERRIDE_NOT_HOLDING
+        )
+    )
+    manipulation_client.grasp_override_command(override_request)
+    return wait_until_grasp_state_updates(override_request, state_client, timeout)
 
 
 def force_stow_arm(manipulation_client, state_client, command_client):
@@ -132,6 +153,10 @@ def object_place(spot, semantic_class="bag", position=None, should_stop=lambda: 
 
     open_gripper(spot)
     spot.carrying_object = False
+    if spot.manipulation_api_client is None:
+        print("WARNING: no manipulation client, Spot may still report holding.")
+    elif not clear_holding_state(spot.manipulation_api_client, spot.state_client):
+        print("WARNING: Spot still reports holding an item after the place.")
     stow_arm(spot)
     close_gripper(spot)
 
