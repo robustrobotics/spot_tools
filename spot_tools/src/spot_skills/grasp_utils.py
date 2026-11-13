@@ -96,7 +96,7 @@ def raise_to_carry_high(spot, timeout=4.0):
 
     Returns False if the arm did not arrive within timeout seconds.
     """
-    body_tform_goal = math_helpers.SE3Pose(x=0.6, y=0.0, z=0.8, rot=math_helpers.Quat())
+    body_tform_goal = math_helpers.SE3Pose(x=0.6, y=0.0, z=0.7, rot=math_helpers.Quat())
     return move_hand_to_relative_pose(spot, body_tform_goal, timeout)
 
 
