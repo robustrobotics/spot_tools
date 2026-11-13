@@ -16,7 +16,12 @@ from robot_executor_interface.action_descriptions import (
 from scipy.spatial.transform import Rotation
 
 from spot_skills.arm_utils import gaze_at_vision_pose
-from spot_skills.grasp_utils import object_grasp, object_place, stow_arm
+from spot_skills.grasp_utils import (
+    object_grasp,
+    object_place,
+    raise_to_carry_high,
+    stow_arm,
+)
 from spot_skills.navigation_utils import (
     follow_trajectory_continuous,
     turn_to_point,
@@ -149,6 +154,8 @@ class LeaseManager:
             )
             self.feedback.log_lease_takeover("spot_executor_takes_lease")
         self.spot_interface.take_lease()
+        state = self.spot_interface.get_state()
+        was_holding = state.manipulator_state.is_gripper_holding_item
         try:
             stow_arm(self.spot_interface)
             self.spot_interface.stand()
@@ -172,6 +179,22 @@ class LeaseManager:
                     self.feedback.print(
                         "WARNING",
                         "LEASE MANAGER THREAD: Could not clear all behavior faults, cannot stand.",
+                    )
+                return
+
+        # The stow leaves a carried object in front of the cameras. Return to the
+        # carry pose; plans wait on taking_back_lease until this is done.
+        if was_holding:
+            if self.feedback is not None:
+                self.feedback.print(
+                    "INFO",
+                    "LEASE MANAGER THREAD: Holding an object, raising arm to carry pose.",
+                )
+            if not raise_to_carry_high(self.spot_interface):
+                if self.feedback is not None:
+                    self.feedback.print(
+                        "WARNING",
+                        "LEASE MANAGER THREAD: Arm did not reach the carry pose.",
                     )
 
 
