@@ -18,10 +18,13 @@ from bosdyn.client.robot_command import (
 from bosdyn.client.robot_state import RobotStateClient
 
 
-def move_hand_to_relative_pose(spot, body_tform_goal: math_helpers.SE3Pose) -> None:
+def move_hand_to_relative_pose(
+    spot, body_tform_goal: math_helpers.SE3Pose, timeout: float = 2.0
+) -> bool:
     """Move the spot hand.
 
-    The target pose is relative to the robot's body.
+    The target pose is relative to the robot's body. Returns False if the arm
+    did not arrive within timeout seconds.
     """
 
     robot_command_client = spot.robot.ensure_client(
@@ -44,7 +47,7 @@ def move_hand_to_relative_pose(spot, body_tform_goal: math_helpers.SE3Pose) -> N
     cmd_id = robot_command_client.robot_command(full_cmd)
 
     # Wait until the arm arrives at the goal.
-    block_until_arm_arrives(robot_command_client, cmd_id, 2.0)
+    return block_until_arm_arrives(robot_command_client, cmd_id, timeout)
 
 
 def gaze_at_relative_pose(

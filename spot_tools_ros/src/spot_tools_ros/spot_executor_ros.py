@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import threading
@@ -12,27 +13,39 @@ import tf2_ros
 import yaml
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point as PointMsg
+from geometry_msgs.msg import Twist
 from heracles_ros_interfaces.srv import UpdateHoldingState
 from nav_msgs.msg import Path
 from nlu_interface_rviz.msg import (
     ManipulationApprovalRequest,
     ManipulationApprovalResponse,
 )
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import (
+    MutuallyExclusiveCallbackGroup,
+    ReentrantCallbackGroup,
+)
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from robot_executor_interface_ros.action_descriptions_ros import from_msg
-from robot_executor_msgs.msg import ActionDoneMsg, ActionMsg, ActionSequenceMsg
+from robot_executor_msgs.msg import (
+    ActionDoneMsg,
+    ActionMsg,
+    ActionResultMsg,
+    ActionSequenceMsg,
+    RuntimeGuardsMsg,
+)
 from ros_system_monitor_msgs.msg import NodeInfoMsg
 from sensor_msgs.msg import CompressedImage, Image
 from shapely.geometry import Point
 from spot_executor.fake_spot import FakeSpot
 from spot_executor.spot import Spot
+from spot_executor.teleop import HARD_MAX, TeleopController
 from spot_skills.approval import ApprovalDecision
 from spot_skills.depth_utils import encode_depth_png, encode_jpeg
 from spot_skills.detection_utils import YOLODetector
 from std_msgs.msg import Bool, String
+from std_srvs.srv import Trigger
 from visualization_msgs.msg import Marker, MarkerArray
 
 from robot_executor_interface.action_descriptions import Follow, Gaze, Pick, Place
@@ -43,6 +56,7 @@ from robot_executor_interface.mid_level_planner import (
 )
 from spot_tools_ros.fake_spot_ros import FakeSpotRos
 from spot_tools_ros.occupancy_grid_ros_updater import OccupancyGridROSUpdater
+from spot_tools_ros.service_utils import call_service_with_retry
 from spot_tools_ros.utils import get_tf_pose, waypoints_to_path
 
 
@@ -97,6 +111,20 @@ class RosFeedbackCollector:
         self.break_out_of_waiting_loop = False
         self.plan_valid = True
         self.odom_frame = odom_frame
+
+        # Executor -> planner return channel: publisher + the
+        # dispatched sequence's identity, set by process_action_sequence
+        # before execution starts so every per-action result can echo them.
+        self.action_result_pub = None
+        self._clock = None
+        self.current_plan_id = ""
+        self.current_robot_name = ""
+        # UpdateHoldingState calls cross the fleet relay to the base station,
+        # where a short wait is not enough. Overwritten from node parameters.
+        self.holding_service_wait_s = 3.0
+        self.holding_service_call_timeout_s = 5.0
+        self.holding_service_attempts = 3
+        self.robot_name = ""
 
         self.output_dir = output_dir
         self.log_to_file_level = log_to_file_level
@@ -342,9 +370,27 @@ class RosFeedbackCollector:
     def feedback_viz_2(self, y):
         pass
 
+    def action_result(self, command, action_index, status, detail=""):
+        """Publish one action's outcome. Called by
+        SpotExecutor._report_action_result; must never raise into the
+        execution loop (the caller guards, this stays defensive anyway)."""
+        if self.action_result_pub is None:
+            return
+        msg = ActionResultMsg()
+        if self._clock is not None:
+            msg.header.stamp = self._clock.now().to_msg()
+        msg.robot_name = self.current_robot_name
+        msg.plan_id = self.current_plan_id
+        msg.action_type = type(command).__name__.upper()
+        msg.action_index = int(action_index)
+        msg.status = str(status)
+        msg.detail = str(detail)
+        self.action_result_pub.publish(msg)
+
     def register_publishers(self, node):
         self.logger = node.get_logger()
         self._clock = node.get_clock()
+        self.robot_name = node.get_namespace().strip("/") or node.get_name()
 
         # ROS 2 transient local QoS for "latching" behavior
         latching_qos = QoSProfile(
@@ -387,6 +433,13 @@ class RosFeedbackCollector:
 
         self.lease_takeover_publisher = node.create_publisher(String, "~/takeover", 10)
 
+        # Per-action results back to the planner. Plain queue QoS —
+        # consumers want the stream, not just the last value.
+        self.action_result_pub = node.create_publisher(
+            ActionResultMsg, "~/action_result", 10
+        )
+        self._clock = node.get_clock()
+
         node.create_subscription(
             ManipulationApprovalResponse,
             "~/pick_confirmation",
@@ -394,8 +447,14 @@ class RosFeedbackCollector:
             10,
         )
 
+        # Its own reentrant group: the call is made from the action sequence
+        # thread and waits for the reply, which the executor must deliver even
+        # while a default-group callback (e.g. a preempting plan waiting for
+        # the old sequence to end) is running.
         self.holding_client = node.create_client(
-            UpdateHoldingState, "update_holding_state"
+            UpdateHoldingState,
+            "update_holding_state",
+            callback_group=ReentrantCallbackGroup(),
         )
 
         # Fleet-wide, like the plan itself: the planner reads every robot's
@@ -444,8 +503,14 @@ class RosFeedbackCollector:
         self.action_done_pub.publish(msg)
 
     def set_robot_holding_state(
-        self, is_holding: bool, object_id: str, position=None, timeout=5
+        self, is_holding: bool, object_id: str, position=None, timeout=None
     ):
+        """Tell the base station this robot now holds (or put down) object_id.
+
+        Returns True if the base station accepted the update. A failure is
+        logged at ERROR but never raised: the pick or place itself succeeded,
+        and its result is still reported on /action_done.
+        """
         req = UpdateHoldingState.Request()
         req.is_holding = is_holding
         req.id = object_id
@@ -459,18 +524,34 @@ class RosFeedbackCollector:
                 z=float(position[2]) if len(position) > 2 else 0.0,
             )
 
-        if not self.holding_client.wait_for_service(timeout_sec=0.5):
-            self.logger.warning("UpdateHoldingState service not available")
+        verb = "picked" if is_holding else "placed"
+        description = (
+            f"UpdateHoldingState for robot '{self.robot_name}' {verb} "
+            f"object '{object_id}'"
+        )
+        if timeout is None:
+            timeout = self.holding_service_call_timeout_s
+        try:
+            response = call_service_with_retry(
+                self.holding_client,
+                req,
+                self.logger,
+                description,
+                attempts=self.holding_service_attempts,
+                wait_for_service_s=self.holding_service_wait_s,
+                call_timeout_s=timeout,
+            )
+        except Exception:
+            self.logger.error(f"{description} raised:\n{traceback.format_exc()}")
             return False
-
-        future = self.holding_client.call_async(req)
-        start = time.time()
-        while not future.done():
-            if time.time() - start > timeout:
-                self.logger.error("UpdateHoldingState call timed out")
-                return False
-
-        return future.result().success
+        if response is None:
+            # call_service_with_retry already logged the failure at ERROR.
+            return False
+        if not response.success:
+            self.logger.error(f"{description}: rejected by the base station")
+            return False
+        self.logger.info(f"{description}: accepted by the base station")
+        return True
 
     def pick_confirmation_callback(self, msg):
         # if msg.data:
@@ -514,6 +595,18 @@ class RosFeedbackCollector:
         msg = String()
         msg.data = f"{t},{event}"
         self.lease_takeover_publisher.publish(msg)
+
+
+def take_lease_report(lease_manager) -> tuple[bool, str]:
+    """Force-take the lease via ``lease_manager``; ``(success, message)`` with the
+    owner before and after.  Never raises (a service callback must not)."""
+    try:
+        before, after = lease_manager.force_take()
+    except Exception as e:  # noqa: BLE001
+        return False, f"take failed: {type(e).__name__}: {e}"
+    ours = str(after).startswith("understanding")
+    msg = f"lease owner before: {before or '(nobody)'}; after: {after or '(nobody)'}"
+    return ours, msg if ours else f"{msg} (not ours after take)"
 
 
 class SpotExecutorRos(Node):
@@ -567,6 +660,10 @@ class SpotExecutorRos(Node):
         compress_manipulation_requests = self.get_parameter(
             "compress_manipulation_requests"
         ).value
+        # Place: warn when the robot is farther than this (m) from the plan's
+        # place point when it drops the object. Logging only.
+        self.declare_parameter("place_distance_warn_m", 1.0)
+        place_distance_warn_m = self.get_parameter("place_distance_warn_m").value
         # semantic_model_path = self.get_parameter("semantic_model_path").value
         # labelspace_path = self.get_parameter("labelspace_path").value
         # semantic_name_to_id = load_inverse_semantic_id_map_from_label_space(
@@ -604,6 +701,18 @@ class SpotExecutorRos(Node):
         )
         self.feedback_collector.compress_manipulation_requests = bool(
             compress_manipulation_requests
+        )
+        self.declare_parameter("holding_service_wait_s", 3.0)
+        self.declare_parameter("holding_service_call_timeout_s", 5.0)
+        self.declare_parameter("holding_service_attempts", 3)
+        self.feedback_collector.holding_service_wait_s = float(
+            self.get_parameter("holding_service_wait_s").value
+        )
+        self.feedback_collector.holding_service_call_timeout_s = float(
+            self.get_parameter("holding_service_call_timeout_s").value
+        )
+        self.feedback_collector.holding_service_attempts = int(
+            self.get_parameter("holding_service_attempts").value
         )
         self.feedback_collector.register_publishers(self)
 
@@ -733,7 +842,7 @@ class SpotExecutorRos(Node):
             try:
                 return get_tf_pose(self.tf_buffer, parent, child)
             except tf2_ros.TransformException as e:
-                self.get_logger.warn(f"Failed to get transform: {e}")
+                self.get_logger().warning(f"Failed to get transform: {e}")
 
         self.tf_lookup_fn = tf_lookup_fn  # TODO: use this to test transformation
 
@@ -753,6 +862,7 @@ class SpotExecutorRos(Node):
             use_fake_path_plan,
             walk_to_standoff=pick_walk_to_standoff,
             walk_to_max_distance=pick_walk_to_max_distance,
+            place_distance_warn_m=place_distance_warn_m,
         )
         self.spot_executor.initialize_lease_manager(self.feedback_collector)
 
@@ -764,6 +874,13 @@ class SpotExecutorRos(Node):
         )
 
         self.heartbeat_pub = self.create_publisher(NodeInfoMsg, "~/node_status", 1)
+        # Volatile platform-state snapshot for the planner's dispatch gate.
+        # Published on every 10th heartbeat tick (~1 Hz at the 0.1 s
+        # heartbeat): guards are dispatch-time state, not telemetry.
+        self.runtime_guards_pub = self.create_publisher(
+            RuntimeGuardsMsg, "~/runtime_guards", 1
+        )
+        self._guard_tick = 0
         heartbeat_timer_group = MutuallyExclusiveCallbackGroup()
         timer_period_s = 0.1
         self.timer = self.create_timer(
@@ -780,6 +897,106 @@ class SpotExecutorRos(Node):
         )
         self.stop_sub = self.create_subscription(Bool, "~/stop", self.handle_stop, 10)
 
+        # Operator override (console "Take lease"): forcibly take the Spot lease,
+        # e.g. from the tablet. Own group: it blocks on the robot for a moment.
+        self.take_lease_srv = self.create_service(
+            Trigger,
+            "~/take_lease",
+            self.handle_take_lease,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+
+        self.setup_teleop()
+
+    # ---------------------------------------------------------------- teleop
+    def setup_teleop(self):
+        """Operator teleop through the executor (it owns the lease): ~/cmd_vel
+        (geometry_msgs/Twist, body frame), ~/stand and ~/sit (std_srvs/Trigger),
+        ~/teleop_state (std_msgs/String JSON).  Caps can only be lowered below
+        spot_executor.teleop.HARD_MAX; a deadman stops the robot when cmd_vel
+        stops arriving."""
+        self.declare_parameter("teleop_max_vx", HARD_MAX["vx"])
+        self.declare_parameter("teleop_max_vy", HARD_MAX["vy"])
+        self.declare_parameter("teleop_max_wz", HARD_MAX["wz"])
+        self.declare_parameter("teleop_deadman_s", 0.5)
+
+        def log(level, message):
+            self.feedback_collector.print(level, message)
+
+        self.teleop = TeleopController(
+            self.spot_interface,
+            self.spot_executor,
+            max_vx=self.get_parameter("teleop_max_vx").value,
+            max_vy=self.get_parameter("teleop_max_vy").value,
+            max_wz=self.get_parameter("teleop_max_wz").value,
+            deadman_s=self.get_parameter("teleop_deadman_s").value,
+            log=log,
+        )
+        self.get_logger().info(
+            f"teleop caps {self.teleop.caps}, deadman {self.teleop.deadman_s} s"
+        )
+        self._teleop_standing = None
+        self._teleop_state_tick = 0
+        self._teleop_was_active = False
+        self.teleop_state_pub = self.create_publisher(String, "~/teleop_state", 1)
+        self.cmd_vel_sub = self.create_subscription(
+            Twist,
+            "~/cmd_vel",
+            self.handle_cmd_vel,
+            1,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        # Stand/sit use separate callback groups; the controller's motion lock
+        # serializes them with plan handoffs and velocity commands.
+        self.stand_srv = self.create_service(
+            Trigger,
+            "~/stand",
+            lambda req, res: self._posture_service(self.teleop.stand, res),
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self.sit_srv = self.create_service(
+            Trigger,
+            "~/sit",
+            lambda req, res: self._posture_service(self.teleop.sit, res),
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self.teleop_timer = self.create_timer(
+            0.05, self.teleop_tick, callback_group=MutuallyExclusiveCallbackGroup()
+        )
+
+    def handle_cmd_vel(self, msg: Twist):
+        self.teleop.cmd_vel(msg.linear.x, msg.linear.y, msg.angular.z)
+
+    def _posture_service(self, fn, response):
+        response.success, response.message = fn()
+        self.publish_teleop_state(refresh_standing=True)
+        return response
+
+    def teleop_tick(self):
+        """Deadman at 20 Hz; teleop state at 5 Hz while active, else 1 Hz, and
+        at once when teleop starts or stops."""
+        self.teleop.tick()
+        self._teleop_state_tick += 1
+        active = self.teleop.active
+        every = 4 if active else 20
+        if active != self._teleop_was_active or self._teleop_state_tick % every == 0:
+            self.publish_teleop_state(
+                refresh_standing=self._teleop_state_tick % 20 == 0
+            )
+        self._teleop_was_active = active
+
+    def publish_teleop_state(self, refresh_standing=False):
+        try:
+            if refresh_standing or self._teleop_standing is None:
+                self._teleop_standing = self.teleop.robot_standing()
+            st = self.teleop.state(self._teleop_standing)
+            st["robot"] = self.get_namespace().strip("/")
+            st["executor"] = self.status_str
+            st["t"] = time.time()
+            self.teleop_state_pub.publish(String(data=json.dumps(st)))
+        except Exception as e:  # noqa: BLE001 -- state is best effort
+            self.get_logger().warning(f"teleop state: {e}")
+
     def hb_callback(self):
         msg = NodeInfoMsg()
         msg.nickname = "spot_executor"
@@ -787,6 +1004,59 @@ class SpotExecutorRos(Node):
         msg.status = NodeInfoMsg.NOMINAL
         msg.notes = self.status_str
         self.heartbeat_pub.publish(msg)
+
+        self._guard_tick += 1
+        if self._guard_tick % 10 == 0:
+            self.publish_runtime_guards()
+
+    def publish_runtime_guards(self):
+        """Best-effort guard snapshot; must never break the heartbeat."""
+        from spot_executor.guards import extract_runtime_guards
+
+        try:
+            state = self.spot_interface.get_state()
+        except Exception as e:  # noqa: BLE001 -- a state hiccup is not fatal
+            self.get_logger().warning(f"runtime guards: get_state failed: {e}")
+            return
+        lease_owned = None
+        owner = None
+        lease_manager = getattr(self.spot_executor, "lease_manager", None)
+        if lease_manager is not None:
+            owner = getattr(lease_manager, "owner_name", None)
+            if owner is not None:
+                lease_owned = str(owner).startswith("understanding")
+        guards = extract_runtime_guards(
+            state, lease_owned=lease_owned, lease_owner=owner
+        )
+        msg = RuntimeGuardsMsg()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.robot_name = self.get_namespace().strip("/")
+        msg.battery_percent = float(guards["battery_percent"])
+        msg.battery_known = bool(guards["battery_known"])
+        msg.estop_pressed = bool(guards["estop_pressed"])
+        msg.estop_known = bool(guards["estop_known"])
+        msg.powered_on = bool(guards["powered_on"])
+        msg.power_known = bool(guards["power_known"])
+        msg.lease_owned = bool(guards["lease_owned"])
+        msg.lease_known = bool(guards["lease_known"])
+        msg.lease_owner = str(guards["lease_owner"])
+        msg.faults = [str(f) for f in guards["faults"]]
+        msg.notes = self.status_str
+        teleop = getattr(self, "teleop", None)
+        if teleop is not None:
+            msg.notes = f"{self.status_str}; {teleop.notes(self._teleop_standing)}"
+        self.runtime_guards_pub.publish(msg)
+
+    def handle_take_lease(self, request, response):
+        lease_manager = getattr(self.spot_executor, "lease_manager", None)
+        if lease_manager is None:
+            response.success = False
+            response.message = "no lease manager (executor not initialized)"
+            return response
+        response.success, response.message = take_lease_report(lease_manager)
+        log = self.get_logger().info if response.success else self.get_logger().error
+        log(f"take_lease: {response.message}")
+        return response
 
     def handle_pause(self, msg: Bool):
         if msg.data:
@@ -796,9 +1066,16 @@ class SpotExecutorRos(Node):
     def handle_resume(self, msg: Bool):
         if msg.data:
             self.get_logger().info("Received external resume request.")
-            self.spot_executor.set_paused(False, self.feedback_collector)
+            if self.spot_executor.processing_action_sequence:
+                # the plan takes the robot back
+                with self.teleop.plan_control("plan resumed"):
+                    self.spot_executor.set_paused(False, self.feedback_collector)
+            else:
+                self.spot_executor.set_paused(False, self.feedback_collector)
 
     def handle_stop(self, msg: Bool):
+        # Operator stop also ends teleop and halts the robot (lease permitting).
+        self.teleop.cancel("stop requested", force_stop=True)
         # Best-effort hard stop of the current action sequence, if any.
         if self.background_thread is not None and self.background_thread.is_alive():
             self.get_logger().info(
@@ -817,6 +1094,7 @@ class SpotExecutorRos(Node):
             with self._plan_id_lock:
                 if self._current_plan_id == getattr(msg, "plan_id", None):
                     self._current_plan_id = None
+                    self.spot_executor.processing_action_sequence = False
             self.get_logger().error(
                 "Failed to handle incoming plan "
                 f"(plan_id={getattr(msg, 'plan_id', '<unknown>')}); node staying up:\n"
@@ -834,18 +1112,31 @@ class SpotExecutorRos(Node):
                     f"Ignoring duplicate plan (plan_id={msg.plan_id}), already executing"
                 )
                 return
-            if self.background_thread is not None and self.background_thread.is_alive():
-                self.get_logger().info(
-                    f"Preempting current plan (plan_id={self._current_plan_id}) with new plan (plan_id={msg.plan_id})"
-                )
-                self.spot_executor.terminate_sequence(self.feedback_collector)
-            self._current_plan_id = msg.plan_id
+            with self.teleop.plan_control(f"new plan {msg.plan_id} received"):
+                # An incoming plan takes the robot from the operator.
+                if (
+                    self.background_thread is not None
+                    and self.background_thread.is_alive()
+                ):
+                    self.get_logger().info(
+                        f"Preempting current plan (plan_id={self._current_plan_id}) with new plan (plan_id={msg.plan_id})"
+                    )
+                    self.spot_executor.terminate_sequence(self.feedback_collector)
+                self._current_plan_id = msg.plan_id
+
+                self.spot_executor.processing_action_sequence = True
+                self.spot_executor.paused = False
 
         def process_sequence():
             try:
                 self.status_str = "Processing action sequence"
                 self.get_logger().info("Starting action sequence")
                 sequence = from_msg(msg)
+
+                # Every per-action result echoes the dispatched
+                # sequence's identity.
+                self.feedback_collector.current_plan_id = msg.plan_id
+                self.feedback_collector.current_robot_name = msg.robot_name
 
                 self.spot_executor.process_action_sequence(
                     sequence, self.feedback_collector
@@ -863,6 +1154,7 @@ class SpotExecutorRos(Node):
                 with self._plan_id_lock:
                     if self._current_plan_id == msg.plan_id:
                         self._current_plan_id = None
+                        self.spot_executor.processing_action_sequence = False
                 self.status_str = "Idle"
 
         self.feedback_collector.break_out_of_waiting_loop = False

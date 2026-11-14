@@ -226,6 +226,7 @@ class FakeSpot:
     ):
         print("Initialized Fake Spot!")
         self.is_fake = True
+        self.carrying_object = False
         self.pose_lock = threading.Lock()
         self.vel_lock = threading.Lock()
         self.robot = FakeRobot(self)
@@ -294,6 +295,8 @@ class FakeSpot:
             self.pose = pose
 
     def get_state(self):
+        # Same as Spot.get_state: the fake state client builds the RobotState
+        # (navigate_to_absolute_pose and the runtime guards both need it).
         return self.state_client.get_robot_state()
 
     def get_image_RGB(self, view="hand_color_image", show=False):
