@@ -1,5 +1,6 @@
 import logging
 import math
+import threading
 import time
 
 import bosdyn.client.util
@@ -39,6 +40,7 @@ class Spot:
         semantic_name_to_id=None,
         labelspace_map=None,
     ):
+        self._lease_lock = threading.RLock()
         self.is_fake = False
         self.verbose = verbose
         bosdyn.client.util.setup_logging(verbose)
@@ -103,16 +105,16 @@ class Spot:
 
         return np.array([out_tform_body.x, out_tform_body.y, out_tform_body.angle])
 
-    def set_twist(self, vx, vy, v_rot):
+    def set_twist(self, vx, vy, v_rot, duration_s=0.5):
         cmd = RobotCommandBuilder.synchro_velocity_command(
             v_x=vx,
             v_y=vy,
             v_rot=v_rot,
         )
-        # Send with a short timeout so Spot stops if messages stop arriving
+        # Send with a short end time so Spot stops if messages stop arriving
         self.command_client.robot_command(
             command=cmd,
-            end_time_secs=time.time() + 0.5,
+            end_time_secs=time.time() + float(duration_s),
         )
 
     def stop(self):
@@ -248,18 +250,24 @@ class Spot:
         self.estop_client.get_status()
 
     def aquire_lease(self):
-        self.lease = self.lease_client.acquire()
-        self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(
-            self.lease_client, warnings=False
-        )
-        self.lease_client.list_leases()
+        with self._lease_lock:
+            self.lease = self.lease_client.acquire()
+            self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(
+                self.lease_client, warnings=False
+            )
+            self.lease_client.list_leases()
 
     def take_lease(self):
-        self.lease_client.take()
-        self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(
-            self.lease_client, warnings=False
-        )
-        self.lease_client.list_leases()
+        with self._lease_lock:
+            self.lease_client.take()
+            if self.lease_keep_alive is not None:
+                # a second take (lease manager / operator) must not leave the old
+                # keep-alive thread running alongside the new one
+                self.lease_keep_alive.shutdown()
+            self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(
+                self.lease_client, warnings=False
+            )
+            self.lease_client.list_leases()
 
     def power_on(self):
         """
