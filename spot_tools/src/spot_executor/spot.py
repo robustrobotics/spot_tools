@@ -42,6 +42,7 @@ class Spot:
     ):
         self._lease_lock = threading.RLock()
         self.is_fake = False
+        self.carrying_object = False
         self.verbose = verbose
         bosdyn.client.util.setup_logging(verbose)
         self.sdk = bosdyn.client.create_standard_sdk("understanding-spot")

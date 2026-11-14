@@ -226,6 +226,7 @@ class FakeSpot:
     ):
         print("Initialized Fake Spot!")
         self.is_fake = True
+        self.carrying_object = False
         self.pose_lock = threading.Lock()
         self.vel_lock = threading.Lock()
         self.robot = FakeRobot(self)
