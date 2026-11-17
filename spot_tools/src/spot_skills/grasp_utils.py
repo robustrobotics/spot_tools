@@ -140,6 +140,65 @@ def force_stow_arm(manipulation_client, state_client, command_client):
     block_until_arm_arrives(command_client, cmd_id)
 
 
+def release_failed_grasp(spot):
+    """Let go and stow after a pick the operator judged failed.
+
+    object_grasp leaves the arm in the carry pose with the gripper closed and
+    Spot believing it holds an item. This undoes that, so the pick can be run
+    again from a clean state (or the plan can end with an empty gripper).
+    """
+    spot.carrying_object = False
+    if spot.is_fake:
+        return
+    open_gripper(spot)
+    if spot.manipulation_api_client is None:
+        print("WARNING: no manipulation client, Spot may still report holding.")
+    elif not clear_holding_state(spot.manipulation_api_client, spot.state_client):
+        print("WARNING: Spot still reports holding an item after the release.")
+    stow_arm(spot)
+    close_gripper(spot)
+
+
+# Cameras shown to the operator when asking whether a pick worked: the gripper's
+# own view, and the two front body cameras, which see the arm in the carry pose.
+# The front cameras are mounted sideways: (source, quarter turns clockwise).
+PICK_RESULT_VIEWS = (
+    ("hand_color_image", 0),
+    ("frontleft_fisheye_image", 1),
+    ("frontright_fisheye_image", 1),
+)
+
+
+PICK_RESULT_MAX_SIDE = 640
+
+
+def capture_pick_result_images(spot, log=print):
+    """[(source name, upright image)] for the after-pick question; best effort."""
+    images = []
+    for source, turns in PICK_RESULT_VIEWS:
+        try:
+            _, img = spot.get_image_RGB(view=source)
+        except Exception as ex:  # noqa: BLE001 -- a missing view is not fatal
+            log(f"No {source} image for the pick result question: {ex}")
+            continue
+        if img is None:
+            continue
+        if turns:
+            img = np.rot90(img, k=-turns).copy()
+        # The question travels over the radio link and is repeated while it is
+        # unanswered: enough pixels to judge the grasp, no more.
+        longest = max(img.shape[:2])
+        if longest > PICK_RESULT_MAX_SIDE:
+            scale = PICK_RESULT_MAX_SIDE / longest
+            img = cv2.resize(
+                img,
+                (round(img.shape[1] * scale), round(img.shape[0] * scale)),
+                interpolation=cv2.INTER_AREA,
+            )
+        images.append((source, img))
+    return images
+
+
 def object_place(spot, semantic_class="bag", position=None, should_stop=lambda: False):
     """Drop a grasped object.
 

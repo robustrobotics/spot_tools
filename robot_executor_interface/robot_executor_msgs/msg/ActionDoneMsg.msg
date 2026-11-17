@@ -4,6 +4,9 @@
 # or put down -- is read from these, so it is the same for every planner.
 # Published once per action, after its final attempt.
 
+# header.frame_id is a note on how the action ended, empty for most actions:
+#   "operator_gave_up"  a failed PICK the operator chose not to try again; the
+#                       robot's action sequence ended with it. Do not replan it.
 std_msgs/Header header
 
 # Matches ActionSequenceMsg.plan_id.
