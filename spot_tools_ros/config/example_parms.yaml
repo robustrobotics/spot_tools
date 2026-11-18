@@ -26,6 +26,10 @@
         # manipulation approval requests: JPEG candidates + registered depth (true,
         # read by the web console) or legacy raw images (false, read by RViz).
         compress_manipulation_requests: true
+        # after a pick the robot believes worked, ask the operator whether it holds
+        # the object (web console popup) and retry the pick if not. The robot waits
+        # for the answer: set false when no operator UI shows the question.
+        confirm_pick_result: true
         # place: warn when the robot drops the object farther than this (meters)
         # from the plan's place point (logging only)
         place_distance_warn_m: 1.0

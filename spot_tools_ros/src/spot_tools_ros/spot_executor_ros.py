@@ -4,6 +4,8 @@ import os
 import threading
 import time
 import traceback
+import uuid
+from base64 import b64encode
 
 import numpy as np
 import rclpy
@@ -108,6 +110,13 @@ class RosFeedbackCollector:
         self.pick_confirmation_walk_to = False
         self.pick_confirmation_stand_xy = None
 
+        # The after-pick question ("did the robot pick it up?"), see
+        # confirm_pick_result.
+        self.pick_result_event = threading.Event()
+        self._pick_result_lock = threading.Lock()
+        self._pick_result_request_id = None
+        self._pick_result_answer = None
+
         self.break_out_of_waiting_loop = False
         self.plan_valid = True
         self.odom_frame = odom_frame
@@ -170,6 +179,99 @@ class RosFeedbackCollector:
     # RViz panel reads. Set from the executor parameter
     # compress_manipulation_requests.
     compress_manipulation_requests = True
+
+    # Seconds between repeats of an unanswered after-pick question, for an
+    # operator UI that started (or reconnected) after it was first sent.
+    pick_result_repeat_s = 20.0
+
+    def confirm_pick_result(
+        self, object_id, object_class, attempt, images, gripper_holding
+    ):
+        """Ask the operator whether the robot picked the object up, and wait.
+
+        Publishes one JSON question on ~/pick_result_request and waits for the
+        JSON answer with the same request_id on ~/pick_result:
+
+          question: {"request_id", "object_id", "object_class", "attempt",
+                     "gripper_holding" (Spot's own sensor, or null),
+                     "images": [{"name", "jpeg_b64"}]}
+          answer:   {"request_id", "result": "picked" | "retry" | "give_up"}
+          closing:  {"request_id", "closed": <result or "stopped">}, on the
+                    question topic, so every UI drops the question.
+
+        Returns the result. A stop while waiting returns "picked": the robot's
+        own belief stands, as it did before this question existed.
+        """
+        request_id = uuid.uuid4().hex
+        question = json.dumps(
+            {
+                "request_id": request_id,
+                "object_id": str(object_id),
+                "object_class": str(object_class),
+                "attempt": int(attempt),
+                "gripper_holding": gripper_holding,
+                "images": [
+                    {"name": name, "jpeg_b64": b64encode(encode_jpeg(img, 80)).decode()}
+                    for name, img in images
+                ],
+            }
+        )
+        with self._pick_result_lock:
+            self._pick_result_request_id = request_id
+            self._pick_result_answer = None
+            self.pick_result_event.clear()
+        self.pick_result_request_pub.publish(String(data=question))
+
+        waited = 0.0
+        while not self.break_out_of_waiting_loop:
+            if self.pick_result_event.wait(timeout=1.0):
+                break
+            waited += 1.0
+            if waited % 5 == 0:
+                self.logger.info(
+                    f"Waiting for the operator to say whether {object_id} was picked..."
+                )
+            if waited % self.pick_result_repeat_s == 0:
+                self.pick_result_request_pub.publish(String(data=question))
+
+        with self._pick_result_lock:
+            answer = self._pick_result_answer
+            self._pick_result_request_id = None
+            self._pick_result_answer = None
+        result = answer if answer is not None else "picked"
+        self.pick_result_request_pub.publish(
+            String(
+                data=json.dumps(
+                    {
+                        "request_id": request_id,
+                        "closed": result if answer is not None else "stopped",
+                    }
+                )
+            )
+        )
+        if answer is None:
+            self.logger.info("Stopped while waiting for the pick result.")
+        else:
+            self.logger.info(f"Pick result from the operator: {answer}")
+        return result
+
+    def pick_result_callback(self, msg):
+        try:
+            answer = json.loads(msg.data)
+            request_id = answer["request_id"]
+            result = answer["result"]
+        except (ValueError, TypeError, KeyError):
+            self.logger.warn("Ignoring a malformed pick result answer.")
+            return
+        if result not in ("picked", "retry", "give_up"):
+            self.logger.warn(f"Ignoring an unknown pick result: {result!r}")
+            return
+        with self._pick_result_lock:
+            if request_id != self._pick_result_request_id:
+                self.logger.warn("Ignoring a pick result for a question not pending.")
+                return
+            self._pick_result_answer = result
+            self.pick_result_event.set()
 
     def _manipulation_request(self, detection_imgs, depth_images):
         request_msg = ManipulationApprovalRequest()
@@ -431,6 +533,14 @@ class RosFeedbackCollector:
             qos_profile=latching_qos,
         )
 
+        # The after-pick question and its answer (confirm_pick_result). Latched,
+        # so a UI that connects while the robot waits still gets the question;
+        # the closing message replaces it once it is answered.
+        self.pick_result_request_pub = node.create_publisher(
+            String, "~/pick_result_request", qos_profile=latching_qos
+        )
+        node.create_subscription(String, "~/pick_result", self.pick_result_callback, 10)
+
         self.lease_takeover_publisher = node.create_publisher(String, "~/takeover", 10)
 
         # Per-action results back to the planner. Plain queue QoS —
@@ -471,9 +581,12 @@ class RosFeedbackCollector:
         with open(log_fn, "w") as fo:
             fo.write("time,event\n")
 
-    def report_action_done(self, sequence, command, success):
+    def report_action_done(self, sequence, command, success, note=""):
         msg = ActionDoneMsg()
         msg.header.stamp = self._clock.now().to_msg()
+        # how the action ended, when that matters to the planner (see
+        # ActionDoneMsg): "operator_gave_up" for a pick not to be replanned
+        msg.header.frame_id = note
         msg.plan_id = sequence.plan_id or ""
         msg.robot_name = sequence.robot_name or ""
         msg.success = bool(success)
@@ -660,6 +773,11 @@ class SpotExecutorRos(Node):
         compress_manipulation_requests = self.get_parameter(
             "compress_manipulation_requests"
         ).value
+        # After a pick the robot believes worked, ask the operator whether it
+        # holds the object, and retry the pick if not. The robot waits for the
+        # answer; turn this off when no operator UI shows the question.
+        self.declare_parameter("confirm_pick_result", True)
+        confirm_pick_result = bool(self.get_parameter("confirm_pick_result").value)
         # Place: warn when the robot is farther than this (m) from the plan's
         # place point when it drops the object. Logging only.
         self.declare_parameter("place_distance_warn_m", 1.0)
@@ -863,6 +981,7 @@ class SpotExecutorRos(Node):
             walk_to_standoff=pick_walk_to_standoff,
             walk_to_max_distance=pick_walk_to_max_distance,
             place_distance_warn_m=place_distance_warn_m,
+            confirm_pick_result=confirm_pick_result,
         )
         self.spot_executor.initialize_lease_manager(self.feedback_collector)
 

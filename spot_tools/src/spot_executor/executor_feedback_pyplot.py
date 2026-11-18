@@ -82,7 +82,7 @@ class FeedbackCollector:
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
-    def report_action_done(self, sequence, command, success):
+    def report_action_done(self, sequence, command, success, note=""):
         print(
             f"[ACTION DONE] {type(command).__name__} "
             f"{getattr(command, 'object_id', '')} success={success}"

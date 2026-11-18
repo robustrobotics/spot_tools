@@ -17,15 +17,24 @@ from scipy.spatial.transform import Rotation
 
 from spot_skills.arm_utils import gaze_at_vision_pose
 from spot_skills.grasp_utils import (
+    capture_pick_result_images,
     object_grasp,
     object_place,
     raise_to_carry_high,
+    release_failed_grasp,
     stow_arm,
 )
 from spot_skills.navigation_utils import (
     follow_trajectory_continuous,
     turn_to_point,
 )
+
+# The operator's answers to "did the pick work?" (feedback.confirm_pick_result).
+PICK_PICKED = "picked"
+PICK_RETRY = "retry"
+PICK_GIVE_UP = "give_up"
+# ActionDoneMsg note (header.frame_id) for a pick ended by PICK_GIVE_UP.
+OPERATOR_GAVE_UP = "operator_gave_up"
 
 
 def _report_action_result(feedback, command, action_index, status, detail=""):
@@ -212,8 +221,17 @@ class SpotExecutor:
         walk_to_standoff=1.5,
         walk_to_max_distance=5.0,
         place_distance_warn_m=1.0,
+        confirm_pick_result=True,
     ):
         self.debug = False
+        # After a pick the robot believes worked, ask the operator whether it
+        # really holds the object (feedback.confirm_pick_result). Off, or with
+        # a feedback collector that cannot ask, the robot's belief stands.
+        self.confirm_pick_result = confirm_pick_result
+        # The operator's answer for the pick that just ran, when it was not
+        # "picked": PICK_RETRY or PICK_GIVE_UP. Read by process_action_sequence.
+        self._pick_verdict = None
+        self._pick_attempt = 0
         self.spot_interface = spot_interface
         self.transform_lookup = transform_lookup
         # How far short of an operator's walk-to point the robot stops before
@@ -309,6 +327,8 @@ class SpotExecutor:
             self.paused = False
 
         ix = 0
+        self._pick_verdict = None
+        self._pick_attempt = 0
         try:
             feedback.print("INFO", "Would like to execute: ")
             for command in sequence.actions:
@@ -393,6 +413,38 @@ class SpotExecutor:
                         raise Exception(
                             f"SpotExecutor received unknown command type {type(command)}"
                         )
+                    verdict, self._pick_verdict = self._pick_verdict, None
+                    if verdict == PICK_RETRY and self.keep_going:
+                        # The operator saw the pick fail and asked for another
+                        # try. These do not count against the retry limit: the
+                        # operator decides how often.
+                        feedback.print(
+                            "INFO", "Operator reported the pick failed: retrying."
+                        )
+                        inner_loop_attempts = 0
+                        time.sleep(1)
+                        continue
+                    if verdict == PICK_GIVE_UP:
+                        # The rest of the plan assumes the robot holds the
+                        # object, so the sequence ends here.
+                        feedback.print(
+                            "INFO",
+                            "Operator reported the pick failed and gave up: "
+                            "ending the action sequence.",
+                        )
+                        _report_action_result(
+                            feedback,
+                            command,
+                            ix,
+                            "FAILED",
+                            "operator reported the pick failed and gave up",
+                        )
+                        report = getattr(feedback, "report_action_done", None)
+                        if report is not None:
+                            # the note keeps the planner from replanning the
+                            # pick, as it does for a pick that just failed
+                            report(sequence, command, False, note=OPERATOR_GAVE_UP)
+                        break
                     if success or inner_loop_attempts > 1:
                         # The action is being advanced past: either it
                         # succeeded, or it exhausted its retries (advanced
@@ -488,12 +540,58 @@ class SpotExecutor:
             feedback.pick_image_feedback(sem_img, outline_img)
 
         if success:
-            # Update object holding state
-            self._update_holding_state(feedback, True, command.object_id.upper())
+            verdict = self._ask_pick_result(command, feedback)
+            if verdict == PICK_PICKED:
+                self._pick_attempt = 0
+                # Update object holding state
+                self._update_holding_state(feedback, True, command.object_id.upper())
+            else:
+                self._pick_verdict = verdict
+                success = False
+                if verdict == PICK_GIVE_UP:
+                    self._pick_attempt = 0
+                release_failed_grasp(self.spot_interface)
 
         feedback.print("INFO", "Finished `pick` command")
         feedback.print("INFO", f"Pick skill success: {success}")
         return success
+
+    def _ask_pick_result(self, command, feedback):
+        """Ask the operator whether the pick that just "succeeded" really did.
+
+        Returns PICK_PICKED, PICK_RETRY or PICK_GIVE_UP. Anything that keeps the
+        question from being asked or answered (confirmation off, a feedback
+        collector that cannot ask, a stop while waiting, an error) leaves the
+        robot's own belief in place: picked.
+        """
+        ask = getattr(feedback, "confirm_pick_result", None)
+        if not self.confirm_pick_result or ask is None:
+            return PICK_PICKED
+        self._pick_attempt += 1
+        try:
+            images = capture_pick_result_images(
+                self.spot_interface, log=lambda m: feedback.print("INFO", m)
+            )
+            try:
+                state = self.spot_interface.get_state()
+                gripper_holding = bool(state.manipulator_state.is_gripper_holding_item)
+            except Exception:  # noqa: BLE001 -- only a hint for the operator
+                gripper_holding = None
+            verdict = ask(
+                object_id=command.object_id,
+                object_class=command.object_class,
+                attempt=self._pick_attempt,
+                images=images,
+                gripper_holding=gripper_holding,
+            )
+        except Exception as ex:  # noqa: BLE001 -- asking must not break the pick
+            feedback.print("WARNING", f"Could not ask for the pick result: {ex}")
+            return PICK_PICKED
+        # A terminated plan does not act on the answer (a paused one does).
+        if not self.keep_going or verdict not in (PICK_RETRY, PICK_GIVE_UP):
+            return PICK_PICKED
+        feedback.print("INFO", f"Operator answer for the pick: {verdict}")
+        return verdict
 
     def execute_place(self, command, feedback):
         feedback.print("INFO", "Executing `place` command")
