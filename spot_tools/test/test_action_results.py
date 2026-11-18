@@ -1,5 +1,7 @@
 """Exceptional action failures reach the per-action result channel exactly once."""
 
+import threading
+import time
 from types import SimpleNamespace as NS
 
 import numpy as np
@@ -96,3 +98,37 @@ def test_other_actions_are_still_given_up_after_three_attempts(monkeypatch):
     tries, results = _run([place], [False] * 10, monkeypatch)
     assert tries == 3
     assert results == [(0, "FAILED", "gave up after 3 attempts")]
+
+
+def test_a_sequence_waiting_for_the_lease_can_be_preempted():
+    """2026-11-18: hamilton's lease was with the tablet app when a new plan
+    arrived. The old sequence waited for the lease and never saw it had been
+    pre-empted; the new plan waited for the old one for eleven minutes."""
+    ex = se.SpotExecutor(
+        NS(robot=NS(time_sync=NS(wait_for_sync=lambda: None)), take_lease=lambda: None),
+        None,
+        None,
+        None,
+    )
+    ex.lease_manager = NS(
+        owner_name="bosdyn.android.spotapp 0", taking_back_lease=False
+    )
+    ran, results = [], []
+    ex.execute_follow = lambda *_: ran.append(1) or True
+    feedback = NS(
+        print=lambda *_: None, action_result=lambda *args: results.append(args[1:])
+    )
+    sequence = ActionSequence("plan", "robot", [Follow("map", np.zeros((2, 3)))])
+    old = threading.Thread(
+        target=ex.process_action_sequence, args=(sequence, feedback), daemon=True
+    )
+    old.start()
+    time.sleep(0.2)
+    assert old.is_alive() and not ran  # waiting: the lease is someone else's
+    ex.keep_going = False  # what terminate_sequence does for the next plan
+    old.join(timeout=3)
+    assert not old.is_alive() and not ex.processing_action_sequence
+    assert not ran
+    assert results == [
+        (0, "PREEMPTED", "sequence pre-empted before this action completed")
+    ]
