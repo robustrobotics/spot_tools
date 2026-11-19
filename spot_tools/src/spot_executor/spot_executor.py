@@ -36,6 +36,18 @@ PICK_GIVE_UP = "give_up"
 # ActionDoneMsg note (header.frame_id) for a pick ended by PICK_GIVE_UP.
 OPERATOR_GAVE_UP = "operator_gave_up"
 
+# How often an action is tried before the sequence moves on past it.
+MAX_ATTEMPTS = 3
+# A follow ends early every time the operator takes the lease (to steer the
+# robot around something by hand), and starts again from where the robot is
+# once the lease is back. Those takes must not use the follow up: the actions
+# after it assume the robot arrived. 100 is "as often as it takes".
+MAX_FOLLOW_ATTEMPTS = 100
+
+
+def max_attempts(command) -> int:
+    return MAX_FOLLOW_ATTEMPTS if type(command) is Follow else MAX_ATTEMPTS
+
 
 def _report_action_result(feedback, command, action_index, status, detail=""):
     """Executor -> planner return channel, duck-typed on feedback.
@@ -445,7 +457,7 @@ class SpotExecutor:
                             # pick, as it does for a pick that just failed
                             report(sequence, command, False, note=OPERATOR_GAVE_UP)
                         break
-                    if success or inner_loop_attempts > 1:
+                    if success or inner_loop_attempts + 1 >= max_attempts(command):
                         # The action is being advanced past: either it
                         # succeeded, or it exhausted its retries (advanced
                         # with success=False). Report it on the executor ->
