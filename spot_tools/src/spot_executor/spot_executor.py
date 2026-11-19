@@ -374,9 +374,12 @@ class SpotExecutor:
                     time.sleep(1)
                     continue
 
-                # If we don't own the lease, we don't try to take any actions
+                # If we don't own the lease, we don't try to take any actions.
+                # A pre-empted sequence does not wait for it: it falls through
+                # to the pre-empt check below, so the next plan can start.
                 if (
                     self.lease_manager is not None
+                    and self.keep_going
                     and not self.lease_manager.owner_name.startswith("understanding")
                 ):
                     time.sleep(0.5)
